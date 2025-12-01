@@ -15,118 +15,178 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
   const { toast } = useToast();
 
   const parseESPNData = (data: string): PlayerStats[] => {
-    const lines = data.trim().split('\n');
-    const players: PlayerStats[] = [];
+    console.log('Starting to parse ESPN data...');
+    const text = data.trim();
+    
+    // Split by STATS to separate player info from stats
+    const parts = text.split(/STATS/i);
+    if (parts.length < 2) {
+      console.log('Could not find STATS section');
+      return [];
+    }
 
-    // Find where player names start and stats start
-    let playerSection: Array<{slot: string, player: string, team: string, position: string, opponent: string}> = [];
-    let inStatsSection = false;
-    let statsIndex = 0;
+    const playerSection = parts[0];
+    const statsSection = parts[1];
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    console.log('Found player and stats sections');
+
+    // Parse player info
+    const playerLines = playerSection.split('\n');
+    const players: Array<{slot: string, player: string, team: string, position: string, opponent: string}> = [];
+    
+    let currentSlot = '';
+    let currentPlayer = '';
+    let currentTeam = '';
+    let currentPosition = '';
+    let currentOpponent = '';
+
+    for (let i = 0; i < playerLines.length; i++) {
+      const line = playerLines[i].trim();
       const cols = line.split('\t');
-
-      // Check if we're in the stats section
-      if (line.includes('MIN') && line.includes('FG%') && line.includes('PTS')) {
-        inStatsSection = true;
+      
+      // Check if this is a slot line (PG, SG, SF, PF, C, G, F/C, UTIL, Bench, IR)
+      if (/^(PG|SG|SF|PF|C|G|F\/C|UTIL|Bench|IR)$/i.test(cols[0])) {
+        // Save previous player if we have one
+        if (currentPlayer) {
+          players.push({
+            slot: currentSlot,
+            player: currentPlayer,
+            team: currentTeam,
+            position: currentPosition,
+            opponent: currentOpponent
+          });
+        }
+        
+        // Start new player
+        currentSlot = cols[0];
+        currentPlayer = '';
+        currentTeam = '';
+        currentPosition = '';
+        currentOpponent = '';
         continue;
       }
 
-      // Parse player info section
-      if (!inStatsSection && cols.length >= 4) {
-        const slot = cols[0]?.trim();
-        
-        // Skip header and empty rows
-        if (!slot || slot === 'SLOT' || slot === 'STARTERS' || slot === 'Bench' || slot === 'IR') {
-          continue;
-        }
-
-        // Find the player name (it's usually repeated in the data)
-        let playerName = '';
-        let team = '';
-        let position = '';
-        let opponent = '';
-
-        for (let j = 0; j < cols.length; j++) {
-          const col = cols[j]?.trim();
-          
-          // Player name appears multiple times, grab the first clean one
-          if (!playerName && col && col.length > 3 && 
-              !['MOVE', 'PM', 'AM', '--', 'DTD', 'O'].includes(col) &&
-              !/^\d/.test(col) && !col.includes(':')) {
-            // Check if it's a repeated name pattern
-            const words = col.split(' ');
-            if (words.length >= 2) {
-              playerName = col;
-            }
+      // Look for player name (appears on its own line or repeated)
+      if (currentSlot && !currentPlayer) {
+        // Player name is usually the longest text field without special chars
+        for (const col of cols) {
+          const trimmed = col.trim();
+          if (trimmed.length > 5 && 
+              !/^(MOVE|PM|AM|--|DTD|O|STARTERS|Bench|IR)$/i.test(trimmed) &&
+              !/^\d/.test(trimmed) && 
+              !trimmed.includes(':') &&
+              /^[A-Za-z\s\.'-]+$/.test(trimmed)) {
+            currentPlayer = trimmed;
+            break;
           }
-
-          // Team is usually 2-4 letter code
-          if (!team && col && col.length >= 2 && col.length <= 4 && 
-              col === col.toUpperCase() && /^[A-Z]+$/.test(col) &&
-              col !== 'MOVE') {
-            team = col;
-          }
-
-          // Position comes after team (PG, SG, SF, PF, C or combinations)
-          if (team && !position && col && 
-              /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/.test(col)) {
-            position = col;
-          }
-
-          // Opponent starts with @ or is a team code
-          if (col && (col.startsWith('@') || (col.length >= 2 && col.length <= 4 && col !== team && col !== 'MOVE'))) {
-            if (!opponent && col !== '--' && !/\d/.test(col) && !col.includes(':')) {
-              opponent = col;
-            }
-          }
-        }
-
-        if (playerName) {
-          playerSection.push({ slot, player: playerName, team, position, opponent });
         }
       }
 
-      // Parse stats section
-      if (inStatsSection && cols.length >= 12) {
-        // Stats should be numeric
-        const minutes = parseFloat(cols[0]);
-        
-        if (!isNaN(minutes) && minutes > 0) {
-          const fgPct = parseFloat(cols[2]) || 0;
-          const ftPct = parseFloat(cols[4]) || 0;
-          const threepm = parseFloat(cols[5]) || 0;
-          const rebounds = parseFloat(cols[6]) || 0;
-          const assists = parseFloat(cols[7]) || 0;
-          const steals = parseFloat(cols[8]) || 0;
-          const blocks = parseFloat(cols[9]) || 0;
-          const turnovers = parseFloat(cols[10]) || 0;
-          const points = parseFloat(cols[11]) || 0;
+      // Look for team code (2-4 uppercase letters)
+      if (currentSlot && !currentTeam) {
+        for (const col of cols) {
+          const trimmed = col.trim();
+          if (/^[A-Z]{2,4}$/.test(trimmed) && trimmed !== 'MOVE' && trimmed !== 'DTD') {
+            currentTeam = trimmed;
+            break;
+          }
+        }
+      }
 
-          // Match with player from player section
-          if (statsIndex < playerSection.length) {
-            const playerInfo = playerSection[statsIndex];
-            players.push({
-              ...playerInfo,
-              minutes,
-              fgPct,
-              ftPct,
-              threepm,
-              rebounds,
-              assists,
-              steals,
-              blocks,
-              turnovers,
-              points,
-            });
-            statsIndex++;
+      // Look for position (PG, SG, SF, PF, C or combinations with commas)
+      if (currentSlot && !currentPosition) {
+        for (const col of cols) {
+          const trimmed = col.trim();
+          if (/^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/.test(trimmed)) {
+            currentPosition = trimmed;
+            break;
+          }
+        }
+      }
+
+      // Look for opponent (@ prefix or another team code after we have our team)
+      if (currentSlot && currentTeam && !currentOpponent) {
+        for (const col of cols) {
+          const trimmed = col.trim();
+          if (trimmed.startsWith('@')) {
+            currentOpponent = trimmed;
+            break;
+          } else if (/^[A-Z]{2,4}$/.test(trimmed) && trimmed !== currentTeam && trimmed !== 'MOVE') {
+            currentOpponent = trimmed;
+            break;
           }
         }
       }
     }
 
-    return players;
+    // Don't forget the last player
+    if (currentPlayer) {
+      players.push({
+        slot: currentSlot,
+        player: currentPlayer,
+        team: currentTeam,
+        position: currentPosition,
+        opponent: currentOpponent
+      });
+    }
+
+    console.log(`Found ${players.length} players:`, players.map(p => p.player));
+
+    // Parse stats section
+    const statsLines = statsSection.split('\n');
+    const statsData: number[][] = [];
+
+    for (const line of statsLines) {
+      const cols = line.split('\t');
+      
+      // Look for lines that start with a number (minutes played)
+      const firstCol = cols[0]?.trim();
+      const minutes = parseFloat(firstCol);
+      
+      if (!isNaN(minutes) && minutes > 0 && minutes < 50) {
+        // This looks like a stats line
+        const stats = cols.map(c => {
+          const val = parseFloat(c);
+          return isNaN(val) ? 0 : val;
+        });
+        
+        if (stats.length >= 12) {
+          statsData.push(stats);
+        }
+      }
+    }
+
+    console.log(`Found ${statsData.length} stat lines`);
+
+    // Match players with stats
+    const result: PlayerStats[] = [];
+    const maxLen = Math.min(players.length, statsData.length);
+
+    for (let i = 0; i < maxLen; i++) {
+      const playerInfo = players[i];
+      const stats = statsData[i];
+
+      result.push({
+        slot: playerInfo.slot,
+        player: playerInfo.player,
+        team: playerInfo.team,
+        position: playerInfo.position,
+        opponent: playerInfo.opponent,
+        minutes: stats[0] || 0,
+        fgPct: stats[2] || 0,
+        ftPct: stats[4] || 0,
+        threepm: stats[5] || 0,
+        rebounds: stats[6] || 0,
+        assists: stats[7] || 0,
+        steals: stats[8] || 0,
+        blocks: stats[9] || 0,
+        turnovers: stats[10] || 0,
+        points: stats[11] || 0,
+      });
+    }
+
+    console.log(`Returning ${result.length} complete player records`);
+    return result;
   };
 
   const handleParse = () => {
