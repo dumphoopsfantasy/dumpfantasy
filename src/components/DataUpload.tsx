@@ -132,33 +132,53 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
 
     console.log(`Found ${players.length} players:`, players.map(p => p.player));
 
-    // Parse stats section
-    const statsLines = statsSection.split('\n');
-    const statsData: number[][] = [];
+    // Parse stats section - handle ESPN "Last 15" copy format where each stat value is on its own line
+    const statsLines = statsSection
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
 
+    // Collect only numeric-ish tokens that represent stats values
+    const statTokens: string[] = [];
     for (const line of statsLines) {
-      const cols = line.split('\t');
-      
-      // Look for lines that start with a number (minutes played)
-      const firstCol = cols[0]?.trim();
-      const minutes = parseFloat(firstCol);
-      
-      if (!isNaN(minutes) && minutes > 0 && minutes < 50) {
-        // This looks like a stats line
-        const stats = cols.map(c => {
-          const val = parseFloat(c);
-          return isNaN(val) ? 0 : val;
-        });
-        
-        if (stats.length >= 12) {
-          statsData.push(stats);
-        }
+      // Skip obvious non-stat lines
+      if (/^(STATS|Research|MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-)$/i.test(line)) {
+        continue;
+      }
+
+      // Tokens we care about are mostly decimal numbers or "--" placeholders
+      if (/^[-+]?\d+(\.\d+)?$/.test(line) || line === "--" || /\d+\.\d+\/\d+\.\d+/.test(line)) {
+        statTokens.push(line);
       }
     }
 
-    console.log(`Found ${statsData.length} stat lines`);
+    console.log("Collected stat tokens", { count: statTokens.length });
 
-    // Match players with stats
+    // ESPN "Last 15" table has 16 columns per player in the copy you provided
+    const COLUMNS_PER_PLAYER = 16;
+    const statsData: number[][] = [];
+
+    const expectedRows = Math.floor(statTokens.length / COLUMNS_PER_PLAYER);
+
+    for (let row = 0; row < expectedRows; row++) {
+      const base = row * COLUMNS_PER_PLAYER;
+      const slice = statTokens.slice(base, base + COLUMNS_PER_PLAYER);
+
+      const numericSlice = slice.map((token) => {
+        // We ignore made/attempt lines like "9.7/18.4" and just return 0 for them
+        if (/^--$/.test(token) || /\d+\.\d+\/\d+\.\d+/.test(token)) {
+          return 0;
+        }
+        const val = parseFloat(token.replace(/^[+]/, ""));
+        return isNaN(val) ? 0 : val;
+      });
+
+      statsData.push(numericSlice);
+    }
+
+    console.log(`Built ${statsData.length} stat rows from tokens`);
+
+    // Match players with stats by index
     const result: PlayerStats[] = [];
     const maxLen = Math.min(players.length, statsData.length);
 
@@ -187,7 +207,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
 
     console.log(`Returning ${result.length} complete player records`);
     return result;
-  };
+   };
 
   const handleParse = () => {
     if (!rawData.trim()) {
