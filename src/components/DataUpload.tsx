@@ -18,39 +18,111 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     const lines = data.trim().split('\n');
     const players: PlayerStats[] = [];
 
-    for (const line of lines) {
-      const cols = line.split('\t');
-      if (cols.length < 14) continue;
+    // Find where player names start and stats start
+    let playerSection: Array<{slot: string, player: string, team: string, position: string, opponent: string}> = [];
+    let inStatsSection = false;
+    let statsIndex = 0;
 
-      // Skip header rows
-      if (cols[0]?.toLowerCase().includes('slot') || cols[0]?.toLowerCase().includes('player')) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const cols = line.split('\t');
+
+      // Check if we're in the stats section
+      if (line.includes('MIN') && line.includes('FG%') && line.includes('PTS')) {
+        inStatsSection = true;
         continue;
       }
 
-      try {
-        const player: PlayerStats = {
-          slot: cols[0]?.trim() || '',
-          player: cols[1]?.trim() || '',
-          team: cols[2]?.split(/[,\/]/)[0]?.trim() || '',
-          position: cols[2]?.split(/[,\/]/).slice(1).join(',').trim() || '',
-          opponent: cols[3]?.trim() || '',
-          minutes: parseFloat(cols[4]) || 0,
-          fgPct: parseFloat(cols[5]) || 0,
-          ftPct: parseFloat(cols[6]) || 0,
-          threepm: parseFloat(cols[7]) || 0,
-          rebounds: parseFloat(cols[8]) || 0,
-          assists: parseFloat(cols[9]) || 0,
-          steals: parseFloat(cols[10]) || 0,
-          blocks: parseFloat(cols[11]) || 0,
-          turnovers: parseFloat(cols[12]) || 0,
-          points: parseFloat(cols[13]) || 0,
-        };
-
-        if (player.player && player.player.length > 1) {
-          players.push(player);
+      // Parse player info section
+      if (!inStatsSection && cols.length >= 4) {
+        const slot = cols[0]?.trim();
+        
+        // Skip header and empty rows
+        if (!slot || slot === 'SLOT' || slot === 'STARTERS' || slot === 'Bench' || slot === 'IR') {
+          continue;
         }
-      } catch (error) {
-        console.warn('Error parsing line:', line);
+
+        // Find the player name (it's usually repeated in the data)
+        let playerName = '';
+        let team = '';
+        let position = '';
+        let opponent = '';
+
+        for (let j = 0; j < cols.length; j++) {
+          const col = cols[j]?.trim();
+          
+          // Player name appears multiple times, grab the first clean one
+          if (!playerName && col && col.length > 3 && 
+              !['MOVE', 'PM', 'AM', '--', 'DTD', 'O'].includes(col) &&
+              !/^\d/.test(col) && !col.includes(':')) {
+            // Check if it's a repeated name pattern
+            const words = col.split(' ');
+            if (words.length >= 2) {
+              playerName = col;
+            }
+          }
+
+          // Team is usually 2-4 letter code
+          if (!team && col && col.length >= 2 && col.length <= 4 && 
+              col === col.toUpperCase() && /^[A-Z]+$/.test(col) &&
+              col !== 'MOVE') {
+            team = col;
+          }
+
+          // Position comes after team (PG, SG, SF, PF, C or combinations)
+          if (team && !position && col && 
+              /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/.test(col)) {
+            position = col;
+          }
+
+          // Opponent starts with @ or is a team code
+          if (col && (col.startsWith('@') || (col.length >= 2 && col.length <= 4 && col !== team && col !== 'MOVE'))) {
+            if (!opponent && col !== '--' && !/\d/.test(col) && !col.includes(':')) {
+              opponent = col;
+            }
+          }
+        }
+
+        if (playerName) {
+          playerSection.push({ slot, player: playerName, team, position, opponent });
+        }
+      }
+
+      // Parse stats section
+      if (inStatsSection && cols.length >= 12) {
+        // Stats should be numeric
+        const minutes = parseFloat(cols[0]);
+        
+        if (!isNaN(minutes) && minutes > 0) {
+          const fgPct = parseFloat(cols[2]) || 0;
+          const ftPct = parseFloat(cols[4]) || 0;
+          const threepm = parseFloat(cols[5]) || 0;
+          const rebounds = parseFloat(cols[6]) || 0;
+          const assists = parseFloat(cols[7]) || 0;
+          const steals = parseFloat(cols[8]) || 0;
+          const blocks = parseFloat(cols[9]) || 0;
+          const turnovers = parseFloat(cols[10]) || 0;
+          const points = parseFloat(cols[11]) || 0;
+
+          // Match with player from player section
+          if (statsIndex < playerSection.length) {
+            const playerInfo = playerSection[statsIndex];
+            players.push({
+              ...playerInfo,
+              minutes,
+              fgPct,
+              ftPct,
+              threepm,
+              rebounds,
+              assists,
+              steals,
+              blocks,
+              turnovers,
+              points,
+            });
+            statsIndex++;
+          }
+        }
       }
     }
 
@@ -108,7 +180,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       </div>
 
       <Textarea
-        placeholder="Paste your ESPN data here (including headers)&#10;Example: SLOT  PLAYER  TEAM/POS  OPP  MIN  FG%  FT%  3PM  REB  AST  STL  BLK  TO  PTS"
+        placeholder="Paste your complete ESPN roster here - include both the player names section and the stats section below it..."
         value={rawData}
         onChange={(e) => setRawData(e.target.value)}
         className="min-h-[200px] font-mono text-sm mb-4 bg-muted/50"
@@ -125,10 +197,11 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       <div className="mt-4 p-4 bg-muted/30 rounded-lg border border-border">
         <h3 className="text-sm font-semibold mb-2">How to copy from ESPN:</h3>
         <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-          <li>Go to your ESPN Fantasy Basketball team page</li>
-          <li>Select and copy the entire player table</li>
-          <li>Paste it into the text area above</li>
-          <li>Click "Load Players" to analyze your team</li>
+          <li>Go to your ESPN Fantasy Basketball team roster page</li>
+          <li>Click and drag to select your entire roster table</li>
+          <li>Make sure to include both the player names AND the stats section below</li>
+          <li>Copy (Ctrl+C or Cmd+C) and paste here</li>
+          <li>Click "Load Players" to analyze</li>
         </ol>
       </div>
     </Card>
