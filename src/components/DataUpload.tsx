@@ -89,12 +89,12 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         }
       }
 
-      // Look for team code (2-4 uppercase letters)
+      // Look for team code (2-4 letters, case insensitive)
       if (currentSlot && !currentTeam) {
         for (const col of cols) {
           const trimmed = col.trim();
-          if (/^[A-Z]{2,4}$/.test(trimmed) && trimmed !== 'MOVE' && trimmed !== 'DTD') {
-            currentTeam = trimmed;
+          if (/^[A-Za-z]{2,4}$/.test(trimmed) && !/^(MOVE|DTD|SLOT|OPP|MIN|PTS|REB|AST|STL|BLK)$/i.test(trimmed)) {
+            currentTeam = trimmed.toUpperCase();
             break;
           }
         }
