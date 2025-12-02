@@ -20,44 +20,40 @@ export const PlayerCard = ({ player, rank }: PlayerCardProps) => {
   };
 
   return (
-    <Card className="gradient-card shadow-card border-border hover:border-primary/50 transition-all duration-300 p-6 animate-slide-up">
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            {rank && (
-              <span className="text-primary font-display text-2xl font-bold">
-                #{rank}
-              </span>
-            )}
-            <h3 className="text-xl font-display font-bold text-foreground">
-              {player.player}
-            </h3>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="secondary" className="font-medium">
-              {player.team}
-            </Badge>
-            <Badge variant="outline" className="font-medium">
-              {player.position}
-            </Badge>
-            {player.opponent && (
-              <span className="text-sm text-muted-foreground">
-                vs {player.opponent}
-              </span>
-            )}
-          </div>
+    <Card className="gradient-card shadow-card border-border hover:border-primary/50 transition-all duration-300 p-4 animate-slide-up">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          {rank && (
+            <span className="text-primary font-display text-lg font-bold">
+              #{rank}
+            </span>
+          )}
+          <h3 className="text-base font-display font-bold text-foreground">
+            {player.player}
+          </h3>
+          <Badge variant="secondary" className="text-xs">
+            {player.team}
+          </Badge>
+          <Badge variant="outline" className="text-xs">
+            {player.position}
+          </Badge>
+          {player.opponent && player.opponent !== '--' && (
+            <span className="text-xs text-muted-foreground">
+              vs {player.opponent}
+            </span>
+          )}
         </div>
         {player.status && (
           <Badge 
             variant={player.status === 'O' ? 'destructive' : 'default'}
-            className="ml-2"
+            className="text-xs"
           >
             {player.status}
           </Badge>
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 md:grid-cols-10 gap-2">
         <StatItem 
           label="PTS" 
           value={player.points.toFixed(1)} 
@@ -75,41 +71,33 @@ export const PlayerCard = ({ player, rank }: PlayerCardProps) => {
           label="MIN" 
           value={player.minutes.toFixed(1)} 
         />
-      </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mt-4 pt-4 border-t border-border">
         <StatItem 
           label="FG%" 
-          value={`${(player.fgPct * 100).toFixed(1)}%`}
+          value={`${(player.fgPct * 100).toFixed(0)}%`}
           color={getStatColor(player.fgPct, 'fgPct')}
-          small 
         />
         <StatItem 
           label="FT%" 
-          value={`${(player.ftPct * 100).toFixed(1)}%`}
+          value={`${(player.ftPct * 100).toFixed(0)}%`}
           color={getStatColor(player.ftPct, 'ftPct')}
-          small 
         />
         <StatItem 
           label="3PM" 
           value={player.threepm.toFixed(1)}
-          small 
         />
         <StatItem 
           label="STL" 
           value={player.steals.toFixed(1)}
-          small 
         />
         <StatItem 
           label="BLK" 
           value={player.blocks.toFixed(1)}
-          small 
         />
         <StatItem 
           label="TO" 
           value={player.turnovers.toFixed(1)}
           color={getStatColor(player.turnovers, 'turnovers')}
-          small 
         />
       </div>
     </Card>
@@ -121,18 +109,16 @@ interface StatItemProps {
   value: string;
   highlight?: boolean;
   color?: string;
-  small?: boolean;
 }
 
-const StatItem = ({ label, value, highlight, color, small }: StatItemProps) => (
-  <div className={`${small ? 'text-center' : ''}`}>
-    <p className={`text-muted-foreground ${small ? 'text-xs' : 'text-sm'} mb-1`}>
+const StatItem = ({ label, value, highlight, color }: StatItemProps) => (
+  <div className="text-center">
+    <p className="text-muted-foreground text-xs">
       {label}
     </p>
     <p className={`
-      font-display font-bold 
-      ${highlight ? 'text-primary text-2xl' : color || 'text-foreground'}
-      ${small ? 'text-lg' : 'text-xl'}
+      font-display font-semibold text-sm
+      ${highlight ? 'text-primary' : color || 'text-foreground'}
     `}>
       {value}
     </p>
