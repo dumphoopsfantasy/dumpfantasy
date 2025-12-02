@@ -161,8 +161,8 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
 
     console.log("Collected stat tokens", { count: statTokens.length });
 
-    // ESPN "Last 15" table has 16 columns per player in the copy you provided
-    const COLUMNS_PER_PLAYER = 16;
+    // ESPN stats table has 15 columns: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
+    const COLUMNS_PER_PLAYER = 15;
     const statsData: number[][] = [];
 
     const expectedRows = Math.floor(statTokens.length / COLUMNS_PER_PLAYER);
