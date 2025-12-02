@@ -8,27 +8,19 @@ import { PlayerStats } from "@/types/player";
 import { Button } from "@/components/ui/button";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
 const Index = () => {
   const [players, setPlayers] = useState<PlayerStats[]>([]);
-
   const handleDataParsed = (data: PlayerStats[]) => {
     const sortedData = [...data].sort((a, b) => b.points - a.points);
     setPlayers(sortedData);
   };
-
   const handleReset = () => {
     setPlayers([]);
   };
-
-  const starters = players.filter(p => 
-    p.slot && !p.slot.toLowerCase().includes('bench') && !p.slot.toLowerCase().includes('ir')
-  );
+  const starters = players.filter(p => p.slot && !p.slot.toLowerCase().includes('bench') && !p.slot.toLowerCase().includes('ir'));
   const bench = players.filter(p => p.slot?.toLowerCase().includes('bench'));
   const ir = players.filter(p => p.slot?.toLowerCase().includes('ir'));
-
-  return (
-    <div className="min-h-screen bg-background">
+  return <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-3">
@@ -38,22 +30,14 @@ const Index = () => {
                 <BarChart3 className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl md:text-2xl font-display font-bold">
-                  Fantasy <span className="text-primary">Hoops</span> Analytics
+                <h1 className="text-xl md:text-2xl font-display font-bold">Dump Hoops Analytics<span className="text-primary">Hoops</span> Analytics
                 </h1>
               </div>
             </div>
-            {players.length > 0 && (
-              <Button 
-                onClick={handleReset}
-                variant="outline"
-                size="sm"
-                className="font-display font-semibold"
-              >
+            {players.length > 0 && <Button onClick={handleReset} variant="outline" size="sm" className="font-display font-semibold">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Reset
-              </Button>
-            )}
+              </Button>}
           </div>
         </div>
       </header>
@@ -71,12 +55,9 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="roster">
-            {players.length === 0 ? (
-              <div className="max-w-3xl mx-auto">
+            {players.length === 0 ? <div className="max-w-3xl mx-auto">
                 <DataUpload onDataParsed={handleDataParsed} />
-              </div>
-            ) : (
-              <div className="space-y-4">
+              </div> : <div className="space-y-4">
                 <TeamAverages players={players} />
                 <PlayerRankings players={players} />
 
@@ -97,43 +78,22 @@ const Index = () => {
                   </TabsList>
 
                   <TabsContent value="all" className="mt-4 space-y-3">
-                    {players.map((player, index) => (
-                      <PlayerCard key={index} player={player} rank={index + 1} />
-                    ))}
+                    {players.map((player, index) => <PlayerCard key={index} player={player} rank={index + 1} />)}
                   </TabsContent>
 
                   <TabsContent value="starters" className="mt-4 space-y-3">
-                    {starters.length > 0 ? (
-                      starters.map((player, index) => (
-                        <PlayerCard key={index} player={player} />
-                      ))
-                    ) : (
-                      <p className="text-center text-muted-foreground py-8">No starters found</p>
-                    )}
+                    {starters.length > 0 ? starters.map((player, index) => <PlayerCard key={index} player={player} />) : <p className="text-center text-muted-foreground py-8">No starters found</p>}
                   </TabsContent>
 
                   <TabsContent value="bench" className="mt-4 space-y-3">
-                    {bench.length > 0 ? (
-                      bench.map((player, index) => (
-                        <PlayerCard key={index} player={player} />
-                      ))
-                    ) : (
-                      <p className="text-center text-muted-foreground py-8">No bench players found</p>
-                    )}
+                    {bench.length > 0 ? bench.map((player, index) => <PlayerCard key={index} player={player} />) : <p className="text-center text-muted-foreground py-8">No bench players found</p>}
                   </TabsContent>
 
                   <TabsContent value="ir" className="mt-4 space-y-3">
-                    {ir.length > 0 ? (
-                      ir.map((player, index) => (
-                        <PlayerCard key={index} player={player} />
-                      ))
-                    ) : (
-                      <p className="text-center text-muted-foreground py-8">No IR players found</p>
-                    )}
+                    {ir.length > 0 ? ir.map((player, index) => <PlayerCard key={index} player={player} />) : <p className="text-center text-muted-foreground py-8">No IR players found</p>}
                   </TabsContent>
                 </Tabs>
-              </div>
-            )}
+              </div>}
           </TabsContent>
 
           <TabsContent value="league">
@@ -143,8 +103,6 @@ const Index = () => {
           </TabsContent>
         </Tabs>
       </main>
-    </div>
-  );
+    </div>;
 };
-
 export default Index;
