@@ -66,9 +66,8 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         continue;
       }
 
-      // Look for player name (appears on its own line or repeated)
+      // Look for player name (appears on its own line or repeated - ESPN doubles names)
       if (currentSlot && !currentPlayer) {
-        // Player name is usually the longest text field without special chars
         for (const col of cols) {
           const trimmed = col.trim();
           if (trimmed.length > 5 && 
@@ -76,7 +75,15 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
               !/^\d/.test(trimmed) && 
               !trimmed.includes(':') &&
               /^[A-Za-z\s\.'-]+$/.test(trimmed)) {
-            currentPlayer = trimmed;
+            // Check if name is doubled (e.g., "Jamal MurrayJamal Murray")
+            const halfLen = Math.floor(trimmed.length / 2);
+            const firstHalf = trimmed.substring(0, halfLen);
+            const secondHalf = trimmed.substring(halfLen);
+            if (firstHalf === secondHalf) {
+              currentPlayer = firstHalf;
+            } else {
+              currentPlayer = trimmed;
+            }
             break;
           }
         }
@@ -146,8 +153,8 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         continue;
       }
 
-      // Tokens we care about are mostly decimal numbers or "--" placeholders
-      if (/^[-+]?\d+(\.\d+)?$/.test(line) || line === "--" || /\d+\.\d+\/\d+\.\d+/.test(line)) {
+      // Tokens we care about: numbers (including those starting with "."), "--" placeholders, or fractions
+      if (/^[-+]?\d*\.?\d+$/.test(line) || line === "--" || /\d+\.\d+\/\d+\.\d+/.test(line)) {
         statTokens.push(line);
       }
     }
