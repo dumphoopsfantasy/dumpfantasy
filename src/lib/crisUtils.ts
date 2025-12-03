@@ -43,6 +43,8 @@ export const CATEGORIES = [
  * 1. For each category, rank all items (rank 1 = best)
  * 2. Invert ranking: inverted_rank = (N + 1) - rank
  * 3. CRIS = sum of all inverted_ranks
+ * 
+ * CRIS is always a positive number (minimum is 9 for a roster of 1)
  */
 export function calculateCRISForAll<T extends CategoryStats>(
   items: T[],
@@ -55,24 +57,16 @@ export function calculateCRISForAll<T extends CategoryStats>(
   
   // Calculate ranks for each category
   CATEGORIES.forEach(cat => {
+    // For turnovers, lower is better
+    const isLowerBetter = cat.key === 'turnovers';
     const sorted = items
       .map((item, idx) => ({ idx, value: item[cat.key as keyof CategoryStats] }))
-      .sort((a, b) => b.value - a.value); // Higher is better for all (including TO after inversion)
+      .sort((a, b) => isLowerBetter ? a.value - b.value : b.value - a.value);
     
     categoryRanks[cat.key] = new Array(N).fill(0);
     sorted.forEach((item, rank) => {
-      // rank is 0-indexed, so rank+1 gives 1-indexed rank
-      // For turnovers, lower is better, so we reverse the sort result
       categoryRanks[cat.key][item.idx] = rank + 1;
     });
-  });
-  
-  // For turnovers, we need to flip - lower TO should get rank 1
-  const toSorted = items
-    .map((item, idx) => ({ idx, value: item.turnovers }))
-    .sort((a, b) => a.value - b.value); // Lower is better
-  toSorted.forEach((item, rank) => {
-    categoryRanks['turnovers'][item.idx] = rank + 1;
   });
   
   // Calculate CRIS and wCRIS for each item

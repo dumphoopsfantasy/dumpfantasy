@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Upload, Trophy, RefreshCw } from "lucide-react";
+import { Upload, Trophy, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { LeagueTeam } from "@/types/league";
 import { cn } from "@/lib/utils";
@@ -13,23 +13,24 @@ import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
 interface TeamWithCris extends LeagueTeam {
   cris: number;
   wCris: number;
+  originalRank: number;
 }
+
+type SortKey = 'originalRank' | 'cris' | 'wCris' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'record';
 
 export const LeagueStandings = () => {
   const [rawData, setRawData] = useState("");
   const [rawTeams, setRawTeams] = useState<LeagueTeam[]>([]);
   const [useCris, setUseCris] = useState(true);
+  const [sortKey, setSortKey] = useState<SortKey>('originalRank');
+  const [sortAsc, setSortAsc] = useState(true);
   const { toast } = useToast();
 
   const parseLeagueData = (data: string): LeagueTeam[] => {
     const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
     const result: LeagueTeam[] = [];
     
-    // Method 1: Find "Season Stats" section
-    const seasonStatsIdx = lines.findIndex(l => l.toLowerCase() === 'season stats');
-    
     // Look for stat values (9 stats per team)
-    // Stats appear as individual lines with decimal numbers like .4853 or integers like 398
     const statValues: number[] = [];
     const records: string[] = [];
     const teamEntries: { name: string; manager: string }[] = [];
@@ -142,7 +143,7 @@ export const LeagueStandings = () => {
   // Calculate CRIS for all teams
   const teams = useMemo((): TeamWithCris[] => {
     if (rawTeams.length === 0) return [];
-    return calculateCRISForAll(rawTeams.map(t => ({
+    const withCris = calculateCRISForAll(rawTeams.map(t => ({
       ...t,
       fgPct: t.fgPct,
       ftPct: t.ftPct,
@@ -154,13 +155,44 @@ export const LeagueStandings = () => {
       turnovers: t.turnovers,
       points: t.points,
     })));
+    // Add original rank based on order they appeared (which is standings order from ESPN)
+    return withCris.map((t, idx) => ({ ...t, originalRank: idx + 1 }));
   }, [rawTeams]);
 
-  // Sort by CRIS
+  // Sort teams
   const sortedTeams = useMemo(() => {
-    const scoreKey = useCris ? 'cris' : 'wCris';
-    return [...teams].sort((a, b) => b[scoreKey] - a[scoreKey]);
-  }, [teams, useCris]);
+    return [...teams].sort((a, b) => {
+      let aVal: number, bVal: number;
+      
+      if (sortKey === 'record') {
+        // Parse record for sorting (wins)
+        const aWins = parseInt(a.record?.split('-')[0] || '0');
+        const bWins = parseInt(b.record?.split('-')[0] || '0');
+        aVal = aWins;
+        bVal = bWins;
+      } else if (sortKey === 'turnovers') {
+        // Lower is better for turnovers
+        aVal = a[sortKey] as number;
+        bVal = b[sortKey] as number;
+        return sortAsc ? aVal - bVal : bVal - aVal;
+      } else {
+        aVal = a[sortKey] as number;
+        bVal = b[sortKey] as number;
+      }
+      
+      return sortAsc ? aVal - bVal : bVal - aVal;
+    });
+  }, [teams, sortKey, sortAsc]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortKey(key);
+      // Default to descending for most stats (higher is better), ascending for rank
+      setSortAsc(key === 'originalRank' || key === 'turnovers');
+    }
+  };
 
   const getCategoryRank = (team: TeamWithCris, category: keyof LeagueTeam, isLowerBetter = false) => {
     const sorted = [...teams].sort((a, b) => {
@@ -176,6 +208,22 @@ export const LeagueStandings = () => {
     if (rank >= total - 2) return 'bg-stat-negative/20 text-stat-negative';
     return '';
   };
+
+  const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => (
+    <th 
+      className={cn("p-2 font-display cursor-pointer hover:bg-muted/50 select-none", className)}
+      onClick={() => handleSort(sortKeyProp)}
+    >
+      <div className="flex items-center justify-center gap-1">
+        {label}
+        {sortKey === sortKeyProp ? (
+          sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30" />
+        )}
+      </div>
+    </th>
+  );
 
   const scoreKey = useCris ? 'cris' : 'wCris';
   const scoreLabel = useCris ? 'CRIS' : 'wCRIS';
@@ -232,19 +280,23 @@ The page should include the "Season Stats" section with team names, managers, an
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <th className="text-left p-2 font-display sticky left-0 bg-background">RK</th>
+              <SortHeader label="RK" sortKeyProp="originalRank" className="text-left sticky left-0 bg-background" />
               <th className="text-left p-2 font-display sticky left-0 bg-background min-w-[150px]">Team</th>
               {CATEGORIES.map(c => (
-                <th key={c.key} className="text-center p-2 font-display min-w-[70px]">{c.label}</th>
+                <SortHeader key={c.key} label={c.label} sortKeyProp={c.key as SortKey} className="min-w-[70px]" />
               ))}
-              <th className="text-center p-2 font-display">Record</th>
-              <th className="text-center p-2 font-display border-l-2 border-primary/50 min-w-[70px]">{scoreLabel}</th>
+              <SortHeader label="Record" sortKeyProp="record" />
+              <SortHeader 
+                label={scoreLabel} 
+                sortKeyProp={useCris ? 'cris' : 'wCris'} 
+                className="border-l-2 border-primary/50 min-w-[70px]" 
+              />
             </tr>
           </thead>
           <tbody>
             {sortedTeams.map((team, i) => (
               <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
-                <td className="p-2 font-bold text-primary">{i + 1}</td>
+                <td className="p-2 font-bold text-primary">{team.originalRank}</td>
                 <td className="p-2">
                   <div className="font-semibold">{team.name}</div>
                   {team.manager && (

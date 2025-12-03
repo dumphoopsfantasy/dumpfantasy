@@ -5,12 +5,13 @@ interface TeamAveragesProps {
   players: PlayerStats[];
 }
 
+const WEEKLY_MULTIPLIER = 40;
+
 export const TeamAverages = ({ players }: TeamAveragesProps) => {
   const activePlayers = players.filter(p => p.minutes > 0);
   const count = activePlayers.length || 1;
 
   const averages = {
-    min: activePlayers.reduce((sum, p) => sum + p.minutes, 0) / count,
     fgPct: activePlayers.reduce((sum, p) => sum + p.fgPct, 0) / count,
     ftPct: activePlayers.reduce((sum, p) => sum + p.ftPct, 0) / count,
     threepm: activePlayers.reduce((sum, p) => sum + p.threepm, 0) / count,
@@ -22,29 +23,33 @@ export const TeamAverages = ({ players }: TeamAveragesProps) => {
     pts: activePlayers.reduce((sum, p) => sum + p.points, 0) / count,
   };
 
-  const totals = {
-    pts: activePlayers.reduce((sum, p) => sum + p.points, 0),
-    reb: activePlayers.reduce((sum, p) => sum + p.rebounds, 0),
-    ast: activePlayers.reduce((sum, p) => sum + p.assists, 0),
-    threepm: activePlayers.reduce((sum, p) => sum + p.threepm, 0),
-    stl: activePlayers.reduce((sum, p) => sum + p.steals, 0),
-    blk: activePlayers.reduce((sum, p) => sum + p.blocks, 0),
+  // Weekly projections (averages × 40 games for counting stats)
+  const projections = {
+    threepm: Math.round(averages.threepm * WEEKLY_MULTIPLIER),
+    reb: Math.round(averages.reb * WEEKLY_MULTIPLIER),
+    ast: Math.round(averages.ast * WEEKLY_MULTIPLIER),
+    stl: Math.round(averages.stl * WEEKLY_MULTIPLIER),
+    blk: Math.round(averages.blk * WEEKLY_MULTIPLIER),
+    to: Math.round(averages.to * WEEKLY_MULTIPLIER),
+    pts: Math.round(averages.pts * WEEKLY_MULTIPLIER),
   };
 
   return (
     <Card className="gradient-card shadow-card border-border p-4 mb-6">
-      <h3 className="text-sm font-display font-bold text-muted-foreground mb-3">TEAM AVERAGES</h3>
-      <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
-        <StatBox label="PTS" value={averages.pts.toFixed(1)} total={totals.pts.toFixed(0)} highlight />
-        <StatBox label="REB" value={averages.reb.toFixed(1)} total={totals.reb.toFixed(0)} />
-        <StatBox label="AST" value={averages.ast.toFixed(1)} total={totals.ast.toFixed(0)} />
-        <StatBox label="3PM" value={averages.threepm.toFixed(1)} total={totals.threepm.toFixed(0)} />
-        <StatBox label="STL" value={averages.stl.toFixed(1)} total={totals.stl.toFixed(0)} />
-        <StatBox label="BLK" value={averages.blk.toFixed(1)} total={totals.blk.toFixed(0)} />
-        <StatBox label="TO" value={averages.to.toFixed(1)} negative />
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-display font-bold text-muted-foreground">TEAM AVERAGES</h3>
+        <span className="text-xs text-muted-foreground">Weekly projection (×{WEEKLY_MULTIPLIER})</span>
+      </div>
+      <div className="grid grid-cols-5 md:grid-cols-9 gap-2">
+        <StatBox label="PTS" value={averages.pts.toFixed(1)} projection={projections.pts} highlight />
+        <StatBox label="REB" value={averages.reb.toFixed(1)} projection={projections.reb} />
+        <StatBox label="AST" value={averages.ast.toFixed(1)} projection={projections.ast} />
+        <StatBox label="3PM" value={averages.threepm.toFixed(1)} projection={projections.threepm} />
+        <StatBox label="STL" value={averages.stl.toFixed(1)} projection={projections.stl} />
+        <StatBox label="BLK" value={averages.blk.toFixed(1)} projection={projections.blk} />
+        <StatBox label="TO" value={averages.to.toFixed(1)} projection={projections.to} negative />
         <StatBox label="FG%" value={`${(averages.fgPct * 100).toFixed(1)}%`} />
         <StatBox label="FT%" value={`${(averages.ftPct * 100).toFixed(1)}%`} />
-        <StatBox label="MIN" value={averages.min.toFixed(1)} />
       </div>
     </Card>
   );
@@ -53,17 +58,19 @@ export const TeamAverages = ({ players }: TeamAveragesProps) => {
 interface StatBoxProps {
   label: string;
   value: string;
-  total?: string;
+  projection?: number;
   highlight?: boolean;
   negative?: boolean;
 }
 
-const StatBox = ({ label, value, total, highlight, negative }: StatBoxProps) => (
+const StatBox = ({ label, value, projection, highlight, negative }: StatBoxProps) => (
   <div className="text-center">
     <p className="text-xs text-muted-foreground">{label}</p>
     <p className={`text-sm font-bold ${highlight ? 'text-primary' : negative ? 'text-stat-negative' : 'text-foreground'}`}>
       {value}
     </p>
-    {total && <p className="text-xs text-muted-foreground">Tot: {total}</p>}
+    {projection !== undefined && (
+      <p className="text-xs text-muted-foreground font-semibold">{projection}</p>
+    )}
   </div>
 );

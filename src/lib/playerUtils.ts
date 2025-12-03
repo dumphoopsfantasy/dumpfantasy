@@ -16,9 +16,9 @@ const PLAYER_IDS: Record<string, string> = {
   "Lauri Markkanen": "1628374",
   "Malik Monk": "1628370",
   "John Collins": "1628381",
-  "Jaime Jaquez Jr.": "1641711",
-  "Jaime Jaquez Jr": "1641711",
-  "Jaime Jaquez": "1641711",
+  "Jaime Jaquez Jr.": "1630621",
+  "Jaime Jaquez Jr": "1630621",
+  "Jaime Jaquez": "1630621",
   "Tre Jones": "1630210",
   "Dejounte Murray": "1627749",
   "RJ Barrett": "1629628",
@@ -71,6 +71,7 @@ const PLAYER_IDS: Record<string, string> = {
   "Pelle Larsson": "1641713",
   "Herbert Jones": "1630529",
   "Cam Whitmore": "1641708",
+  "Gradey Dick": "1641709",
   // Add more as needed
   "LeBron James": "2544",
   "Stephen Curry": "201939",
@@ -140,8 +141,32 @@ const PLAYER_IDS: Record<string, string> = {
   "Jaylen Brown": "1627759",
 };
 
+// Normalize player name for lookup (handle variations)
+function normalizePlayerName(name: string): string {
+  return name.trim()
+    .replace(/\s+/g, ' ')
+    .replace(/jr\.?$/i, 'Jr.')
+    .replace(/sr\.?$/i, 'Sr.')
+    .replace(/iii$/i, 'III')
+    .replace(/ii$/i, 'II');
+}
+
 export function getPlayerPhotoUrl(playerName: string, size: 'small' | 'medium' | 'large' = 'medium'): string {
-  const playerId = PLAYER_IDS[playerName];
+  const normalizedName = normalizePlayerName(playerName);
+  
+  // Try exact match first
+  let playerId = PLAYER_IDS[normalizedName];
+  
+  // Try without Jr./Sr. suffix
+  if (!playerId) {
+    const withoutSuffix = normalizedName.replace(/\s+(Jr\.|Sr\.|III|II)$/i, '');
+    playerId = PLAYER_IDS[withoutSuffix];
+  }
+  
+  // Try with Jr. suffix if not present
+  if (!playerId && !normalizedName.includes('Jr.')) {
+    playerId = PLAYER_IDS[normalizedName + ' Jr.'];
+  }
   
   if (playerId) {
     // NBA.com CDN
