@@ -8,33 +8,61 @@ import { FreeAgents } from "@/pages/FreeAgents";
 import { WeeklyPerformance } from "@/pages/WeeklyPerformance";
 import { MatchupProjection } from "@/pages/MatchupProjection";
 import { PlayerStats } from "@/types/player";
+import { Player } from "@/types/fantasy";
+import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
 import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+// Weekly matchup types
+interface MatchupStats {
+  fgPct: number;
+  ftPct: number;
+  threepm: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  points: number;
+}
+
+interface WeeklyMatchup {
+  team1: { abbr: string; name: string; record: string; weekRecord: string; stats: MatchupStats };
+  team2: { abbr: string; name: string; record: string; weekRecord: string; stats: MatchupStats };
+}
+
 const Index = () => {
+  // Roster state
   const [players, setPlayers] = useState<PlayerStats[]>([]);
+  
+  // Free agents state (persisted)
+  const [freeAgents, setFreeAgents] = useState<Player[]>([]);
+  
+  // Weekly state (persisted)
+  const [weeklyMatchups, setWeeklyMatchups] = useState<WeeklyMatchup[]>([]);
+  const [weeklyTitle, setWeeklyTitle] = useState("");
+  
+  // Standings state (persisted)
+  const [leagueTeams, setLeagueTeams] = useState<LeagueTeam[]>([]);
 
   const handleDataParsed = (data: PlayerStats[]) => {
     setPlayers(data);
   };
 
-  // Calculate CRIS and sort by it (excluding players with no stats)
+  // Calculate CRIS score (always positive)
   const calculateCRIS = (p: PlayerStats): number => {
-    if (p.minutes === 0) return -999;
-    const weights = { points: 1.0, rebounds: 1.2, assists: 1.5, steals: 2.0, blocks: 2.0, threepm: 1.3, fgPct: 1.0, ftPct: 0.8, turnovers: -1.5 };
-    const baselines = { points: 12, rebounds: 5, assists: 3, steals: 1, blocks: 0.5, threepm: 1.5, fgPct: 0.45, ftPct: 0.75, turnovers: 2 };
-    let score = 0;
-    score += ((p.points - baselines.points) / baselines.points) * weights.points * 10;
-    score += ((p.rebounds - baselines.rebounds) / baselines.rebounds) * weights.rebounds * 10;
-    score += ((p.assists - baselines.assists) / baselines.assists) * weights.assists * 10;
-    score += ((p.steals - baselines.steals) / baselines.steals) * weights.steals * 10;
-    score += ((p.blocks - baselines.blocks) / Math.max(baselines.blocks, 0.1)) * weights.blocks * 10;
-    score += ((p.threepm - baselines.threepm) / baselines.threepm) * weights.threepm * 10;
-    score += ((p.fgPct - baselines.fgPct) / baselines.fgPct) * weights.fgPct * 10;
-    score += ((p.ftPct - baselines.ftPct) / baselines.ftPct) * weights.ftPct * 10;
-    score += ((baselines.turnovers - p.turnovers) / baselines.turnovers) * Math.abs(weights.turnovers) * 10;
-    return score;
+    if (p.minutes === 0) return 0;
+    const pts = Math.min(p.points / 30, 1) * 20;
+    const reb = Math.min(p.rebounds / 12, 1) * 15;
+    const ast = Math.min(p.assists / 10, 1) * 15;
+    const stl = Math.min(p.steals / 2.5, 1) * 10;
+    const blk = Math.min(p.blocks / 2, 1) * 10;
+    const tpm = Math.min(p.threepm / 4, 1) * 10;
+    const fg = Math.min(p.fgPct / 0.55, 1) * 10;
+    const ft = Math.min(p.ftPct / 0.90, 1) * 5;
+    const to = Math.max(0, 5 - p.turnovers);
+    return pts + reb + ast + stl + blk + tpm + fg + ft + to;
   };
 
   const sortedByValue = [...players].sort((a, b) => calculateCRIS(b) - calculateCRIS(a));
@@ -160,11 +188,19 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="freeagents">
-            <FreeAgents />
+            <FreeAgents 
+              persistedPlayers={freeAgents} 
+              onPlayersChange={setFreeAgents} 
+            />
           </TabsContent>
 
           <TabsContent value="weekly">
-            <WeeklyPerformance />
+            <WeeklyPerformance 
+              persistedMatchups={weeklyMatchups}
+              persistedTitle={weeklyTitle}
+              onMatchupsChange={setWeeklyMatchups}
+              onTitleChange={setWeeklyTitle}
+            />
           </TabsContent>
 
           <TabsContent value="matchup">
@@ -173,7 +209,10 @@ const Index = () => {
 
           <TabsContent value="league">
             <div className="max-w-5xl mx-auto">
-              <LeagueStandings />
+              <LeagueStandings 
+                persistedTeams={leagueTeams}
+                onTeamsChange={setLeagueTeams}
+              />
             </div>
           </TabsContent>
         </Tabs>
