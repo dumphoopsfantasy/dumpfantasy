@@ -77,19 +77,35 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
   const validPlayersCount = allPlayers.filter(p => p.minutes > 0).length;
   const crisScore = calculateCRIS(player);
 
+  // Format percentage to thousandths (.485)
+  const formatPct = (v: number) => `.${v.toFixed(3).slice(2)}`;
+
   // Stat configuration: order is MIN, FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
   const stats = [
     { key: 'minutes', label: 'MIN', value: player.minutes, format: (v: number) => v.toFixed(1) },
-    { key: 'fgPct', label: 'FG%', value: player.fgPct, format: (v: number) => `${(v * 100).toFixed(0)}%` },
-    { key: 'ftPct', label: 'FT%', value: player.ftPct, format: (v: number) => `${(v * 100).toFixed(0)}%` },
+    { key: 'fgPct', label: 'FG%', value: player.fgPct, format: formatPct, highlightLeader: true },
+    { key: 'ftPct', label: 'FT%', value: player.ftPct, format: formatPct, highlightLeader: true },
     { key: 'threepm', label: '3PM', value: player.threepm, format: (v: number) => v.toFixed(1) },
     { key: 'rebounds', label: 'REB', value: player.rebounds, format: (v: number) => v.toFixed(1) },
     { key: 'assists', label: 'AST', value: player.assists, format: (v: number) => v.toFixed(1) },
     { key: 'steals', label: 'STL', value: player.steals, format: (v: number) => v.toFixed(1) },
     { key: 'blocks', label: 'BLK', value: player.blocks, format: (v: number) => v.toFixed(1) },
-    { key: 'turnovers', label: 'TO', value: player.turnovers, format: (v: number) => v.toFixed(1), lowerBetter: true },
+    { key: 'turnovers', label: 'TO', value: player.turnovers, format: (v: number) => v.toFixed(1), lowerBetter: true, highlightLeader: true },
     { key: 'points', label: 'PTS', value: player.points, format: (v: number) => v.toFixed(1) },
   ];
+
+  // Check if player is category leader
+  const isCategoryLeader = (key: string, lowerBetter = false): boolean => {
+    if (allPlayers.length === 0) return false;
+    const validPlayers = allPlayers.filter(p => p.minutes > 0);
+    if (validPlayers.length === 0) return false;
+    const sorted = [...validPlayers].sort((a, b) => {
+      const aVal = a[key as keyof PlayerStats] as number;
+      const bVal = b[key as keyof PlayerStats] as number;
+      return lowerBetter ? aVal - bVal : bVal - aVal;
+    });
+    return sorted[0]?.player === player.player;
+  };
 
   return (
     <Card className={cn(
@@ -155,9 +171,13 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
           {stats.map(stat => {
             const rank = getCategoryRank(stat.value, stat.key, stat.lowerBetter);
             const color = getRankColor(rank, validPlayersCount, stat.lowerBetter);
+            const isLeader = stat.highlightLeader && isCategoryLeader(stat.key, stat.lowerBetter);
             
             return (
-              <div key={stat.key} className="text-center">
+              <div key={stat.key} className={cn(
+                "text-center rounded px-1",
+                isLeader && "ring-2 ring-primary bg-primary/20"
+              )}>
                 <p className="text-muted-foreground text-[10px] uppercase">
                   {stat.label}
                 </p>

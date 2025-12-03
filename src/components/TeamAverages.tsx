@@ -64,6 +64,6 @@ const StatBox = ({ label, value, total, highlight, negative }: StatBoxProps) => 
     <p className={`text-sm font-bold ${highlight ? 'text-primary' : negative ? 'text-stat-negative' : 'text-foreground'}`}>
       {value}
     </p>
-    {total && <p className="text-xs text-muted-foreground">Σ{total}</p>}
+    {total && <p className="text-xs text-muted-foreground">Tot: {total}</p>}
   </div>
 );

@@ -24,139 +24,99 @@ export const FreeAgents = () => {
     const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
     const result: Player[] = [];
     
-    // Find the stats section by looking for the header pattern
-    let statsStartIndex = lines.findIndex(l => 
-      l.toLowerCase() === 'min' || l.toLowerCase().includes('stats')
-    );
+    // Find stats section - look for "STATS" followed by "Research" then stat headers
+    const statsHeaderIdx = lines.findIndex(l => l === 'STATS');
+    if (statsHeaderIdx === -1) return result;
     
-    // Collect player entries and stats separately
-    const playerEntries: { name: string; team: string; positions: string[]; status?: string; opponent?: string }[] = [];
-    const statLines: number[][] = [];
+    // Find stat lines - they have many numbers like "27.4 5.7/10.6 .539 ..."
+    const statLineRegex = /^[\d.]+\s+[\d.]+\/[\d.]+\s+[.\d]+\s+[\d.]+\/[\d.]+\s+[.\d]+/;
     
-    let i = 0;
-    while (i < lines.length) {
-      const line = lines[i];
-      
-      // Skip headers and navigation
-      if (line.toLowerCase().includes('player') && line.toLowerCase().includes('type') ||
-          line.toLowerCase() === 'fa' ||
-          line.toLowerCase().includes('compare players') ||
-          line.toLowerCase().includes('filter') ||
-          line.toLowerCase().includes('available') ||
-          line.toLowerCase() === 'stats' ||
-          line.toLowerCase() === 'trending' ||
-          line.toLowerCase() === 'schedule' ||
-          line.toLowerCase() === 'news') {
-        i++;
-        continue;
+    // Collect all stat lines first
+    const statLines: string[] = [];
+    for (let i = statsHeaderIdx; i < lines.length; i++) {
+      if (statLineRegex.test(lines[i])) {
+        statLines.push(lines[i]);
       }
-      
-      // Look for player name pattern (name appears twice in ESPN format)
-      // Like "Ayo DosunmuAyo Dosunmu" -> need to split
-      const doubleNameMatch = line.match(/^([A-Z][a-z]+(?: [A-Z][a-z'.-]+)+)\1$/);
-      if (doubleNameMatch) {
-        const name = doubleNameMatch[1];
-        playerEntries.push({ name, team: '', positions: [] });
-        i++;
-        continue;
-      }
-      
-      // Single player name (already cleaned)
-      // Check if next lines are team and position
-      if (line.match(/^[A-Z][a-z]+(?: [A-Z][a-z'.-]+)+$/) && 
-          !line.match(/^(PG|SG|SF|PF|C|G|F|UTIL)$/i) &&
-          line.length > 3 &&
-          !line.match(/^[A-Z]{2,4}$/)) {
-        
-        // Check if this is just part of navigation (has specific keywords)
-        if (!line.toLowerCase().includes('basketball') && 
-            !line.toLowerCase().includes('fantasy') &&
-            !line.toLowerCase().includes('home')) {
-          playerEntries.push({ name: line, team: '', positions: [] });
-        }
-        i++;
-        continue;
-      }
-      
-      // Team abbreviation (2-3 uppercase letters)
-      const teamMatch = line.match(/^([A-Z]{2,4})$/);
-      if (teamMatch && playerEntries.length > 0 && !playerEntries[playerEntries.length - 1].team) {
-        playerEntries[playerEntries.length - 1].team = teamMatch[1];
-        i++;
-        continue;
-      }
-      
-      // Status (O, DTD, etc)
-      if (['O', 'DTD', 'GTD', 'IR', 'SUSP'].includes(line.toUpperCase()) && playerEntries.length > 0) {
-        playerEntries[playerEntries.length - 1].status = line.toUpperCase();
-        i++;
-        continue;
-      }
-      
-      // Position(s)
-      const posMatch = line.match(/^((?:PG|SG|SF|PF|C|G|F)(?:,\s*(?:PG|SG|SF|PF|C|G|F))*)$/i);
-      if (posMatch && playerEntries.length > 0) {
-        const positions = posMatch[1].toUpperCase().split(/,\s*/);
-        playerEntries[playerEntries.length - 1].positions = positions;
-        i++;
-        continue;
-      }
-      
-      // Stat line (many numbers)
-      const nums = line.split(/\s+/).filter(n => n.match(/^-?[\d.]+$/));
-      if (nums.length >= 10) {
-        statLines.push(nums.map(n => parseFloat(n)));
-        i++;
-        continue;
-      }
-      
-      i++;
     }
     
-    // Match players with their stats
-    // Filter out navigation items
-    const validPlayers = playerEntries.filter(p => 
-      p.name && p.team && p.positions.length > 0
-    );
+    // Now find player entries before STATS section
+    // Players appear as: PlayerNamePlayerName (doubled), then Team, then Status (optional), then Positions
+    const playerEntries: { name: string; team: string; positions: string[]; status?: string }[] = [];
     
+    for (let i = 0; i < statsHeaderIdx; i++) {
+      const line = lines[i];
+      
+      // Check for doubled player name like "Ayo DosunmuAyo Dosunmu"
+      const doubleNameMatch = line.match(/^([A-Z][a-zA-Z'.-]+(?: (?:Jr\.|Sr\.|III|II|IV|[A-Z][a-zA-Z'.-]+))+)\1$/);
+      if (doubleNameMatch) {
+        playerEntries.push({ name: doubleNameMatch[1], team: '', positions: [] });
+        continue;
+      }
+      
+      // Team abbreviation (2-4 uppercase letters)
+      if (line.match(/^[A-Z]{2,4}$/) && playerEntries.length > 0) {
+        const lastPlayer = playerEntries[playerEntries.length - 1];
+        if (!lastPlayer.team) {
+          lastPlayer.team = line;
+        }
+        continue;
+      }
+      
+      // Status (O, DTD, GTD, etc)
+      if (['O', 'DTD', 'GTD', 'IR', 'SUSP'].includes(line.toUpperCase()) && playerEntries.length > 0) {
+        playerEntries[playerEntries.length - 1].status = line.toUpperCase();
+        continue;
+      }
+      
+      // Positions (PG, SG, SF, PF, C or combos)
+      const posMatch = line.match(/^((?:PG|SG|SF|PF|C|G|F)(?:,\s*(?:PG|SG|SF|PF|C|G|F))*)$/i);
+      if (posMatch && playerEntries.length > 0) {
+        playerEntries[playerEntries.length - 1].positions = posMatch[1].toUpperCase().split(/,\s*/);
+        continue;
+      }
+    }
+    
+    // Filter valid players (have team and positions)
+    const validPlayers = playerEntries.filter(p => p.team && p.positions.length > 0);
+    
+    // Parse each stat line and match to player
     for (let j = 0; j < Math.min(validPlayers.length, statLines.length); j++) {
       const player = validPlayers[j];
-      const stats = statLines[j];
+      const statLine = statLines[j];
       
-      // ESPN stat order: MIN, FGM/FGA (combined), FG%, FTM/FTA (combined), FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
-      // Or: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
-      if (stats.length >= 12) {
-        const minutes = stats[0];
-        const fgPct = stats[2];
-        const ftPct = stats[4];
-        const threepm = stats[5];
-        const rebounds = stats[6];
-        const assists = stats[7];
-        const steals = stats[8];
-        const blocks = stats[9];
-        const turnovers = stats[10];
-        const points = stats[11];
-        const rostPct = stats.length > 13 ? stats[13] : 0;
-        
-        // Calculate CRIS score
-        const cris = calculateCRIS({
-          fgPct, ftPct, threepm, rebounds, assists, steals, blocks, turnovers, points
-        });
-        
-        result.push({
-          id: `fa-${j}`,
-          name: player.name,
-          nbaTeam: player.team,
-          positions: player.positions,
-          status: player.status as "DTD" | "IR" | "O" | "SUSP" | "healthy" | undefined,
-          minutes,
-          fgm: 0, fga: 0, fgPct,
-          ftm: 0, fta: 0, ftPct,
-          threepm, rebounds, assists, steals, blocks, turnovers, points,
-          cris,
-          rostPct,
-        });
-      }
+      // Parse stat line: MIN FGM/FGA FG% FTM/FTA FT% 3PM REB AST STL BLK TO PTS PR15 %ROST +/-
+      const parts = statLine.split(/\s+/);
+      if (parts.length < 12) continue;
+      
+      const minutes = parseFloat(parts[0]);
+      // parts[1] is FGM/FGA, skip
+      const fgPct = parseFloat(parts[2]);
+      // parts[3] is FTM/FTA, skip
+      const ftPct = parseFloat(parts[4]);
+      const threepm = parseFloat(parts[5]);
+      const rebounds = parseFloat(parts[6]);
+      const assists = parseFloat(parts[7]);
+      const steals = parseFloat(parts[8]);
+      const blocks = parseFloat(parts[9]);
+      const turnovers = parseFloat(parts[10]);
+      const points = parseFloat(parts[11]);
+      const rostPct = parts.length > 13 ? parseFloat(parts[13]) : 0;
+      
+      const cris = calculateCRIS({ fgPct, ftPct, threepm, rebounds, assists, steals, blocks, turnovers, points });
+      
+      result.push({
+        id: `fa-${j}`,
+        name: player.name,
+        nbaTeam: player.team,
+        positions: player.positions,
+        status: player.status as "DTD" | "IR" | "O" | "SUSP" | "healthy" | undefined,
+        minutes,
+        fgm: 0, fga: 0, fgPct,
+        ftm: 0, fta: 0, ftPct,
+        threepm, rebounds, assists, steals, blocks, turnovers, points,
+        cris,
+        rostPct,
+      });
     }
     
     return result;
@@ -167,7 +127,6 @@ export const FreeAgents = () => {
     fgPct: number; ftPct: number; threepm: number; rebounds: number;
     assists: number; steals: number; blocks: number; turnovers: number; points: number;
   }): number => {
-    // Weights for each category (can be adjusted)
     const weights = {
       points: 1.0,
       rebounds: 1.2,
@@ -177,10 +136,9 @@ export const FreeAgents = () => {
       threepm: 1.3,
       fgPct: 1.0,
       ftPct: 0.8,
-      turnovers: -1.5, // Negative because lower is better
+      turnovers: -1.5,
     };
     
-    // Baseline values for normalization
     const baselines = {
       points: 12, rebounds: 5, assists: 3, steals: 1, blocks: 0.5,
       threepm: 1.5, fgPct: 0.45, ftPct: 0.75, turnovers: 2,
@@ -242,16 +200,6 @@ export const FreeAgents = () => {
     } else if (compareList.length < 4) {
       setCompareList([...compareList, player]);
     }
-  };
-
-  // Calculate rank for a stat among all players
-  const getStatRank = (playerId: string, stat: keyof Player, lowerBetter = false): number => {
-    const sorted = [...players].sort((a, b) => {
-      const aVal = a[stat] as number;
-      const bVal = b[stat] as number;
-      return lowerBetter ? aVal - bVal : bVal - aVal;
-    });
-    return sorted.findIndex(p => p.id === playerId) + 1;
   };
 
   if (players.length === 0) {
@@ -456,15 +404,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         ))}
       </div>
 
-      {filteredPlayers.length === 0 && players.length > 0 && (
-        <p className="text-center text-muted-foreground py-12">No players match your filters</p>
+      {selectedPlayer && (
+        <PlayerDetailSheet
+          player={selectedPlayer}
+          open={!!selectedPlayer}
+          onOpenChange={() => setSelectedPlayer(null)}
+        />
       )}
-
-      <PlayerDetailSheet
-        player={selectedPlayer}
-        open={!!selectedPlayer}
-        onOpenChange={(open) => !open && setSelectedPlayer(null)}
-      />
     </div>
   );
 };
