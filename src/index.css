@@ -2,55 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 0 0% 7%;
-    --foreground: 0 0% 98%;
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
 
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 98%;
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 98%;
 
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 98%;
 
-    --primary: 24 95% 53%;
+    --primary: 25 95% 53%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 30 25% 25%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 60%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 55%;
 
-    --accent: 24 95% 53%;
+    --accent: 25 95% 53%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
-    --success: 142 76% 36%;
+    --success: 142 76% 42%;
     --success-foreground: 0 0% 98%;
 
-    --border: 0 0% 20%;
-    --input: 0 0% 20%;
-    --ring: 24 95% 53%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 10%;
 
-    --radius: 0.75rem;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 25 95% 53%;
 
-    --court-wood: 30 25% 25%;
-    --stat-positive: 142 76% 36%;
-    --stat-negative: 0 84% 60%;
-    --stat-neutral: 48 96% 53%;
+    --radius: 0.625rem;
 
-    --gradient-primary: linear-gradient(135deg, hsl(24 95% 53%) 0%, hsl(14 95% 45%) 100%);
-    --gradient-card: linear-gradient(145deg, hsl(0 0% 12%) 0%, hsl(0 0% 8%) 100%);
+    --stat-positive: 142 76% 42%;
+    --stat-negative: 0 72% 55%;
+    --stat-neutral: 45 93% 55%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(25 95% 53%) 0%, hsl(15 90% 45%) 100%);
+    --gradient-card: linear-gradient(165deg, hsl(222 47% 11%) 0%, hsl(222 47% 7%) 100%);
+    --gradient-glass: linear-gradient(135deg, hsl(217 33% 17% / 0.5) 0%, hsl(217 33% 12% / 0.3) 100%);
     
-    --shadow-glow: 0 0 40px hsl(24 95% 53% / 0.3);
-    --shadow-card: 0 10px 30px -10px hsl(0 0% 0% / 0.5);
+    --shadow-glow: 0 0 60px hsl(25 95% 53% / 0.15);
+    --shadow-card: 0 4px 24px -4px hsl(222 47% 4% / 0.5);
+    --shadow-elevated: 0 20px 40px -12px hsl(222 47% 4% / 0.6);
   }
 }
 
@@ -60,14 +60,14 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    @apply bg-background text-foreground antialiased;
+    font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Rajdhani', 'Inter', sans-serif;
+    font-family: 'Outfit', 'DM Sans', sans-serif;
     font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
 }
 
@@ -79,6 +79,11 @@ All colors MUST be HSL.
   .gradient-card {
     background: var(--gradient-card);
   }
+
+  .gradient-glass {
+    background: var(--gradient-glass);
+    backdrop-filter: blur(12px);
+  }
   
   .shadow-glow {
     box-shadow: var(--shadow-glow);
@@ -88,12 +93,39 @@ All colors MUST be HSL.
     box-shadow: var(--shadow-card);
   }
 
+  .shadow-elevated {
+    box-shadow: var(--shadow-elevated);
+  }
+
+  .text-gradient {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .stat-positive {
+    color: hsl(var(--stat-positive));
+  }
+
+  .stat-negative {
+    color: hsl(var(--stat-negative));
+  }
+
+  .stat-neutral {
+    color: hsl(var(--stat-neutral));
+  }
+
   .animate-fade-in {
-    animation: fadeIn 0.5s ease-in;
+    animation: fadeIn 0.4s ease-out;
   }
 
   .animate-slide-up {
     animation: slideUp 0.5s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
   }
 
   @keyframes fadeIn {
@@ -108,11 +140,58 @@ All colors MUST be HSL.
   @keyframes slideUp {
     from {
       opacity: 0;
-      transform: translateY(20px);
+      transform: translateY(16px);
     }
     to {
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .player-photo {
+    @apply rounded-full object-cover bg-muted border-2 border-border;
+  }
+
+  .category-win {
+    @apply bg-stat-positive/20 text-stat-positive;
+  }
+
+  .category-lose {
+    @apply bg-stat-negative/20 text-stat-negative;
+  }
+
+  .category-tie {
+    @apply bg-stat-neutral/20 text-stat-neutral;
+  }
+
+  .heatmap-best {
+    @apply bg-stat-positive/30;
+  }
+
+  .heatmap-good {
+    @apply bg-stat-positive/15;
+  }
+
+  .heatmap-average {
+    @apply bg-transparent;
+  }
+
+  .heatmap-poor {
+    @apply bg-stat-negative/15;
+  }
+
+  .heatmap-worst {
+    @apply bg-stat-negative/30;
   }
 }
