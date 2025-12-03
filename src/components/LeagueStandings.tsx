@@ -11,12 +11,12 @@ import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
 
 interface TeamWithCris extends LeagueTeam {
-  cris: number;
-  wCris: number;
+  cri: number;
+  wCri: number;
   originalRank: number;
 }
 
-type SortKey = 'originalRank' | 'cris' | 'wCris' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'record';
+type SortKey = 'originalRank' | 'cri' | 'wCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'record';
 
 interface LeagueStandingsProps {
   persistedTeams?: LeagueTeam[];
@@ -250,8 +250,8 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueSt
     </th>
   );
 
-  const scoreKey = useCris ? 'cris' : 'wCris';
-  const scoreLabel = useCris ? 'CRIS' : 'wCRIS';
+  const scoreKey = useCris ? 'cri' : 'wCri';
+  const scoreLabel = useCris ? 'CRI' : 'wCRI';
 
   if (teams.length === 0) {
     return (
@@ -313,7 +313,7 @@ The page should include the "Season Stats" section with team names, managers, an
               <SortHeader label="Record" sortKeyProp="record" />
               <SortHeader 
                 label={scoreLabel} 
-                sortKeyProp={useCris ? 'cris' : 'wCris'} 
+                sortKeyProp={useCris ? 'cri' : 'wCri'} 
                 className="border-l-2 border-primary/50 min-w-[70px]" 
               />
             </tr>

@@ -1,5 +1,7 @@
 // CRIS (Category Ranking Index Standing) Utilities
-// Higher CRIS = better overall category performance
+// CRI = Category Ranking Index (the score/point total)
+// CRIS = CRI Standing (the rank position)
+// Higher CRI = better overall category performance
 
 export interface CategoryStats {
   fgPct: number;
@@ -38,18 +40,19 @@ export const CATEGORIES = [
 ] as const;
 
 /**
- * Calculate CRIS for a list of items with stats
+ * Calculate CRI (score) for a list of items with stats
  * Steps:
  * 1. For each category, rank all items (rank 1 = best)
  * 2. Invert ranking: inverted_rank = (N + 1) - rank
- * 3. CRIS = sum of all inverted_ranks
+ * 3. CRI = sum of all inverted_ranks (the score)
  * 
- * CRIS is always a positive number (minimum is 9 for a roster of 1)
+ * CRI is always a positive number (minimum is 9 for a roster of 1)
+ * CRIS (rank) is calculated separately by sorting by CRI
  */
 export function calculateCRISForAll<T extends CategoryStats>(
   items: T[],
   useWeighted = false
-): (T & { cris: number; wCris: number })[] {
+): (T & { cri: number; wCri: number })[] {
   if (items.length === 0) return [];
   
   const N = items.length;
@@ -69,19 +72,19 @@ export function calculateCRISForAll<T extends CategoryStats>(
     });
   });
   
-  // Calculate CRIS and wCRIS for each item
+  // Calculate CRI and wCRI for each item
   return items.map((item, idx) => {
-    let cris = 0;
-    let wCris = 0;
+    let cri = 0;
+    let wCri = 0;
     
     CATEGORIES.forEach(cat => {
       const rank = categoryRanks[cat.key][idx];
       const invertedRank = (N + 1) - rank;
-      cris += invertedRank;
-      wCris += invertedRank * CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS];
+      cri += invertedRank;
+      wCri += invertedRank * CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS];
     });
     
-    return { ...item, cris, wCris };
+    return { ...item, cri, wCri };
   });
 }
 

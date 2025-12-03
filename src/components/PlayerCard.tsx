@@ -161,10 +161,10 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
             )}
           </div>
         </div>
-        {/* CRIS Score */}
+        {/* CRI Score */}
         {!hasNoStats && (
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">CRIS</p>
+            <p className="text-xs text-muted-foreground">CRI</p>
             <p className={cn(
               "font-display font-bold text-lg",
               crisScore > 5 ? "text-stat-positive" : crisScore < 0 ? "text-stat-negative" : "text-primary"
