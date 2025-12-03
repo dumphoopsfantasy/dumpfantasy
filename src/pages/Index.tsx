@@ -32,6 +32,11 @@ interface WeeklyMatchup {
   team2: { abbr: string; name: string; record: string; weekRecord: string; stats: MatchupStats };
 }
 
+interface MatchupProjectionData {
+  myTeam: { name: string; stats: MatchupStats };
+  opponent: { name: string; stats: MatchupStats };
+}
+
 const Index = () => {
   // Roster state
   const [players, setPlayers] = useState<PlayerStats[]>([]);
@@ -45,6 +50,9 @@ const Index = () => {
   
   // Standings state (persisted)
   const [leagueTeams, setLeagueTeams] = useState<LeagueTeam[]>([]);
+  
+  // Matchup projection state (persisted)
+  const [matchupData, setMatchupData] = useState<MatchupProjectionData | null>(null);
 
   const handleDataParsed = (data: PlayerStats[]) => {
     setPlayers(data);
@@ -204,7 +212,10 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="matchup">
-            <MatchupProjection />
+            <MatchupProjection 
+              persistedMatchup={matchupData}
+              onMatchupChange={setMatchupData}
+            />
           </TabsContent>
 
           <TabsContent value="league">
