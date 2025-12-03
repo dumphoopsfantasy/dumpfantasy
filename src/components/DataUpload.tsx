@@ -19,54 +19,32 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
 
   const parseESPNData = (data: string): PlayerStats[] => {
     console.log('Starting to parse ESPN data...');
-    const lines = data.split('\n').map(l => l.trim()).filter(l => l);
+    
+    // Find the STARTERS section - this marks the beginning of roster data
+    const startersIdx = data.indexOf('STARTERS');
+    const slotPlayerIdx = data.indexOf('SLOT\nPlayer');
+    
+    // Use whichever marker we find first
+    let startIdx = -1;
+    if (startersIdx > -1 && slotPlayerIdx > -1) {
+      startIdx = Math.min(startersIdx, slotPlayerIdx);
+    } else {
+      startIdx = Math.max(startersIdx, slotPlayerIdx);
+    }
+    
+    // If no markers found, try to find the data section
+    if (startIdx === -1) {
+      // Look for PG, SG, etc as slot indicators
+      const pgIdx = data.search(/\bPG\n/);
+      if (pgIdx > -1) startIdx = pgIdx;
+    }
+    
+    const rosterData = startIdx > -1 ? data.substring(startIdx) : data;
+    const lines = rosterData.split('\n').map(l => l.trim()).filter(l => l);
     
     const result: PlayerStats[] = [];
-    
-    // Find player rows by looking for slot patterns followed by player data
     const slotPatterns = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F/C', 'UTIL', 'Bench', 'IR'];
     
-    // Parse the entire text to find player blocks
-    // Each player appears as: [Slot] [PlayerNamePlayerName] [Team] [Positions] [Status?] [Opponent?]
-    // Followed by stats in the STATS section
-    
-    // Strategy: Find all player names (doubled like "Cade CunninghamCade Cunningham")
-    const playerPattern = /([A-Z][a-z]+(?:\s+[A-Z][a-z'.-]+)+)\1/g;
-    const playerMatches: { name: string; index: number }[] = [];
-    
-    let match;
-    while ((match = playerPattern.exec(data)) !== null) {
-      playerMatches.push({ name: match[1].trim(), index: match.index });
-    }
-    
-    console.log(`Found ${playerMatches.length} players via doubled name pattern`);
-    
-    // If that didn't work, try line-by-line approach
-    if (playerMatches.length === 0) {
-      // Look for lines that contain player names with team codes
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        // Check if line starts with a slot type
-        const slotMatch = slotPatterns.find(s => line.startsWith(s + '\t') || line === s);
-        if (slotMatch) {
-          // Look ahead for player info
-          for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-            const nextLine = lines[j];
-            // Check for team code
-            if (NBA_TEAMS.some(t => nextLine.includes(t))) {
-              // Found a line with team, look for player name before it
-              const nameLine = lines[j - 1] || '';
-              if (nameLine && !slotPatterns.includes(nameLine) && nameLine.length > 3) {
-                playerMatches.push({ name: nameLine.replace(/\s+/g, ' ').trim(), index: i });
-              }
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    // Extract player info with slot, team, position, status
     interface PlayerInfo {
       slot: string;
       name: string;
@@ -77,14 +55,13 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     }
     
     const playerInfos: PlayerInfo[] = [];
-    
-    // Parse based on ESPN page structure - look for patterns in text
-    // The pattern is: Slot -> PlayerName (doubled) -> Team -> Positions -> Status -> MOVE -> Opponent
-    
     let currentSlot = '';
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      
+      // Stop at footer
+      if (line.includes('ESPN.com') || line.includes('Copyright') || line.includes('Fantasy Chat')) break;
       
       // Check for slot
       if (slotPatterns.includes(line)) {
@@ -92,8 +69,8 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         continue;
       }
       
-      // Check for doubled player name
-      const doubleNameMatch = line.match(/^([A-Z][a-zA-Z'-]+(?:\s+[A-Za-z'-]+)+)\1$/);
+      // Check for doubled player name (ESPN shows name twice like "Cade CunninghamCade Cunningham")
+      const doubleNameMatch = line.match(/^([A-Z][a-zA-Z'.-]+(?:\s+[A-Za-z'.-]+)*)\1$/);
       if (doubleNameMatch) {
         const playerName = doubleNameMatch[1].trim();
         
@@ -112,26 +89,31 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
             continue;
           }
           
-          // Position pattern
+          // Position pattern (PG, SG, SF, PF, C combinations)
           if (!position && /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i.test(nextLine)) {
             position = nextLine.toUpperCase();
             continue;
           }
           
           // Status
-          if (!status && ['DTD', 'O', 'SUSP', 'INJ'].includes(nextLine.toUpperCase())) {
+          if (!status && ['DTD', 'O', 'SUSP', 'INJ', 'GTD'].includes(nextLine.toUpperCase())) {
             status = nextLine.toUpperCase();
             continue;
           }
           
-          // Opponent (starts with @ or is a team code we haven't seen)
-          if (!opponent && team && (nextLine.startsWith('@') || (NBA_TEAMS.includes(nextLine.replace('@', '').toUpperCase()) && nextLine.toUpperCase() !== team))) {
+          // Opponent (starts with @ or is a team code)
+          if (!opponent && team && (nextLine.startsWith('@') || nextLine.match(/^[A-Z][a-z]{2}$/))) {
             opponent = nextLine;
             continue;
           }
           
           // Stop if we hit MOVE or another slot or STATS
           if (nextLine === 'MOVE' || slotPatterns.includes(nextLine) || nextLine === 'STATS') {
+            break;
+          }
+          
+          // Stop if we hit another doubled name
+          if (nextLine.match(/^([A-Z][a-zA-Z'.-]+(?:\s+[A-Za-z'.-]+)*)\1$/)) {
             break;
           }
         }
@@ -170,12 +152,13 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     const statsSection = data.substring(statsIdx);
     const statsLines = statsSection.split('\n').map(l => l.trim()).filter(l => l);
     
-    // Collect numeric values (skip headers like MIN, FG%, etc.)
+    // Collect numeric values (skip headers)
     const statTokens: string[] = [];
     const skipPatterns = /^(STATS|Research|MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-)$/i;
     
     for (const line of statsLines) {
       if (skipPatterns.test(line)) continue;
+      if (line.includes('ESPN.com') || line.includes('Copyright')) break;
       
       // Accept numbers (including those starting with .), "--", or fractions
       if (/^[-+]?\d*\.?\d+$/.test(line) || line === '--' || /^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
