@@ -242,10 +242,13 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     setOpponentData("");
   };
 
-  const formatValue = (value: number, format: string, isMultiplied: boolean) => {
+  const formatAverage = (value: number, format: string) => {
     if (format === 'pct') return formatPct(value);
-    if (isMultiplied) return Math.round(value).toString();
     return value.toFixed(1);
+  };
+
+  const formatProjection = (value: number) => {
+    return Math.round(value).toString();
   };
 
   if (!persistedMatchup) {
@@ -312,29 +315,31 @@ Navigate to their team page and copy the whole page.`}
   // Calculate comparisons with multiplied counting stats
   const comparisons = CATEGORIES.map(cat => {
     const isCountingStat = COUNTING_STATS.includes(cat.key);
-    const multiplier = isCountingStat ? MULTIPLIER : 1;
     
-    const myRaw = persistedMatchup.myTeam.stats[cat.key as keyof TeamStats];
-    const theirRaw = persistedMatchup.opponent.stats[cat.key as keyof TeamStats];
+    const myAvg = persistedMatchup.myTeam.stats[cat.key as keyof TeamStats];
+    const theirAvg = persistedMatchup.opponent.stats[cat.key as keyof TeamStats];
     
-    const myValue = myRaw * multiplier;
-    const theirValue = theirRaw * multiplier;
+    // For comparison, use projected values for counting stats
+    const myProjected = isCountingStat ? myAvg * MULTIPLIER : myAvg;
+    const theirProjected = isCountingStat ? theirAvg * MULTIPLIER : theirAvg;
     
     let winner: 'you' | 'them' | 'tie';
     if (cat.key === 'turnovers') {
-      winner = myValue < theirValue ? 'you' : myValue > theirValue ? 'them' : 'tie';
+      winner = myProjected < theirProjected ? 'you' : myProjected > theirProjected ? 'them' : 'tie';
     } else {
-      winner = myValue > theirValue ? 'you' : myValue < theirValue ? 'them' : 'tie';
+      winner = myProjected > theirProjected ? 'you' : myProjected < theirProjected ? 'them' : 'tie';
     }
 
     return {
       category: cat.label,
       key: cat.key,
-      myValue,
-      theirValue,
+      myAvg,
+      theirAvg,
+      myProjected,
+      theirProjected,
       winner,
       format: cat.format,
-      isMultiplied: isCountingStat,
+      isCountingStat,
     };
   });
 
@@ -442,8 +447,13 @@ Navigate to their team page and copy the whole page.`}
             <div className="flex items-center justify-between">
               <div className={cn("flex-1 text-center", comp.winner === 'you' && "text-stat-positive")}>
                 <p className="font-display font-bold text-2xl md:text-3xl">
-                  {formatValue(comp.myValue, comp.format, comp.isMultiplied)}
+                  {formatAverage(comp.myAvg, comp.format)}
                 </p>
+                {comp.isCountingStat && (
+                  <p className="text-xs text-muted-foreground font-semibold">
+                    {formatProjection(comp.myProjected)}
+                  </p>
+                )}
                 {comp.winner === 'you' && (
                   <div className="flex items-center justify-center gap-1 mt-1">
                     <ArrowRight className="w-4 h-4" />
@@ -461,14 +471,19 @@ Navigate to their team page and copy the whole page.`}
                 )}>
                   {comp.category}
                   {comp.key === 'turnovers' && <span className="text-xs ml-1">(lower)</span>}
-                  {comp.isMultiplied && <span className="text-xs ml-1">×{MULTIPLIER}</span>}
+                  {comp.isCountingStat && <span className="text-xs ml-1">×{MULTIPLIER}</span>}
                 </div>
               </div>
 
               <div className={cn("flex-1 text-center", comp.winner === 'them' && "text-stat-negative")}>
                 <p className="font-display font-bold text-2xl md:text-3xl">
-                  {formatValue(comp.theirValue, comp.format, comp.isMultiplied)}
+                  {formatAverage(comp.theirAvg, comp.format)}
                 </p>
+                {comp.isCountingStat && (
+                  <p className="text-xs text-muted-foreground font-semibold">
+                    {formatProjection(comp.theirProjected)}
+                  </p>
+                )}
                 {comp.winner === 'them' && (
                   <div className="flex items-center justify-center gap-1 mt-1">
                     <span className="text-xs font-medium">WIN</span>
