@@ -13,7 +13,9 @@ interface PlayerCardProps {
 
 export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) => {
   const isOnIR = player.slot?.toLowerCase().includes('ir');
-  const hasNoStats = player.minutes === 0;
+  // Show stats if player has ANY stat data (points, rebounds, etc.) even if minutes is 0
+  const hasStatsData = player.points > 0 || player.rebounds > 0 || player.assists > 0 || player.minutes > 0;
+  const hasNoStats = !hasStatsData;
   
   // For comparison purposes, exclude IR players from the pool
   const comparablePlayers = allPlayers.filter(p => !p.slot?.toLowerCase().includes('ir'));

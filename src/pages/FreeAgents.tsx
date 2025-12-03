@@ -65,9 +65,6 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     const result: Player[] = [];
     
-    // Skip ESPN navigation
-    const skipPatterns = /^(ESPN|NFL|NBA|MLB|NCAAF|NHL|Soccer|WNBA|More Sports|Watch|Fantasy|Where to Watch|hsb\.|Copyright|Fantasy Basketball Home|My Team|League|Settings|Members|Rosters|Schedule|Message Board|Transaction Counter|History|Draft Recap|Email League|Recent Activity|Players$|Add Players|Watch List|Daily Leaders|Live Draft Trends|Added \/ Dropped|Player Rater|Player News|Projections|Waiver Order|Waiver Report|Undroppables|FantasyCast|Scoreboard|Standings|Opposing Teams|Free Agents.*|All Hail|Player Name|Position:|Filter|Available|Pro Team|Health|Watch List|Playing|Stat Qualifier|Reset All|Stats|Trending|Schedule|News|Compare Players|2026 season|TotalsAverages|Fantasy Basketball Support|Username|Password|Change Email|Issues Joining|Login|Reset Draft|Find Your|Search the full)$/i;
-    
     interface PlayerEntry {
       name: string;
       team: string;
@@ -77,34 +74,34 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     
     const playerEntries: PlayerEntry[] = [];
     
-    // Look for doubled player names (ESPN pattern: "Ayo DosunmuAyo Dosunmu")
+    // Method 1: Look for doubled player names (ESPN pattern: "Ayo DosunmuAyo Dosunmu")
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      if (line.length < 6 || line.length > 80) continue;
       
-      if (skipPatterns.test(line)) continue;
-      if (line.length < 6 || line.length > 60) continue;
-      
-      // Check for doubled name pattern - more flexible
-      const doubleMatch = line.match(/^([A-Z][a-zA-Z'.\-]+(?: [A-Z][a-zA-Z'.\-]+)+)\1$/);
-      if (doubleMatch) {
-        const name = doubleMatch[1].trim();
+      // Check if line is a doubled name (exact duplicate of first half)
+      const halfLen = line.length / 2;
+      if (halfLen === Math.floor(halfLen) && line.substring(0, halfLen) === line.substring(halfLen)) {
+        const name = line.substring(0, halfLen).trim();
+        // Validate it looks like a name (starts with capital, has space)
+        if (!/^[A-Z][a-z]/.test(name) || !name.includes(' ')) continue;
         
         let team = '';
         let positions: string[] = [];
         let status = '';
         
-        for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
+        for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
           const nextLine = lines[j];
           
-          // Team code (including lowercase variations)
+          // Team code
           if (!team && NBA_TEAMS.includes(nextLine.toUpperCase())) {
             team = nextLine.toUpperCase();
             continue;
           }
           
-          // Positions - more flexible pattern
+          // Positions
           if (positions.length === 0) {
-            const posMatch = nextLine.match(/^(PG|SG|SF|PF|C)(,?\s*(PG|SG|SF|PF|C))*$/i);
+            const posMatch = nextLine.match(/^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i);
             if (posMatch) {
               positions = nextLine.toUpperCase().replace(/\s/g, '').split(',');
               continue;
@@ -117,8 +114,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
             continue;
           }
           
-          // Stop at FA, WA, or next doubled player name
-          if (nextLine === 'FA' || nextLine.match(/^WA/) || nextLine.match(/^[A-Z][a-z].*[A-Z][a-z].*\1$/)) break;
+          // Stop at FA or next doubled name
+          if (nextLine === 'FA' || nextLine.match(/^WA/)) break;
+          if (nextLine.match(/^[A-Z][a-z].*[A-Z][a-z].*\1$/)) break;
         }
         
         if (team && positions.length > 0) {
@@ -127,7 +125,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       }
     }
     
-    console.log(`Found ${playerEntries.length} player entries`);
+    console.log(`Found ${playerEntries.length} player entries via doubled names`);
     
     // Parse stats - look for individual stat lines or complete rows
     const statRows: number[][] = [];
@@ -401,23 +399,23 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header with CRIS Toggle */}
+      {/* Header with View Toggle */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-display font-bold">Free Agents (Top {DISPLAY_LIMIT})</h2>
+          <h2 className="text-xl font-display font-bold">Free Agents ({Math.min(filteredPlayers.length, DISPLAY_LIMIT)} players)</h2>
           <CrisExplanation />
         </div>
         <div className="flex items-center gap-3">
-          {/* Stats vs Score Toggle */}
+          {/* Stats vs CRIS Rankings Toggle */}
           <div className="flex items-center gap-2 bg-secondary/30 rounded-lg p-1">
             <Button
-              variant={showStatsView ? "ghost" : "secondary"}
+              variant={!showStatsView ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setShowStatsView(false)}
               className="h-8 px-3"
             >
-              <Hash className="w-4 h-4 mr-1" />
-              Score
+              <BarChart3 className="w-4 h-4 mr-1" />
+              Stats
             </Button>
             <Button
               variant={showStatsView ? "secondary" : "ghost"}
@@ -425,8 +423,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               onClick={() => setShowStatsView(true)}
               className="h-8 px-3"
             >
-              <BarChart3 className="w-4 h-4 mr-1" />
-              Stats
+              <Hash className="w-4 h-4 mr-1" />
+              Rankings
             </Button>
           </div>
           <CrisToggle useCris={useCris} onChange={setUseCris} />
@@ -520,7 +518,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <tr className="border-b border-border bg-secondary/20">
                 <th className="text-left p-3 font-display">#</th>
                 <th className="text-left p-3 font-display min-w-[180px]">Player</th>
-                {showStatsView ? (
+                {!showStatsView ? (
                   <>
                     <SortHeader label="MIN" sortKeyProp="minutes" />
                     <SortHeader label="FG%" sortKeyProp="fgPct" />
@@ -535,9 +533,11 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                   </>
                 ) : (
                   <>
-                    <SortHeader label="PTS" sortKeyProp="points" />
-                    <SortHeader label="REB" sortKeyProp="rebounds" />
-                    <SortHeader label="AST" sortKeyProp="assists" />
+                    {CATEGORIES.map(cat => (
+                      <th key={cat.key} className="p-2 font-display text-center text-xs">
+                        {cat.label}
+                      </th>
+                    ))}
                   </>
                 )}
                 <SortHeader label={scoreLabel} sortKeyProp="cris" className="border-l-2 border-primary/50" />
@@ -566,7 +566,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       </div>
                     </div>
                   </td>
-                  {showStatsView ? (
+                  {!showStatsView ? (
                     <>
                       <td className="text-center p-2">{player.minutes.toFixed(1)}</td>
                       <td className="text-center p-2">{formatPct(player.fgPct)}</td>
@@ -581,9 +581,26 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     </>
                   ) : (
                     <>
-                      <td className="text-center p-2">{player.points.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.rebounds.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.assists.toFixed(1)}</td>
+                      {CATEGORIES.map(cat => {
+                        // Calculate rank for this category among all players
+                        const isLowerBetter = cat.key === 'turnovers';
+                        const sorted = [...filteredPlayers].sort((a, b) => {
+                          const aVal = a[cat.key as keyof typeof a] as number;
+                          const bVal = b[cat.key as keyof typeof b] as number;
+                          return isLowerBetter ? aVal - bVal : bVal - aVal;
+                        });
+                        const rank = sorted.findIndex(p => p.id === player.id) + 1;
+                        const total = filteredPlayers.length;
+                        const percentile = rank / total;
+                        const color = percentile <= 0.25 ? 'text-stat-positive' : 
+                                      percentile <= 0.5 ? 'text-emerald-400' : 
+                                      percentile <= 0.75 ? 'text-yellow-400' : 'text-stat-negative';
+                        return (
+                          <td key={cat.key} className={cn("text-center p-2 font-semibold", color)}>
+                            #{rank}
+                          </td>
+                        );
+                      })}
                     </>
                   )}
                   <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
