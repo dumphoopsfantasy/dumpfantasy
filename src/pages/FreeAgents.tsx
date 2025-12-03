@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -28,12 +28,15 @@ interface FreeAgentsProps {
 // Known NBA team codes
 const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
 
+type SortKey = 'cris' | 'wCris' | 'minutes' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points';
+
 export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
   const [rawData, setRawData] = useState("");
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<string>("cris");
+  const [sortKey, setSortKey] = useState<SortKey>("cris");
+  const [sortAsc, setSortAsc] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgentPlayer | null>(null);
   const [compareList, setCompareList] = useState<FreeAgentPlayer[]>([]);
   const [useCris, setUseCris] = useState(true);
@@ -286,20 +289,47 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       result = result.filter(p => p.positions.includes(positionFilter));
     }
 
-    const scoreKey = useCris ? 'cris' : 'wCris';
-    return result.sort((a, b) => {
-      switch (sortBy) {
-        case "cris": return (b[scoreKey] || 0) - (a[scoreKey] || 0);
-        case "points": return b.points - a.points;
-        case "rebounds": return b.rebounds - a.rebounds;
-        case "assists": return b.assists - a.assists;
-        case "blocks": return b.blocks - a.blocks;
-        case "steals": return b.steals - a.steals;
-        case "threepm": return b.threepm - a.threepm;
-        default: return 0;
+    const activeSortKey = sortKey === 'cris' || sortKey === 'wCris' 
+      ? (useCris ? 'cris' : 'wCris') 
+      : sortKey;
+    
+    return [...result].sort((a, b) => {
+      let aVal = a[activeSortKey as keyof typeof a] as number;
+      let bVal = b[activeSortKey as keyof typeof b] as number;
+      
+      // For turnovers, lower is better (invert sort)
+      if (sortKey === 'turnovers') {
+        return sortAsc ? aVal - bVal : bVal - aVal;
       }
+      return sortAsc ? aVal - bVal : bVal - aVal;
     });
-  }, [players, search, positionFilter, sortBy, useCris]);
+  }, [players, search, positionFilter, sortKey, sortAsc, useCris]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortKey(key);
+      // Default to descending for stats (higher is better), except turnovers
+      setSortAsc(key === 'turnovers');
+    }
+  };
+
+  const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => (
+    <th 
+      className={cn("p-2 font-display cursor-pointer hover:bg-muted/50 select-none", className)}
+      onClick={() => handleSort(sortKeyProp)}
+    >
+      <div className="flex items-center justify-center gap-1">
+        {label}
+        {sortKey === sortKeyProp ? (
+          sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30" />
+        )}
+      </div>
+    </th>
+  );
 
   const toggleCompare = (player: FreeAgentPlayer) => {
     if (compareList.find(p => p.id === player.id)) {
@@ -386,20 +416,6 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectItem value="C">C</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-full md:w-[140px]">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="cris">{scoreLabel}</SelectItem>
-              <SelectItem value="points">Points</SelectItem>
-              <SelectItem value="rebounds">Rebounds</SelectItem>
-              <SelectItem value="assists">Assists</SelectItem>
-              <SelectItem value="steals">Steals</SelectItem>
-              <SelectItem value="blocks">Blocks</SelectItem>
-              <SelectItem value="threepm">3PM</SelectItem>
-            </SelectContent>
-          </Select>
           <Button variant="outline" size="icon" onClick={handleReset}>
             <RefreshCw className="w-4 h-4" />
           </Button>
@@ -462,17 +478,17 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <tr className="border-b border-border bg-secondary/20">
                 <th className="text-left p-3 font-display">#</th>
                 <th className="text-left p-3 font-display min-w-[180px]">Player</th>
-                <th className="text-center p-2 font-display">MIN</th>
-                <th className="text-center p-2 font-display">FG%</th>
-                <th className="text-center p-2 font-display">FT%</th>
-                <th className="text-center p-2 font-display">3PM</th>
-                <th className="text-center p-2 font-display">REB</th>
-                <th className="text-center p-2 font-display">AST</th>
-                <th className="text-center p-2 font-display">STL</th>
-                <th className="text-center p-2 font-display">BLK</th>
-                <th className="text-center p-2 font-display">TO</th>
-                <th className="text-center p-2 font-display">PTS</th>
-                <th className="text-center p-2 font-display border-l-2 border-primary/50">{scoreLabel}</th>
+                <SortHeader label="MIN" sortKeyProp="minutes" />
+                <SortHeader label="FG%" sortKeyProp="fgPct" />
+                <SortHeader label="FT%" sortKeyProp="ftPct" />
+                <SortHeader label="3PM" sortKeyProp="threepm" />
+                <SortHeader label="REB" sortKeyProp="rebounds" />
+                <SortHeader label="AST" sortKeyProp="assists" />
+                <SortHeader label="STL" sortKeyProp="steals" />
+                <SortHeader label="BLK" sortKeyProp="blocks" />
+                <SortHeader label="TO" sortKeyProp="turnovers" />
+                <SortHeader label="PTS" sortKeyProp="points" />
+                <SortHeader label={scoreLabel} sortKeyProp="cris" className="border-l-2 border-primary/50" />
               </tr>
             </thead>
             <tbody>
