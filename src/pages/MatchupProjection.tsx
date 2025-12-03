@@ -22,6 +22,7 @@ interface TeamInfo {
   name: string;
   record: string;
   standing: string;
+  owner?: string;
   lastMatchup?: string;
 }
 
@@ -56,9 +57,10 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     let teamName = "";
     let record = "";
     let standing = "";
+    let owner = "";
     let lastMatchup = "";
     
-    // Find team info block pattern: "TeamName\n4-2-0\n(2nd of 10)"
+    // Find team info block pattern: "TeamName\n4-2-0\n(2nd of 10)\nAll Hail WembyBill Vasiliadis"
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
@@ -82,6 +84,18 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
               const standingMatch = lines[i + 1].match(/\((\d+)(st|nd|rd|th) of (\d+)\)/i);
               if (standingMatch) {
                 standing = `${standingMatch[1]}${standingMatch[2]} of ${standingMatch[3]}`;
+                
+                // Next line after standing might have owner name
+                // Pattern: "All Hail WembyBill Vasiliadis" or just "Bill Vasiliadis"
+                if (i + 2 < lines.length) {
+                  const ownerLine = lines[i + 2];
+                  // Look for pattern with name (first + last name typically)
+                  // The line might have team motto + owner name combined
+                  const ownerMatch = ownerLine.match(/([A-Z][a-z]+\s+[A-Z][a-z]+)$/);
+                  if (ownerMatch) {
+                    owner = ownerMatch[1];
+                  }
+                }
               }
             }
           }
@@ -89,7 +103,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       }
       
       // Look for "Last Matchup" section
-      if (line === 'Last Matchup' && i + 3 < lines.length) {
+      if (line === 'Last Matchup' && i + 4 < lines.length) {
         // Pattern: FREAK\n3-6-0\nBilbo\n6-3-0
         const team1 = lines[i + 1];
         const score1 = lines[i + 2];
@@ -162,6 +176,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
             name: teamName || "Team",
             record,
             standing,
+            owner,
             lastMatchup,
           },
           stats: {
@@ -190,7 +205,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     
     if (simpleNumbers.length >= 9) {
       return {
-        info: { name: teamName || "Team", record, standing, lastMatchup },
+        info: { name: teamName || "Team", record, standing, owner, lastMatchup },
         stats: {
           fgPct: simpleNumbers[0] < 1 ? simpleNumbers[0] : simpleNumbers[0] / 100,
           ftPct: simpleNumbers[1] < 1 ? simpleNumbers[1] : simpleNumbers[1] / 100,
@@ -245,11 +260,13 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
           <div className="flex items-start gap-3">
             <Info className="w-5 h-5 text-primary mt-0.5" />
             <div>
-              <p className="font-semibold text-primary">How to Use</p>
-              <p className="text-sm text-muted-foreground">
-                Copy the entire ESPN team page (Ctrl+A, Ctrl+C) including the team name, record, and stats table.
-                Counting stats are multiplied by {MULTIPLIER} to simulate a full week.
-              </p>
+              <p className="font-semibold text-primary">How Projections Work</p>
+              <ul className="text-sm text-muted-foreground space-y-1 mt-1">
+                <li>• All stats are <strong>Last 15 AVERAGES</strong> (per game)</li>
+                <li>• <strong>Counting stats</strong> (3PM, REB, AST, STL, BLK, TO, PTS) are multiplied by <strong>×{MULTIPLIER}</strong></li>
+                <li>• <strong>Percentages</strong> (FG%, FT%) are NOT multiplied</li>
+                <li>• The ×{MULTIPLIER} simulates a full matchup week (~40 player-games)</li>
+              </ul>
             </div>
           </div>
         </Card>
@@ -336,18 +353,27 @@ Navigate to their team page and copy the whole page.`}
         </Button>
       </div>
 
-      {/* Multiplier Notice */}
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Info className="w-4 h-4" />
-        <span>Counting stats multiplied by {MULTIPLIER} for weekly projection.</span>
-      </div>
+      {/* Stats Info Notice */}
+      <Card className="p-3 bg-amber-500/10 border-amber-500/30">
+        <div className="flex items-center gap-2 text-xs">
+          <Info className="w-4 h-4 text-amber-400" />
+          <span className="text-muted-foreground">
+            Stats are <strong className="text-amber-400">Last 15 Averages</strong>. 
+            Counting stats (3PM, REB, AST, STL, BLK, TO, PTS) × <strong className="text-amber-400">{MULTIPLIER}</strong> for weekly projection.
+            FG% and FT% are NOT multiplied.
+          </span>
+        </div>
+      </Card>
 
       {/* Matchup Summary */}
       <Card className="gradient-card border-border p-6">
         <div className="flex items-center justify-center gap-4 md:gap-8">
           <div className="text-center">
-            <p className="text-sm text-muted-foreground mb-1">You</p>
+            <p className="text-sm text-muted-foreground mb-1">Your Team</p>
             <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.myTeam.name}</p>
+            {persistedMatchup.myTeam.owner && (
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.owner}</p>
+            )}
             {persistedMatchup.myTeam.record && (
               <p className="text-sm text-muted-foreground">{persistedMatchup.myTeam.record}</p>
             )}
