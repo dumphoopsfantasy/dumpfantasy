@@ -30,7 +30,7 @@ const Index = () => {
                 <BarChart3 className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl md:text-2xl font-display font-bold">DumpHoops Analytics<span className="text-primary">Hoops</span> Analytics
+                <h1 className="text-xl md:text-2xl font-display font-bold">DUMPHoops Analytics<span className="text-primary">Hoops</span> Analytics
                 </h1>
               </div>
             </div>
