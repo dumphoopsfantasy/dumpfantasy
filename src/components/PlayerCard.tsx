@@ -15,6 +15,9 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
   const isOnIR = player.slot?.toLowerCase().includes('ir');
   const hasNoStats = player.minutes === 0;
   
+  // For comparison purposes, exclude IR players from the pool
+  const comparablePlayers = allPlayers.filter(p => !p.slot?.toLowerCase().includes('ir'));
+  
   const getStatusBadgeStyle = (status: string) => {
     switch (status?.toUpperCase()) {
       case 'O': return 'bg-destructive/20 text-destructive border-destructive/50';
@@ -43,17 +46,25 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
     return pts + reb + ast + stl + blk + tpm + fg + ft + to;
   };
 
-  // Get category rank among roster
+  // Get category rank among comparable roster (excludes IR players for fair comparison)
   const getCategoryRank = (value: number, stat: string, lowerBetter = false): number => {
-    if (allPlayers.length === 0) return 0;
-    const validPlayers = allPlayers.filter(p => p.minutes > 0);
-    const sorted = [...validPlayers].sort((a, b) => {
+    // Use comparable players (non-IR) for ranking
+    const poolToCompare = isOnIR ? comparablePlayers : comparablePlayers;
+    if (poolToCompare.length === 0) return 0;
+    const validPlayers = poolToCompare.filter(p => p.minutes > 0);
+    
+    // Add current player if they're on IR with stats (for their own ranking calculation)
+    const playersForRanking = isOnIR && !hasNoStats 
+      ? [...validPlayers, player].filter((p, i, arr) => arr.findIndex(x => x.player === p.player) === i)
+      : validPlayers;
+    
+    const sorted = [...playersForRanking].sort((a, b) => {
       const aVal = a[stat as keyof PlayerStats] as number;
       const bVal = b[stat as keyof PlayerStats] as number;
       return lowerBetter ? aVal - bVal : bVal - aVal;
     });
     const idx = sorted.findIndex(p => p.player === player.player);
-    return idx >= 0 ? idx + 1 : validPlayers.length;
+    return idx >= 0 ? idx + 1 : playersForRanking.length;
   };
 
   // Get color based on rank (green = good, red = bad)
@@ -66,11 +77,18 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
     return 'text-stat-negative';
   };
 
-  const validPlayersCount = allPlayers.filter(p => p.minutes > 0).length;
+  // Count for ranking display - use comparable players + this player if IR with stats
+  const validComparablePlayers = comparablePlayers.filter(p => p.minutes > 0);
+  const validPlayersCount = isOnIR && !hasNoStats 
+    ? validComparablePlayers.length + 1 
+    : validComparablePlayers.length;
   const crisScore = calculateCRIS(player);
 
-  // Format percentage to thousandths (.485)
-  const formatPct = (v: number) => `.${v.toFixed(3).slice(2)}`;
+  // Format percentage to thousandths (.485 or 1.000 for 100%)
+  const formatPct = (v: number) => {
+    if (v >= 1) return v.toFixed(3);
+    return `.${v.toFixed(3).slice(2)}`;
+  };
 
   // Stat configuration: order is MIN, FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
   const stats = [
@@ -157,7 +175,7 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
 
       {hasNoStats ? (
         <div className="text-center py-4 text-muted-foreground italic">
-          No stats available — player has not played this season
+          Data not available
         </div>
       ) : (
         <div className="grid grid-cols-5 md:grid-cols-11 gap-1">

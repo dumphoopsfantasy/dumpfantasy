@@ -86,10 +86,13 @@ export function calculateCRISForAll<T extends CategoryStats>(
 }
 
 /**
- * Format percentage to thousandths place (.485)
+ * Format percentage to thousandths place (.485 or 1.000 for 100%)
  */
 export function formatPct(value: number): string {
-  if (value >= 1) return `${value.toFixed(1)}%`;
+  if (value >= 1) {
+    // For 100% (1.000), display as "1.000"
+    return value.toFixed(3);
+  }
   return `.${value.toFixed(3).slice(2)}`;
 }
 

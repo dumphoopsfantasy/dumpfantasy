@@ -65,11 +65,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     const result: Player[] = [];
     
-    // Find players section - look for "Players" or player name patterns
-    // Skip ESPN navigation (NFL, NBA, etc.)
-    const skipPatterns = /^(ESPN|NFL|NBA|MLB|NCAAF|NHL|Soccer|WNBA|More Sports|Watch|Fantasy|Where to Watch|hsb\.|Copyright|Fantasy Basketball Home|My Team|League|Settings|Members|Rosters|Schedule|Message Board|Transaction Counter|History|Draft Recap|Email League|Recent Activity|Players$|Add Players|Watch List|Daily Leaders|Live Draft Trends|Added \/ Dropped|Player Rater|Player News|Projections|Waiver Order|Waiver Report|Undroppables|FantasyCast|Scoreboard|Standings|Opposing Teams)$/i;
+    // Skip ESPN navigation
+    const skipPatterns = /^(ESPN|NFL|NBA|MLB|NCAAF|NHL|Soccer|WNBA|More Sports|Watch|Fantasy|Where to Watch|hsb\.|Copyright|Fantasy Basketball Home|My Team|League|Settings|Members|Rosters|Schedule|Message Board|Transaction Counter|History|Draft Recap|Email League|Recent Activity|Players$|Add Players|Watch List|Daily Leaders|Live Draft Trends|Added \/ Dropped|Player Rater|Player News|Projections|Waiver Order|Waiver Report|Undroppables|FantasyCast|Scoreboard|Standings|Opposing Teams|Free Agents.*|All Hail|Player Name|Position:|Filter|Available|Pro Team|Health|Watch List|Playing|Stat Qualifier|Reset All|Stats|Trending|Schedule|News|Compare Players|2026 season|TotalsAverages|Fantasy Basketball Support|Username|Password|Change Email|Issues Joining|Login|Reset Draft|Find Your|Search the full)$/i;
     
-    // Collect player entries
     interface PlayerEntry {
       name: string;
       team: string;
@@ -79,37 +77,38 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     
     const playerEntries: PlayerEntry[] = [];
     
-    // Look for doubled player names (ESPN pattern)
+    // Look for doubled player names (ESPN pattern: "Ayo DosunmuAyo Dosunmu")
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
-      // Skip navigation items
       if (skipPatterns.test(line)) continue;
-      if (line.length < 4 || line.length > 50) continue;
+      if (line.length < 6 || line.length > 60) continue;
       
-      // Check for doubled name pattern
-      const doubleMatch = line.match(/^([A-Z][a-zA-Z'.-]+(?: [A-Z][a-zA-Z'.-]+)+)\1$/);
+      // Check for doubled name pattern - more flexible
+      const doubleMatch = line.match(/^([A-Z][a-zA-Z'.\-]+(?: [A-Z][a-zA-Z'.\-]+)+)\1$/);
       if (doubleMatch) {
         const name = doubleMatch[1].trim();
         
-        // Look ahead for team, positions, status
         let team = '';
         let positions: string[] = [];
         let status = '';
         
-        for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+        for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
           const nextLine = lines[j];
           
-          // Team code
+          // Team code (including lowercase variations)
           if (!team && NBA_TEAMS.includes(nextLine.toUpperCase())) {
             team = nextLine.toUpperCase();
             continue;
           }
           
-          // Positions
-          if (positions.length === 0 && /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i.test(nextLine)) {
-            positions = nextLine.toUpperCase().split(/,\s*/);
-            continue;
+          // Positions - more flexible pattern
+          if (positions.length === 0) {
+            const posMatch = nextLine.match(/^(PG|SG|SF|PF|C)(,?\s*(PG|SG|SF|PF|C))*$/i);
+            if (posMatch) {
+              positions = nextLine.toUpperCase().replace(/\s/g, '').split(',');
+              continue;
+            }
           }
           
           // Status
@@ -118,8 +117,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
             continue;
           }
           
-          // Stop at FA or next player
-          if (nextLine === 'FA' || nextLine.match(/^[A-Z][a-z]+.*[A-Z][a-z]+\1$/)) break;
+          // Stop at FA, WA, or next doubled player name
+          if (nextLine === 'FA' || nextLine.match(/^WA/) || nextLine.match(/^[A-Z][a-z].*[A-Z][a-z].*\1$/)) break;
         }
         
         if (team && positions.length > 0) {
@@ -130,21 +129,34 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     
     console.log(`Found ${playerEntries.length} player entries`);
     
-    // Parse stats - look for lines with stat patterns
+    // Parse stats - look for individual stat lines or complete rows
     const statRows: number[][] = [];
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
-      // Stats line pattern: MIN FGM/FGA FG% FTM/FTA FT% 3PM REB AST STL BLK TO PTS
-      // Example: "28.5 5.2/11.3 .460 2.1/2.5 .840 1.8 4.2 3.5 1.2 0.5 1.8 14.3"
-      const statMatch = line.match(/^(\d+\.?\d*)\s+[\d.]+\/[\d.]+\s+\.(\d+)\s+[\d.]+\/[\d.]+\s+\.(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+      // Stats line pattern - handle both .XXX and 1.000 formats for percentages
+      // Example: "27.4 5.7/10.6 .539 2.3/2.8 .840 2.0 2.7 3.2 0.4 0.2 1.4 15.8"
+      // Or: "27.7 5.0/12.0 .417 3.0/3.0 1.000 1.0 6.7 1.7 1.0 0.0 2.0 14.0"
+      const statMatch = line.match(/^(\d+\.?\d*)\s+[\d.]+\/[\d.]+\s+(\.?\d+\.?\d*)\s+[\d.]+\/[\d.]+\s+(\.?\d+\.?\d*)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
       
       if (statMatch) {
+        // Parse FG% - handle both .539 and 0.539 formats
+        let fgPct = parseFloat(statMatch[2]);
+        if (fgPct > 1) fgPct = fgPct / 1000; // Handle cases like "539" -> 0.539
+        else if (!statMatch[2].startsWith('.') && fgPct < 1) fgPct = fgPct; // Already decimal
+        else if (statMatch[2].startsWith('.')) fgPct = parseFloat(statMatch[2]); // .539 format
+        
+        // Parse FT% - handle both .840 and 1.000 formats
+        let ftPct = parseFloat(statMatch[3]);
+        if (statMatch[3] === '1.000') ftPct = 1.0;
+        else if (ftPct > 1) ftPct = ftPct / 1000;
+        else if (statMatch[3].startsWith('.')) ftPct = parseFloat(statMatch[3]);
+        
         statRows.push([
           parseFloat(statMatch[1]),  // MIN
-          parseFloat('0.' + statMatch[2]),  // FG%
-          parseFloat('0.' + statMatch[3]),  // FT%
+          fgPct,                     // FG%
+          ftPct,                     // FT%
           parseFloat(statMatch[4]),  // 3PM
           parseFloat(statMatch[5]),  // REB
           parseFloat(statMatch[6]),  // AST

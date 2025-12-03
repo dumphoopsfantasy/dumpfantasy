@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Trophy, Upload, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { formatPct, CATEGORIES } from "@/lib/crisUtils";
+import { formatPct, CATEGORIES, calculateCRISForAll } from "@/lib/crisUtils";
 
 interface MatchupTeam {
   abbr: string;
@@ -68,6 +68,24 @@ export const WeeklyPerformance = ({
     }
   }, [matchups, weekTitle]);
 
+  // Calculate CRIS for all teams
+  const teamsWithCRIS = useMemo(() => {
+    if (matchups.length === 0) return [];
+    
+    // Flatten all teams
+    const allTeams = matchups.flatMap(m => [
+      { ...m.team1.stats, name: m.team1.name, abbr: m.team1.abbr },
+      { ...m.team2.stats, name: m.team2.name, abbr: m.team2.abbr }
+    ]);
+    
+    return calculateCRISForAll(allTeams);
+  }, [matchups]);
+
+  const getTeamCRIS = (abbr: string): { cris: number; wCris: number } => {
+    const team = teamsWithCRIS.find(t => t.abbr === abbr);
+    return { cris: team?.cris || 0, wCris: team?.wCris || 0 };
+  };
+
   const parseWeeklyData = (data: string): { matchups: Matchup[]; week: string } => {
     const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     const result: Matchup[] = [];
@@ -87,7 +105,6 @@ export const WeeklyPerformance = ({
     if (weekMatch) week = weekMatch;
     
     // Look for team stat blocks
-    // Format: ABBR followed by 9 stats on same line OR separate lines
     interface TeamBlock {
       abbr: string;
       name: string;
@@ -110,15 +127,15 @@ export const WeeklyPerformance = ({
           record: '',
           weekRecord: '',
           stats: [
-            parseFloat('0.' + match[2]), // FG%
-            parseFloat('0.' + match[3]), // FT%
-            parseInt(match[4]),  // 3PM
-            parseInt(match[5]),  // REB
-            parseInt(match[6]),  // AST
-            parseInt(match[7]),  // STL
-            parseInt(match[8]),  // BLK
-            parseInt(match[9]),  // TO
-            parseInt(match[10]), // PTS
+            parseFloat('0.' + match[2]),
+            parseFloat('0.' + match[3]),
+            parseInt(match[4]),
+            parseInt(match[5]),
+            parseInt(match[6]),
+            parseInt(match[7]),
+            parseInt(match[8]),
+            parseInt(match[9]),
+            parseInt(match[10]),
           ]
         });
       }
@@ -126,7 +143,6 @@ export const WeeklyPerformance = ({
     
     // If no inline stats, try separate line parsing
     if (teamBlocks.length === 0) {
-      // Look for team abbreviations followed by numeric stats
       let currentTeam: TeamBlock | null = null;
       let collectingStats = false;
       let currentStats: number[] = [];
@@ -134,10 +150,8 @@ export const WeeklyPerformance = ({
       for (let i = 0; i < relevantLines.length; i++) {
         const line = relevantLines[i];
         
-        // Team abbreviation (2-6 uppercase letters, not a stat header)
         if (/^[A-Z]{2,6}$/i.test(line) && 
             !['FG', 'FT', 'PM', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PTS', 'MIN'].includes(line.toUpperCase())) {
-          // Save previous team if we have 9 stats
           if (currentTeam && currentStats.length >= 9) {
             currentTeam.stats = currentStats.slice(0, 9);
             teamBlocks.push(currentTeam);
@@ -155,14 +169,12 @@ export const WeeklyPerformance = ({
           continue;
         }
         
-        // Collect numeric values
         if (collectingStats && currentTeam) {
           if (/^\.?\d+$/.test(line)) {
             const val = line.startsWith('.') ? parseFloat(line) : parseFloat(line);
             currentStats.push(val);
           }
           
-          // Stop if we have enough stats
           if (currentStats.length >= 9) {
             currentTeam.stats = currentStats;
             teamBlocks.push(currentTeam);
@@ -173,17 +185,14 @@ export const WeeklyPerformance = ({
         }
       }
       
-      // Don't forget last team
       if (currentTeam && currentStats.length >= 9) {
         currentTeam.stats = currentStats.slice(0, 9);
         teamBlocks.push(currentTeam);
       }
     }
     
-    // Find team names and records from lines like "Team Name\n(5-3-1, 3rd)"
-    const teamNamePattern = /^(.+)$/;
+    // Find team names and records
     const recordPattern = /^\((\d+-\d+-\d+),\s*\d+\w*\)$/;
-    
     const teamRecords: { name: string; record: string }[] = [];
     for (let i = 0; i < relevantLines.length; i++) {
       const line = relevantLines[i];
@@ -191,15 +200,12 @@ export const WeeklyPerformance = ({
       if (recMatch && i > 0) {
         const prevLine = relevantLines[i - 1];
         if (prevLine && !skipPatterns.test(prevLine) && prevLine.length > 2) {
-          teamRecords.push({
-            name: prevLine,
-            record: recMatch[1]
-          });
+          teamRecords.push({ name: prevLine, record: recMatch[1] });
         }
       }
     }
     
-    // Week records (standalone X-X-X patterns)
+    // Week records
     const weekRecords: string[] = [];
     for (const line of relevantLines) {
       if (/^\d-\d-\d$/.test(line)) {
@@ -207,12 +213,11 @@ export const WeeklyPerformance = ({
       }
     }
     
-    // Build matchups (pair consecutive teams)
+    // Build matchups
     for (let i = 0; i + 1 < teamBlocks.length; i += 2) {
       const block1 = teamBlocks[i];
       const block2 = teamBlocks[i + 1];
       
-      // Try to match with team names/records
       const tr1 = teamRecords[i] || { name: block1.abbr, record: '' };
       const tr2 = teamRecords[i + 1] || { name: block2.abbr, record: '' };
       
@@ -303,6 +308,29 @@ export const WeeklyPerformance = ({
     return val1 > val2 ? 'team1' : 'team2';
   };
 
+  // Get category rank color (1-10 scale for league of 10)
+  const getCategoryRankColor = (value: number, category: string, allValues: number[]): string => {
+    const isLowerBetter = category === 'turnovers';
+    const sorted = [...allValues].sort((a, b) => isLowerBetter ? a - b : b - a);
+    const rank = sorted.indexOf(value) + 1;
+    const total = sorted.length;
+    const percentile = rank / total;
+    
+    if (percentile <= 0.2) return 'bg-stat-positive/30 text-stat-positive';
+    if (percentile <= 0.4) return 'bg-emerald-500/20 text-emerald-400';
+    if (percentile <= 0.6) return 'bg-yellow-500/20 text-yellow-400';
+    if (percentile <= 0.8) return 'bg-orange-500/20 text-orange-400';
+    return 'bg-stat-negative/20 text-stat-negative';
+  };
+
+  // Get all values for a category across all teams
+  const getCategoryValues = (category: string): number[] => {
+    return matchups.flatMap(m => [
+      m.team1.stats[category as keyof typeof m.team1.stats],
+      m.team2.stats[category as keyof typeof m.team2.stats]
+    ]);
+  };
+
   if (matchups.length === 0) {
     return (
       <Card className="gradient-card shadow-card p-6 border-border max-w-4xl mx-auto">
@@ -321,7 +349,7 @@ export const WeeklyPerformance = ({
         <Textarea
           placeholder={`Copy the ENTIRE ESPN scoreboard page (Ctrl+A, Ctrl+C) and paste here.
 
-This will show each matchup's category breakdown for the week.
+This will show league-wide CRIS rankings for the week.
 Only data below "Scoreboard" will be parsed.`}
           value={rawData}
           onChange={(e) => setRawData(e.target.value)}
@@ -336,6 +364,42 @@ Only data below "Scoreboard" will be parsed.`}
     );
   }
 
+  // Flatten and sort teams by CRIS for league-wide view
+  const allTeamRows = matchups.flatMap((matchup, matchupIdx) => {
+    const team1CRIS = getTeamCRIS(matchup.team1.abbr);
+    const team2CRIS = getTeamCRIS(matchup.team2.abbr);
+    
+    const categoryResults = CATEGORIES.map(cat => {
+      const val1 = matchup.team1.stats[cat.key as keyof typeof matchup.team1.stats];
+      const val2 = matchup.team2.stats[cat.key as keyof typeof matchup.team2.stats];
+      return { ...cat, winner: getWinner(val1, val2, cat.key) };
+    });
+    
+    const team1Wins = categoryResults.filter(r => r.winner === 'team1').length;
+    const team2Wins = categoryResults.filter(r => r.winner === 'team2').length;
+    
+    return [
+      { 
+        matchupIdx, 
+        team: matchup.team1, 
+        opponent: matchup.team2,
+        cris: team1CRIS.cris, 
+        weekWins: team1Wins,
+        weekLosses: team2Wins,
+        isFirstInMatchup: true 
+      },
+      { 
+        matchupIdx, 
+        team: matchup.team2, 
+        opponent: matchup.team1,
+        cris: team2CRIS.cris, 
+        weekWins: team2Wins,
+        weekLosses: team1Wins,
+        isFirstInMatchup: false 
+      },
+    ];
+  }).sort((a, b) => b.cris - a.cris);
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -349,17 +413,85 @@ Only data below "Scoreboard" will be parsed.`}
         </Button>
       </div>
 
+      {/* League-wide Stats Table */}
+      <Card className="gradient-card border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-secondary/30">
+                <th className="p-2 text-left font-display text-xs">#</th>
+                <th className="p-2 text-left font-display text-xs min-w-[120px]">TEAM</th>
+                <th className="p-2 text-center font-display text-xs">W-L</th>
+                {CATEGORIES.map(cat => (
+                  <th key={cat.key} className="p-2 text-center font-display text-xs text-muted-foreground">
+                    {cat.label}
+                  </th>
+                ))}
+                <th className="p-2 text-center font-display text-xs border-l border-primary/50 text-primary">CRIS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allTeamRows.map((row, idx) => {
+                const categoryValues = CATEGORIES.reduce((acc, cat) => {
+                  acc[cat.key] = getCategoryValues(cat.key);
+                  return acc;
+                }, {} as Record<string, number[]>);
+
+                return (
+                  <tr 
+                    key={`${row.matchupIdx}-${row.team.abbr}`} 
+                    className={cn(
+                      "border-b border-border/50 hover:bg-muted/20",
+                      row.isFirstInMatchup && idx > 0 && "border-t-2 border-t-border"
+                    )}
+                  >
+                    <td className="p-2 font-bold text-primary">{idx + 1}</td>
+                    <td className="p-2">
+                      <div>
+                        <div className="font-semibold text-sm">{row.team.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          vs {row.opponent.abbr}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-2 text-center">
+                      <span className={cn(
+                        "font-bold",
+                        row.weekWins > row.weekLosses ? "text-stat-positive" : 
+                        row.weekWins < row.weekLosses ? "text-stat-negative" : "text-muted-foreground"
+                      )}>
+                        {row.weekWins}-{row.weekLosses}
+                      </span>
+                    </td>
+                    {CATEGORIES.map(cat => {
+                      const value = row.team.stats[cat.key as keyof typeof row.team.stats];
+                      const colorClass = getCategoryRankColor(value, cat.key, categoryValues[cat.key]);
+                      
+                      return (
+                        <td key={cat.key} className={cn("p-2 text-center font-mono text-xs", colorClass)}>
+                          {formatValue(value, cat.format)}
+                        </td>
+                      );
+                    })}
+                    <td className="p-2 text-center font-bold text-primary border-l border-primary/50">
+                      {row.cris.toFixed(0)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Individual Matchup Cards */}
+      <h3 className="font-display font-bold text-lg mt-8">Matchup Details</h3>
       <div className="grid gap-4">
         {matchups.map((matchup, idx) => {
           const categoryResults = CATEGORIES.map(cat => {
             const val1 = matchup.team1.stats[cat.key as keyof typeof matchup.team1.stats];
             const val2 = matchup.team2.stats[cat.key as keyof typeof matchup.team2.stats];
-            return {
-              ...cat,
-              val1,
-              val2,
-              winner: getWinner(val1, val2, cat.key)
-            };
+            return { ...cat, val1, val2, winner: getWinner(val1, val2, cat.key) };
           });
           
           const team1Wins = categoryResults.filter(r => r.winner === 'team1').length;
@@ -372,10 +504,7 @@ Only data below "Scoreboard" will be parsed.`}
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="font-display font-bold">{matchup.team1.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {matchup.team1.abbr}
-                      {matchup.team1.record && ` • (${matchup.team1.record})`}
-                    </p>
+                    <p className="text-xs text-muted-foreground">{matchup.team1.abbr}</p>
                   </div>
                   <div className="text-center px-4">
                     <span className="font-display font-bold text-lg">
@@ -388,10 +517,7 @@ Only data below "Scoreboard" will be parsed.`}
                   </div>
                   <div className="flex-1 text-right">
                     <p className="font-display font-bold">{matchup.team2.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {matchup.team2.abbr}
-                      {matchup.team2.record && ` • (${matchup.team2.record})`}
-                    </p>
+                    <p className="text-xs text-muted-foreground">{matchup.team2.abbr}</p>
                   </div>
                 </div>
               </div>
@@ -402,7 +528,7 @@ Only data below "Scoreboard" will be parsed.`}
                     <tr className="border-b border-border">
                       <th className="p-2 text-left font-display">Team</th>
                       {CATEGORIES.map(cat => (
-                        <th key={cat.key} className="p-2 text-center font-display text-muted-foreground">{cat.label}</th>
+                        <th key={cat.key} className="p-2 text-center font-display text-muted-foreground text-xs">{cat.label}</th>
                       ))}
                     </tr>
                   </thead>
@@ -411,7 +537,7 @@ Only data below "Scoreboard" will be parsed.`}
                       <td className="p-2 font-semibold">{matchup.team1.abbr}</td>
                       {categoryResults.map(cat => (
                         <td key={cat.key} className={cn(
-                          "p-2 text-center font-display",
+                          "p-2 text-center font-display text-xs",
                           cat.winner === 'team1' && "text-stat-positive font-bold bg-stat-positive/10",
                           cat.winner === 'team2' && "text-stat-negative"
                         )}>
@@ -423,7 +549,7 @@ Only data below "Scoreboard" will be parsed.`}
                       <td className="p-2 font-semibold">{matchup.team2.abbr}</td>
                       {categoryResults.map(cat => (
                         <td key={cat.key} className={cn(
-                          "p-2 text-center font-display",
+                          "p-2 text-center font-display text-xs",
                           cat.winner === 'team2' && "text-stat-positive font-bold bg-stat-positive/10",
                           cat.winner === 'team1' && "text-stat-negative"
                         )}>
