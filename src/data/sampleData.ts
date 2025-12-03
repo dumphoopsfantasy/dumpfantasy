@@ -214,7 +214,7 @@ export const sampleRoster: RosterSlot[] = [
       ftm: 2.7, fta: 3.5, ftPct: 0.771,
       threepm: 0.4, rebounds: 6.2, assists: 5.3,
       steals: 0.6, blocks: 0.3, turnovers: 2.1, points: 15.6,
-      cris: -0.69, rostPct: 64.2,
+      cris: 45.2, rostPct: 64.2,
     }
   },
   {
@@ -268,7 +268,7 @@ export const sampleRoster: RosterSlot[] = [
       ftm: 3.4, fta: 4.7, ftPct: 0.725,
       threepm: 1.8, rebounds: 4.8, assists: 3.8,
       steals: 0.8, blocks: 0.2, turnovers: 1.5, points: 19.4,
-      cris: -0.85, rostPct: 86.7,
+      cris: 52.3, rostPct: 86.7,
     }
   },
 ];

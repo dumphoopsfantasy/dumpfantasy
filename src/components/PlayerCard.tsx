@@ -24,31 +24,22 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
     }
   };
 
-  // Calculate CRIS score
+  // Calculate CRIS score (always positive, 0-100 scale)
   const calculateCRIS = (p: PlayerStats): number => {
-    if (p.minutes === 0) return -999; // Players with no stats get lowest score
+    if (p.minutes === 0) return 0;
     
-    const weights = {
-      points: 1.0, rebounds: 1.2, assists: 1.5, steals: 2.0, blocks: 2.0,
-      threepm: 1.3, fgPct: 1.0, ftPct: 0.8, turnovers: -1.5,
-    };
-    const baselines = {
-      points: 12, rebounds: 5, assists: 3, steals: 1, blocks: 0.5,
-      threepm: 1.5, fgPct: 0.45, ftPct: 0.75, turnovers: 2,
-    };
+    // Score based on fantasy value - normalized to always be positive
+    const pts = Math.min(p.points / 30, 1) * 20;       // max 20 pts contribution
+    const reb = Math.min(p.rebounds / 12, 1) * 15;     // max 15 pts
+    const ast = Math.min(p.assists / 10, 1) * 15;      // max 15 pts
+    const stl = Math.min(p.steals / 2.5, 1) * 10;      // max 10 pts
+    const blk = Math.min(p.blocks / 2, 1) * 10;        // max 10 pts
+    const tpm = Math.min(p.threepm / 4, 1) * 10;       // max 10 pts
+    const fg = Math.min(p.fgPct / 0.55, 1) * 10;       // max 10 pts
+    const ft = Math.min(p.ftPct / 0.90, 1) * 5;        // max 5 pts
+    const to = Math.max(0, 5 - p.turnovers);           // max 5 pts (lower TO = more pts)
     
-    let score = 0;
-    score += ((p.points - baselines.points) / baselines.points) * weights.points * 10;
-    score += ((p.rebounds - baselines.rebounds) / baselines.rebounds) * weights.rebounds * 10;
-    score += ((p.assists - baselines.assists) / baselines.assists) * weights.assists * 10;
-    score += ((p.steals - baselines.steals) / baselines.steals) * weights.steals * 10;
-    score += ((p.blocks - baselines.blocks) / Math.max(baselines.blocks, 0.1)) * weights.blocks * 10;
-    score += ((p.threepm - baselines.threepm) / baselines.threepm) * weights.threepm * 10;
-    score += ((p.fgPct - baselines.fgPct) / baselines.fgPct) * weights.fgPct * 10;
-    score += ((p.ftPct - baselines.ftPct) / baselines.ftPct) * weights.ftPct * 10;
-    score += ((baselines.turnovers - p.turnovers) / baselines.turnovers) * Math.abs(weights.turnovers) * 10;
-    
-    return score;
+    return pts + reb + ast + stl + blk + tpm + fg + ft + to;
   };
 
   // Get category rank among roster
@@ -173,10 +164,10 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
             const color = getRankColor(rank, validPlayersCount, stat.lowerBetter);
             const isLeader = stat.highlightLeader && isCategoryLeader(stat.key, stat.lowerBetter);
             
-            return (
+              return (
               <div key={stat.key} className={cn(
                 "text-center rounded px-1",
-                isLeader && "ring-2 ring-primary bg-primary/20"
+                isLeader && "ring-1 ring-stat-positive/50 bg-stat-positive/10"
               )}>
                 <p className="text-muted-foreground text-[10px] uppercase">
                   {stat.label}

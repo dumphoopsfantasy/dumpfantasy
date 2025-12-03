@@ -10,195 +10,215 @@ interface DataUploadProps {
   onDataParsed: (data: PlayerStats[]) => void;
 }
 
+// Known NBA team codes
+const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
+
 export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
   const [rawData, setRawData] = useState("");
   const { toast } = useToast();
 
   const parseESPNData = (data: string): PlayerStats[] => {
     console.log('Starting to parse ESPN data...');
-    const text = data.trim();
+    const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     
-    // Split by STATS to separate player info from stats
-    const parts = text.split(/STATS/i);
-    if (parts.length < 2) {
-      console.log('Could not find STATS section');
-      return [];
+    const result: PlayerStats[] = [];
+    
+    // Find player rows by looking for slot patterns followed by player data
+    const slotPatterns = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F/C', 'UTIL', 'Bench', 'IR'];
+    
+    // Parse the entire text to find player blocks
+    // Each player appears as: [Slot] [PlayerNamePlayerName] [Team] [Positions] [Status?] [Opponent?]
+    // Followed by stats in the STATS section
+    
+    // Strategy: Find all player names (doubled like "Cade CunninghamCade Cunningham")
+    const playerPattern = /([A-Z][a-z]+(?:\s+[A-Z][a-z'.-]+)+)\1/g;
+    const playerMatches: { name: string; index: number }[] = [];
+    
+    let match;
+    while ((match = playerPattern.exec(data)) !== null) {
+      playerMatches.push({ name: match[1].trim(), index: match.index });
+    }
+    
+    console.log(`Found ${playerMatches.length} players via doubled name pattern`);
+    
+    // If that didn't work, try line-by-line approach
+    if (playerMatches.length === 0) {
+      // Look for lines that contain player names with team codes
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Check if line starts with a slot type
+        const slotMatch = slotPatterns.find(s => line.startsWith(s + '\t') || line === s);
+        if (slotMatch) {
+          // Look ahead for player info
+          for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+            const nextLine = lines[j];
+            // Check for team code
+            if (NBA_TEAMS.some(t => nextLine.includes(t))) {
+              // Found a line with team, look for player name before it
+              const nameLine = lines[j - 1] || '';
+              if (nameLine && !slotPatterns.includes(nameLine) && nameLine.length > 3) {
+                playerMatches.push({ name: nameLine.replace(/\s+/g, ' ').trim(), index: i });
+              }
+              break;
+            }
+          }
+        }
+      }
     }
 
-    const playerSection = parts[0];
-    const statsSection = parts[1];
-
-    console.log('Found player and stats sections');
-
-    // Parse player info
-    const playerLines = playerSection.split('\n');
-    const players: Array<{slot: string, player: string, team: string, position: string, opponent: string}> = [];
+    // Extract player info with slot, team, position, status
+    interface PlayerInfo {
+      slot: string;
+      name: string;
+      team: string;
+      position: string;
+      status?: string;
+      opponent?: string;
+    }
+    
+    const playerInfos: PlayerInfo[] = [];
+    
+    // Parse based on ESPN page structure - look for patterns in text
+    // The pattern is: Slot -> PlayerName (doubled) -> Team -> Positions -> Status -> MOVE -> Opponent
     
     let currentSlot = '';
-    let currentPlayer = '';
-    let currentTeam = '';
-    let currentPosition = '';
-    let currentOpponent = '';
-
-    for (let i = 0; i < playerLines.length; i++) {
-      const line = playerLines[i].trim();
-      const cols = line.split('\t');
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       
-      // Check if this is a slot line (PG, SG, SF, PF, C, G, F/C, UTIL, Bench, IR)
-      if (/^(PG|SG|SF|PF|C|G|F\/C|UTIL|Bench|IR)$/i.test(cols[0])) {
-        // Save previous player if we have one
-        if (currentPlayer) {
-          players.push({
-            slot: currentSlot,
-            player: currentPlayer,
-            team: currentTeam,
-            position: currentPosition,
-            opponent: currentOpponent
-          });
+      // Check for slot
+      if (slotPatterns.includes(line)) {
+        currentSlot = line;
+        continue;
+      }
+      
+      // Check for doubled player name
+      const doubleNameMatch = line.match(/^([A-Z][a-zA-Z'-]+(?:\s+[A-Za-z'-]+)+)\1$/);
+      if (doubleNameMatch) {
+        const playerName = doubleNameMatch[1].trim();
+        
+        // Look ahead for team, position, status
+        let team = '';
+        let position = '';
+        let status = '';
+        let opponent = '';
+        
+        for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
+          const nextLine = lines[j];
+          
+          // Team code (2-4 uppercase letters)
+          if (!team && NBA_TEAMS.includes(nextLine.toUpperCase())) {
+            team = nextLine.toUpperCase();
+            continue;
+          }
+          
+          // Position pattern
+          if (!position && /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i.test(nextLine)) {
+            position = nextLine.toUpperCase();
+            continue;
+          }
+          
+          // Status
+          if (!status && ['DTD', 'O', 'SUSP', 'INJ'].includes(nextLine.toUpperCase())) {
+            status = nextLine.toUpperCase();
+            continue;
+          }
+          
+          // Opponent (starts with @ or is a team code we haven't seen)
+          if (!opponent && team && (nextLine.startsWith('@') || (NBA_TEAMS.includes(nextLine.replace('@', '').toUpperCase()) && nextLine.toUpperCase() !== team))) {
+            opponent = nextLine;
+            continue;
+          }
+          
+          // Stop if we hit MOVE or another slot or STATS
+          if (nextLine === 'MOVE' || slotPatterns.includes(nextLine) || nextLine === 'STATS') {
+            break;
+          }
         }
         
-        // Start new player
-        currentSlot = cols[0];
-        currentPlayer = '';
-        currentTeam = '';
-        currentPosition = '';
-        currentOpponent = '';
-        continue;
-      }
-
-      // Look for player name (appears on its own line or repeated - ESPN doubles names)
-      if (currentSlot && !currentPlayer) {
-        for (const col of cols) {
-          const trimmed = col.trim();
-          if (trimmed.length > 5 && 
-              !/^(MOVE|PM|AM|--|DTD|O|STARTERS|Bench|IR)$/i.test(trimmed) &&
-              !/^\d/.test(trimmed) && 
-              !trimmed.includes(':') &&
-              /^[A-Za-z\s\.'-]+$/.test(trimmed)) {
-            // Check if name is doubled (e.g., "Jamal MurrayJamal Murray")
-            const halfLen = Math.floor(trimmed.length / 2);
-            const firstHalf = trimmed.substring(0, halfLen);
-            const secondHalf = trimmed.substring(halfLen);
-            if (firstHalf === secondHalf) {
-              currentPlayer = firstHalf;
-            } else {
-              currentPlayer = trimmed;
-            }
-            break;
-          }
-        }
-      }
-
-      // Look for team code (2-4 letters, case insensitive)
-      if (currentSlot && !currentTeam) {
-        for (const col of cols) {
-          const trimmed = col.trim();
-          if (/^[A-Za-z]{2,4}$/.test(trimmed) && !/^(MOVE|DTD|SLOT|OPP|MIN|PTS|REB|AST|STL|BLK)$/i.test(trimmed)) {
-            currentTeam = trimmed.toUpperCase();
-            break;
-          }
-        }
-      }
-
-      // Look for position (PG, SG, SF, PF, C or combinations with commas)
-      if (currentSlot && !currentPosition) {
-        for (const col of cols) {
-          const trimmed = col.trim();
-          if (/^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/.test(trimmed)) {
-            currentPosition = trimmed;
-            break;
-          }
-        }
-      }
-
-      // Look for opponent (@ prefix or another team code after we have our team)
-      if (currentSlot && currentTeam && !currentOpponent) {
-        for (const col of cols) {
-          const trimmed = col.trim();
-          if (trimmed.startsWith('@')) {
-            currentOpponent = trimmed;
-            break;
-          } else if (/^[A-Z]{2,4}$/.test(trimmed) && trimmed !== currentTeam && trimmed !== 'MOVE') {
-            currentOpponent = trimmed;
-            break;
-          }
-        }
+        playerInfos.push({
+          slot: currentSlot || 'Bench',
+          name: playerName,
+          team,
+          position,
+          status: status || undefined,
+          opponent: opponent || undefined
+        });
       }
     }
 
-    // Don't forget the last player
-    if (currentPlayer) {
-      players.push({
-        slot: currentSlot,
-        player: currentPlayer,
-        team: currentTeam,
-        position: currentPosition,
-        opponent: currentOpponent
-      });
+    console.log(`Parsed ${playerInfos.length} player infos`);
+
+    // Parse stats section
+    const statsIdx = data.indexOf('STATS');
+    if (statsIdx === -1) {
+      console.log('No STATS section found');
+      return playerInfos.map(p => ({
+        slot: p.slot,
+        player: p.name,
+        team: p.team,
+        position: p.position,
+        opponent: p.opponent || '',
+        status: p.status,
+        minutes: 0, fgPct: 0, ftPct: 0, threepm: 0,
+        rebounds: 0, assists: 0, steals: 0, blocks: 0,
+        turnovers: 0, points: 0
+      }));
     }
 
-    console.log(`Found ${players.length} players:`, players.map(p => p.player));
-
-    // Parse stats section - handle ESPN "Last 15" copy format where each stat value is on its own line
-    const statsLines = statsSection
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-
-    // Collect only numeric-ish tokens that represent stats values
+    // Get stats section and parse numbers
+    const statsSection = data.substring(statsIdx);
+    const statsLines = statsSection.split('\n').map(l => l.trim()).filter(l => l);
+    
+    // Collect numeric values (skip headers like MIN, FG%, etc.)
     const statTokens: string[] = [];
+    const skipPatterns = /^(STATS|Research|MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-)$/i;
+    
     for (const line of statsLines) {
-      // Skip obvious non-stat lines
-      if (/^(STATS|Research|MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-)$/i.test(line)) {
-        continue;
-      }
-
-      // Tokens we care about: numbers (including those starting with "."), "--" placeholders, or fractions
-      if (/^[-+]?\d*\.?\d+$/.test(line) || line === "--" || /\d+\.\d+\/\d+\.\d+/.test(line)) {
+      if (skipPatterns.test(line)) continue;
+      
+      // Accept numbers (including those starting with .), "--", or fractions
+      if (/^[-+]?\d*\.?\d+$/.test(line) || line === '--' || /^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
         statTokens.push(line);
       }
     }
 
-    console.log("Collected stat tokens", { count: statTokens.length });
+    console.log(`Collected ${statTokens.length} stat tokens`);
 
-    // ESPN stats table has 15 columns: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
+    // ESPN has 15 columns per player
     const COLUMNS_PER_PLAYER = 15;
     const statsData: number[][] = [];
+    const numRows = Math.floor(statTokens.length / COLUMNS_PER_PLAYER);
 
-    const expectedRows = Math.floor(statTokens.length / COLUMNS_PER_PLAYER);
-
-    for (let row = 0; row < expectedRows; row++) {
+    for (let row = 0; row < numRows; row++) {
       const base = row * COLUMNS_PER_PLAYER;
       const slice = statTokens.slice(base, base + COLUMNS_PER_PLAYER);
-
-      const numericSlice = slice.map((token) => {
-        // We ignore made/attempt lines like "9.7/18.4" and just return 0 for them
-        if (/^--$/.test(token) || /\d+\.\d+\/\d+\.\d+/.test(token)) {
-          return 0;
-        }
-        const val = parseFloat(token.replace(/^[+]/, ""));
+      
+      const numericSlice = slice.map(token => {
+        if (token === '--' || /\//.test(token)) return 0;
+        const val = parseFloat(token.replace(/^\+/, ''));
         return isNaN(val) ? 0 : val;
       });
-
+      
       statsData.push(numericSlice);
     }
 
-    console.log(`Built ${statsData.length} stat rows from tokens`);
+    console.log(`Built ${statsData.length} stat rows`);
 
-    // Match players with stats by index
-    const result: PlayerStats[] = [];
-    const maxLen = Math.min(players.length, statsData.length);
-
+    // Match players with stats
+    const maxLen = Math.min(playerInfos.length, statsData.length);
+    
     for (let i = 0; i < maxLen; i++) {
-      const playerInfo = players[i];
+      const p = playerInfos[i];
       const stats = statsData[i];
-
+      
       result.push({
-        slot: playerInfo.slot,
-        player: playerInfo.player,
-        team: playerInfo.team,
-        position: playerInfo.position,
-        opponent: playerInfo.opponent,
+        slot: p.slot,
+        player: p.name,
+        team: p.team,
+        position: p.position,
+        opponent: p.opponent || '',
+        status: p.status,
         minutes: stats[0] || 0,
         fgPct: stats[2] || 0,
         ftPct: stats[4] || 0,
@@ -212,9 +232,25 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       });
     }
 
+    // Add remaining players without stats
+    for (let i = maxLen; i < playerInfos.length; i++) {
+      const p = playerInfos[i];
+      result.push({
+        slot: p.slot,
+        player: p.name,
+        team: p.team,
+        position: p.position,
+        opponent: p.opponent || '',
+        status: p.status,
+        minutes: 0, fgPct: 0, ftPct: 0, threepm: 0,
+        rebounds: 0, assists: 0, steals: 0, blocks: 0,
+        turnovers: 0, points: 0
+      });
+    }
+
     console.log(`Returning ${result.length} complete player records`);
     return result;
-   };
+  };
 
   const handleParse = () => {
     if (!rawData.trim()) {
@@ -232,7 +268,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       if (parsedData.length === 0) {
         toast({
           title: "No players found",
-          description: "Could not parse any player data. Make sure you copied the full table from ESPN.",
+          description: "Could not parse any player data. Make sure you copied the full page from ESPN.",
           variant: "destructive",
         });
         return;
@@ -244,6 +280,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         description: `Loaded ${parsedData.length} players`,
       });
     } catch (error) {
+      console.error('Parse error:', error);
       toast({
         title: "Parse error",
         description: "Could not parse the data. Please check the format.",
@@ -261,13 +298,13 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         <div>
           <h2 className="text-2xl font-display font-bold">Import ESPN Data</h2>
           <p className="text-sm text-muted-foreground">
-            Copy and paste your player stats from ESPN Fantasy
+            Copy the entire ESPN roster page (Ctrl+A) and paste here
           </p>
         </div>
       </div>
 
       <Textarea
-        placeholder="Paste your complete ESPN roster here - include both the player names section and the stats section below it..."
+        placeholder="Paste the ENTIRE ESPN roster page here (Ctrl+A to select all, then Ctrl+C to copy)..."
         value={rawData}
         onChange={(e) => setRawData(e.target.value)}
         className="min-h-[200px] font-mono text-sm mb-4 bg-muted/50"
@@ -285,10 +322,9 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         <h3 className="text-sm font-semibold mb-2">How to copy from ESPN:</h3>
         <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
           <li>Go to your ESPN Fantasy Basketball team roster page</li>
-          <li>Click and drag to select your entire roster table</li>
-          <li>Make sure to include both the player names AND the stats section below</li>
-          <li>Copy (Ctrl+C or Cmd+C) and paste here</li>
-          <li>Click "Load Players" to analyze</li>
+          <li>Press Ctrl+A (or Cmd+A) to select the entire page</li>
+          <li>Press Ctrl+C (or Cmd+C) to copy</li>
+          <li>Paste here and click "Load Players"</li>
         </ol>
       </div>
     </Card>

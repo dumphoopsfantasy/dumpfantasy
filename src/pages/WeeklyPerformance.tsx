@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Trophy, Upload, RefreshCw } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 
 interface MatchupTeam {
@@ -33,6 +34,7 @@ export const WeeklyPerformance = () => {
   const [rawData, setRawData] = useState("");
   const [matchups, setMatchups] = useState<Matchup[]>([]);
   const [weekTitle, setWeekTitle] = useState("");
+  const { toast } = useToast();
 
   const parseWeeklyData = (data: string): { matchups: Matchup[]; week: string } => {
     const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
@@ -43,58 +45,108 @@ export const WeeklyPerformance = () => {
     const weekMatch = lines.find(l => l.toLowerCase().includes('matchup') && l.includes('(') && l.includes('-'));
     if (weekMatch) week = weekMatch;
     
-    // Find stat blocks: ABBR followed by 9 numbers
-    const statBlockRegex = /^([A-Za-z]+)\s+([.\d]+)\s+([.\d]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$/;
+    // Look for team abbreviation followed by 9 stat numbers on same or subsequent lines
+    // ESPN format can be: ABBR .485 .812 52 198 112 42 24 58 542
+    // Or spread across lines
     
-    const statBlocks: { abbr: string; stats: number[] }[] = [];
+    interface TeamBlock {
+      abbr: string;
+      name: string;
+      record: string;
+      stats: number[];
+    }
     
-    for (const line of lines) {
-      const match = line.match(statBlockRegex);
+    const teamBlocks: TeamBlock[] = [];
+    
+    // Find stat rows - look for lines with abbreviation followed by numbers
+    const statRowRegex = /^([A-Za-z]{2,6})\s+([.\d]+)\s+([.\d]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const match = line.match(statRowRegex);
       if (match) {
-        statBlocks.push({
+        teamBlocks.push({
           abbr: match[1],
+          name: match[1],
+          record: '',
           stats: match.slice(2).map(n => parseFloat(n))
         });
       }
     }
     
-    // Find team name/record headers
-    const teamHeaders: { name: string; record: string; weekRecord: string }[] = [];
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    // If no inline stat rows found, try separate parsing
+    if (teamBlocks.length === 0) {
+      // Look for team abbreviations (2-4 letters that appear before stats)
+      const abbrs: string[] = [];
+      const statSets: number[][] = [];
       
-      const recordMatch = line.match(/^\((\d+-\d+-\d+),\s*\d+\w*\)$/);
-      if (recordMatch && i > 0) {
-        const teamName = lines[i - 1];
-        const weekRecord = i + 1 < lines.length && lines[i + 1].match(/^\d+-\d+-\d+$/) 
-          ? lines[i + 1] 
-          : '';
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         
-        if (teamName && !teamName.match(/^\d/) && teamName.length > 2) {
-          teamHeaders.push({
-            name: teamName,
-            record: recordMatch[1],
-            weekRecord
-          });
+        // Check if this is a potential team abbreviation
+        if (/^[A-Z]{2,6}$/i.test(line) && !['FG', 'FT', 'PM', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PTS'].includes(line.toUpperCase())) {
+          // Look ahead for 9 numbers
+          const nums: number[] = [];
+          for (let j = i + 1; j < lines.length && nums.length < 9; j++) {
+            const numLine = lines[j];
+            if (/^[.\d]+$/.test(numLine)) {
+              nums.push(parseFloat(numLine));
+            } else if (nums.length > 0) {
+              break; // Stop if we hit non-numbers after finding some
+            }
+          }
+          
+          if (nums.length >= 9) {
+            abbrs.push(line);
+            statSets.push(nums.slice(0, 9));
+          }
         }
+      }
+      
+      // Match abbrs with stats
+      for (let i = 0; i < Math.min(abbrs.length, statSets.length); i++) {
+        teamBlocks.push({
+          abbr: abbrs[i],
+          name: abbrs[i],
+          record: '',
+          stats: statSets[i]
+        });
       }
     }
     
-    // Match headers with stat blocks in pairs
-    for (let i = 0; i + 1 < statBlocks.length; i += 2) {
-      const block1 = statBlocks[i];
-      const block2 = statBlocks[i + 1];
-      
-      const header1 = teamHeaders[i] || { name: block1.abbr, record: '', weekRecord: '' };
-      const header2 = teamHeaders[i + 1] || { name: block2.abbr, record: '', weekRecord: '' };
+    // Find team names and records
+    const teamNameRecordRegex = /^(.+)\s*\((\d+-\d+-\d+),/;
+    const teamRecords: { name: string; record: string }[] = [];
+    
+    for (const line of lines) {
+      const match = line.match(teamNameRecordRegex);
+      if (match) {
+        teamRecords.push({
+          name: match[1].trim(),
+          record: match[2]
+        });
+      }
+    }
+    
+    // Look for week records (standalone W-L-T patterns)
+    const weekRecords: string[] = [];
+    for (const line of lines) {
+      if (/^\d-\d-\d$/.test(line)) {
+        weekRecords.push(line);
+      }
+    }
+    
+    // Build matchups (pair consecutive teams)
+    for (let i = 0; i + 1 < teamBlocks.length; i += 2) {
+      const block1 = teamBlocks[i];
+      const block2 = teamBlocks[i + 1];
       
       result.push({
         team1: {
           abbr: block1.abbr,
-          name: header1.name,
-          record: header1.record,
-          weekRecord: header1.weekRecord,
+          name: teamRecords[i]?.name || block1.name,
+          record: teamRecords[i]?.record || '',
+          weekRecord: weekRecords[i] || '',
           stats: {
             fgPct: block1.stats[0],
             ftPct: block1.stats[1],
@@ -109,9 +161,9 @@ export const WeeklyPerformance = () => {
         },
         team2: {
           abbr: block2.abbr,
-          name: header2.name,
-          record: header2.record,
-          weekRecord: header2.weekRecord,
+          name: teamRecords[i + 1]?.name || block2.name,
+          record: teamRecords[i + 1]?.record || '',
+          weekRecord: weekRecords[i + 1] || '',
           stats: {
             fgPct: block2.stats[0],
             ftPct: block2.stats[1],
@@ -131,12 +183,29 @@ export const WeeklyPerformance = () => {
   };
 
   const handleParse = () => {
-    if (!rawData.trim()) return;
+    if (!rawData.trim()) {
+      toast({
+        title: "No data",
+        description: "Please paste your weekly scoreboard data first",
+        variant: "destructive",
+      });
+      return;
+    }
     
     const { matchups: parsed, week } = parseWeeklyData(rawData);
     if (parsed.length > 0) {
       setMatchups(parsed);
       setWeekTitle(week);
+      toast({
+        title: "Success!",
+        description: `Loaded ${parsed.length} matchups`,
+      });
+    } else {
+      toast({
+        title: "No matchups found",
+        description: "Could not parse any matchup data. Try copying the entire ESPN scoreboard page.",
+        variant: "destructive",
+      });
     }
   };
 
