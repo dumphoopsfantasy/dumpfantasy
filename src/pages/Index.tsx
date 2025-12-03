@@ -33,8 +33,8 @@ interface WeeklyMatchup {
 }
 
 interface MatchupProjectionData {
-  myTeam: { name: string; stats: MatchupStats };
-  opponent: { name: string; stats: MatchupStats };
+  myTeam: { name: string; record: string; standing: string; lastMatchup?: string; stats: MatchupStats };
+  opponent: { name: string; record: string; standing: string; lastMatchup?: string; stats: MatchupStats };
 }
 
 const Index = () => {
