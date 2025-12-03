@@ -156,6 +156,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       }
       
       if (validCount > 0) {
+        // Return averages for all stats (like TeamAverages component)
         return {
           info: {
             name: teamName || "Team",
@@ -166,13 +167,13 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
           stats: {
             fgPct: totals.fgPct / validCount,
             ftPct: totals.ftPct / validCount,
-            threepm: totals.threepm,
-            rebounds: totals.rebounds,
-            assists: totals.assists,
-            steals: totals.steals,
-            blocks: totals.blocks,
-            turnovers: totals.turnovers,
-            points: totals.points,
+            threepm: totals.threepm / validCount,
+            rebounds: totals.rebounds / validCount,
+            assists: totals.assists / validCount,
+            steals: totals.steals / validCount,
+            blocks: totals.blocks / validCount,
+            turnovers: totals.turnovers / validCount,
+            points: totals.points / validCount,
           }
         };
       }
