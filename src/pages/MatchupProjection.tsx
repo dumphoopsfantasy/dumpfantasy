@@ -38,12 +38,13 @@ interface MatchupData {
 interface MatchupProjectionProps {
   persistedMatchup: MatchupData | null;
   onMatchupChange: (data: MatchupData | null) => void;
+  statWindow?: string;
 }
 
 const COUNTING_STATS = ['threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'];
 const MULTIPLIER = 40;
 
-export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: MatchupProjectionProps) => {
+export const MatchupProjection = ({ persistedMatchup, onMatchupChange, statWindow = "Last 15" }: MatchupProjectionProps) => {
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
 
@@ -265,7 +266,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
             <div>
               <p className="font-semibold text-primary">How Projections Work</p>
               <ul className="text-sm text-muted-foreground space-y-1 mt-1">
-                <li>• All stats are <strong>Last 15 AVERAGES</strong> (per game)</li>
+                <li>• All stats are <strong>{statWindow} AVERAGES</strong> (per game) - match this to your ESPN view</li>
                 <li>• <strong>Counting stats</strong> (3PM, REB, AST, STL, BLK, TO, PTS) are multiplied by <strong>×{MULTIPLIER}</strong></li>
                 <li>• <strong>Percentages</strong> (FG%, FT%) are NOT multiplied</li>
                 <li>• The ×{MULTIPLIER} simulates a full matchup week (~40 player-games)</li>
@@ -363,8 +364,8 @@ Navigate to their team page and copy the whole page.`}
         <div className="flex items-center gap-2 text-xs">
           <Info className="w-4 h-4 text-amber-400" />
           <span className="text-muted-foreground">
-            Stats are <strong className="text-amber-400">Last 15 Averages</strong>. 
-            Counting stats (3PM, REB, AST, STL, BLK, TO, PTS) × <strong className="text-amber-400">{MULTIPLIER}</strong> for weekly projection.
+            Stats based on <strong className="text-amber-400">{statWindow} Averages</strong>. 
+            Counting stats × <strong className="text-amber-400">{MULTIPLIER}</strong> for weekly projection.
             FG% and FT% are NOT multiplied.
           </span>
         </div>

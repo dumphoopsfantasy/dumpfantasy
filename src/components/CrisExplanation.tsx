@@ -55,11 +55,11 @@ export const CrisExplanation = () => {
           <div className="border-t border-border pt-3">
             <p className="font-semibold text-amber-400">Important Notes:</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1 text-xs">
-              <li>All stats shown are <strong>Last 15 AVERAGES</strong> (per game)</li>
+              <li>All stats are based on <strong>your selected stat window</strong> from ESPN (Last 7, Last 15, Last 30, Season)</li>
               <li>Matchup projections multiply counting stats by <strong>×40</strong> to simulate a full week (~40 player-games)</li>
               <li>FG% and FT% are NOT multiplied (they stay as percentages)</li>
               <li>Players WITHOUT any stats are excluded from CRI calculations</li>
-              <li>IR players WITH stats (like RJ Barrett) ARE included in rankings</li>
+              <li>IR players WITH stats ARE included in rankings</li>
             </ul>
           </div>
         </Card>

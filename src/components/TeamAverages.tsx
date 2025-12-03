@@ -3,11 +3,12 @@ import { Card } from "@/components/ui/card";
 
 interface TeamAveragesProps {
   players: PlayerStats[];
+  statWindow?: string;
 }
 
 const WEEKLY_MULTIPLIER = 40;
 
-export const TeamAverages = ({ players }: TeamAveragesProps) => {
+export const TeamAverages = ({ players, statWindow = "Last 15" }: TeamAveragesProps) => {
   const activePlayers = players.filter(p => p.minutes > 0);
   const count = activePlayers.length || 1;
 
@@ -37,7 +38,10 @@ export const TeamAverages = ({ players }: TeamAveragesProps) => {
   return (
     <Card className="gradient-card shadow-card border-border p-4 mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-display font-bold text-muted-foreground">TEAM AVERAGES</h3>
+        <div>
+          <h3 className="text-sm font-display font-bold text-muted-foreground">TEAM AVERAGES</h3>
+          <p className="text-xs text-primary">Based on: {statWindow}</p>
+        </div>
         <span className="text-xs text-muted-foreground">Weekly projection (×{WEEKLY_MULTIPLIER})</span>
       </div>
       <div className="grid grid-cols-5 md:grid-cols-9 gap-2">
