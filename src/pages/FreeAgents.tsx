@@ -10,99 +10,129 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, X, GitCompare, Upload, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CrisToggle } from "@/components/CrisToggle";
+import { CrisExplanation } from "@/components/CrisExplanation";
+import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
+
+interface FreeAgentPlayer extends Player {
+  cris: number;
+  wCris: number;
+}
 
 export const FreeAgents = () => {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [rawPlayers, setRawPlayers] = useState<Player[]>([]);
   const [rawData, setRawData] = useState("");
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("cris");
-  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [compareList, setCompareList] = useState<Player[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<FreeAgentPlayer | null>(null);
+  const [compareList, setCompareList] = useState<FreeAgentPlayer[]>([]);
+  const [useCris, setUseCris] = useState(true);
 
   const parseESPNFreeAgents = (data: string): Player[] => {
     const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
     const result: Player[] = [];
     
-    // Find stats section - look for "STATS" followed by "Research" then stat headers
-    const statsHeaderIdx = lines.findIndex(l => l === 'STATS');
-    if (statsHeaderIdx === -1) return result;
+    // Find the stats header line (MIN FGM/FGA FG%...)
+    const statsIdx = lines.findIndex(l => l === 'MIN');
+    if (statsIdx === -1) return result;
     
-    // Find stat lines - they have many numbers like "27.4 5.7/10.6 .539 ..."
-    const statLineRegex = /^[\d.]+\s+[\d.]+\/[\d.]+\s+[.\d]+\s+[\d.]+\/[\d.]+\s+[.\d]+/;
-    
-    // Collect all stat lines first
-    const statLines: string[] = [];
-    for (let i = statsHeaderIdx; i < lines.length; i++) {
-      if (statLineRegex.test(lines[i])) {
-        statLines.push(lines[i]);
+    // Find all stat rows - they start with a number (minutes) and have many values
+    const statLines: number[][] = [];
+    for (let i = statsIdx; i < lines.length; i++) {
+      const line = lines[i];
+      // Match stat line: starts with minutes (number), contains / for FGM/FGA
+      if (line.match(/^[\d.]+\s/) && line.includes('/')) {
+        const parts = line.split(/\s+/);
+        if (parts.length >= 12) {
+          const nums = [
+            parseFloat(parts[0]),  // MIN
+            parseFloat(parts[2]),  // FG%
+            parseFloat(parts[4]),  // FT%
+            parseFloat(parts[5]),  // 3PM
+            parseFloat(parts[6]),  // REB
+            parseFloat(parts[7]),  // AST
+            parseFloat(parts[8]),  // STL
+            parseFloat(parts[9]),  // BLK
+            parseFloat(parts[10]), // TO
+            parseFloat(parts[11]), // PTS
+            parts.length > 13 ? parseFloat(parts[13]) : 0, // %ROST
+          ];
+          if (!nums.some(isNaN)) {
+            statLines.push(nums);
+          }
+        }
       }
     }
     
-    // Now find player entries before STATS section
-    // Players appear as: PlayerNamePlayerName (doubled), then Team, then Status (optional), then Positions
+    // Parse player entries before stats section
+    // Look for pattern: Name, Team (2-4 letters), optional Status, Position(s)
     const playerEntries: { name: string; team: string; positions: string[]; status?: string }[] = [];
     
-    for (let i = 0; i < statsHeaderIdx; i++) {
+    let i = 0;
+    while (i < statsIdx) {
       const line = lines[i];
       
-      // Check for doubled player name like "Ayo DosunmuAyo Dosunmu"
-      const doubleNameMatch = line.match(/^([A-Z][a-zA-Z'.-]+(?: (?:Jr\.|Sr\.|III|II|IV|[A-Z][a-zA-Z'.-]+))+)\1$/);
-      if (doubleNameMatch) {
-        playerEntries.push({ name: doubleNameMatch[1], team: '', positions: [] });
+      // Skip known headers and navigation
+      if (['STATS', 'Research', 'MIN', 'FGM/FGA', 'Watch List', 'Filter', 'Available'].includes(line)) {
+        i++;
         continue;
       }
       
-      // Team abbreviation (2-4 uppercase letters)
-      if (line.match(/^[A-Z]{2,4}$/) && playerEntries.length > 0) {
-        const lastPlayer = playerEntries[playerEntries.length - 1];
-        if (!lastPlayer.team) {
-          lastPlayer.team = line;
+      // Player name - look for doubled name pattern OR reasonable name length
+      // ESPN format often has: "Ayo DosunmuAyo Dosunmu" (name repeated)
+      const doubleMatch = line.match(/^([A-Z][a-zA-Z'.-]+(?: [A-Z][a-zA-Z'.-]+)+)\1$/);
+      if (doubleMatch) {
+        playerEntries.push({ name: doubleMatch[1], team: '', positions: [] });
+        i++;
+        continue;
+      }
+      
+      // Single name (for simpler parsing) - skip if it looks like a header
+      if (line.match(/^[A-Z][a-z]+(?: [A-Z][a-z'.]+)+$/) && 
+          !['Player Name', 'Pro Team', 'Health', 'Compare Players'].includes(line) &&
+          line.length > 4 && line.length < 30) {
+        // Check if this isn't already the last player's name
+        const exists = playerEntries.find(p => p.name === line);
+        if (!exists) {
+          playerEntries.push({ name: line, team: '', positions: [] });
         }
-        continue;
       }
       
-      // Status (O, DTD, GTD, etc)
+      // Team code (2-4 uppercase)
+      if (line.match(/^[A-Z]{2,4}$/) && playerEntries.length > 0) {
+        const last = playerEntries[playerEntries.length - 1];
+        if (!last.team) {
+          last.team = line;
+        }
+      }
+      
+      // Status
       if (['O', 'DTD', 'GTD', 'IR', 'SUSP'].includes(line.toUpperCase()) && playerEntries.length > 0) {
         playerEntries[playerEntries.length - 1].status = line.toUpperCase();
-        continue;
       }
       
-      // Positions (PG, SG, SF, PF, C or combos)
+      // Positions
       const posMatch = line.match(/^((?:PG|SG|SF|PF|C|G|F)(?:,\s*(?:PG|SG|SF|PF|C|G|F))*)$/i);
       if (posMatch && playerEntries.length > 0) {
         playerEntries[playerEntries.length - 1].positions = posMatch[1].toUpperCase().split(/,\s*/);
+      }
+      
+      // FA marker - skip
+      if (line === 'FA' || line.match(/^WA \(/)) {
+        i++;
         continue;
       }
+      
+      i++;
     }
     
-    // Filter valid players (have team and positions)
+    // Filter valid players and match with stats
     const validPlayers = playerEntries.filter(p => p.team && p.positions.length > 0);
     
-    // Parse each stat line and match to player
     for (let j = 0; j < Math.min(validPlayers.length, statLines.length); j++) {
       const player = validPlayers[j];
-      const statLine = statLines[j];
-      
-      // Parse stat line: MIN FGM/FGA FG% FTM/FTA FT% 3PM REB AST STL BLK TO PTS PR15 %ROST +/-
-      const parts = statLine.split(/\s+/);
-      if (parts.length < 12) continue;
-      
-      const minutes = parseFloat(parts[0]);
-      // parts[1] is FGM/FGA, skip
-      const fgPct = parseFloat(parts[2]);
-      // parts[3] is FTM/FTA, skip
-      const ftPct = parseFloat(parts[4]);
-      const threepm = parseFloat(parts[5]);
-      const rebounds = parseFloat(parts[6]);
-      const assists = parseFloat(parts[7]);
-      const steals = parseFloat(parts[8]);
-      const blocks = parseFloat(parts[9]);
-      const turnovers = parseFloat(parts[10]);
-      const points = parseFloat(parts[11]);
-      const rostPct = parts.length > 13 ? parseFloat(parts[13]) : 0;
-      
-      const cris = calculateCRIS({ fgPct, ftPct, threepm, rebounds, assists, steals, blocks, turnovers, points });
+      const stats = statLines[j];
       
       result.push({
         id: `fa-${j}`,
@@ -110,61 +140,47 @@ export const FreeAgents = () => {
         nbaTeam: player.team,
         positions: player.positions,
         status: player.status as "DTD" | "IR" | "O" | "SUSP" | "healthy" | undefined,
-        minutes,
-        fgm: 0, fga: 0, fgPct,
-        ftm: 0, fta: 0, ftPct,
-        threepm, rebounds, assists, steals, blocks, turnovers, points,
-        cris,
-        rostPct,
+        minutes: stats[0],
+        fgm: 0, fga: 0, fgPct: stats[1],
+        ftm: 0, fta: 0, ftPct: stats[2],
+        threepm: stats[3],
+        rebounds: stats[4],
+        assists: stats[5],
+        steals: stats[6],
+        blocks: stats[7],
+        turnovers: stats[8],
+        points: stats[9],
+        rostPct: stats[10],
       });
     }
     
     return result;
   };
 
-  // CRIS calculation - weighted category performance
-  const calculateCRIS = (stats: {
-    fgPct: number; ftPct: number; threepm: number; rebounds: number;
-    assists: number; steals: number; blocks: number; turnovers: number; points: number;
-  }): number => {
-    const weights = {
-      points: 1.0,
-      rebounds: 1.2,
-      assists: 1.5,
-      steals: 2.0,
-      blocks: 2.0,
-      threepm: 1.3,
-      fgPct: 1.0,
-      ftPct: 0.8,
-      turnovers: -1.5,
-    };
-    
-    const baselines = {
-      points: 12, rebounds: 5, assists: 3, steals: 1, blocks: 0.5,
-      threepm: 1.5, fgPct: 0.45, ftPct: 0.75, turnovers: 2,
-    };
-    
-    let score = 0;
-    score += ((stats.points - baselines.points) / baselines.points) * weights.points * 10;
-    score += ((stats.rebounds - baselines.rebounds) / baselines.rebounds) * weights.rebounds * 10;
-    score += ((stats.assists - baselines.assists) / baselines.assists) * weights.assists * 10;
-    score += ((stats.steals - baselines.steals) / baselines.steals) * weights.steals * 10;
-    score += ((stats.blocks - baselines.blocks) / Math.max(baselines.blocks, 0.1)) * weights.blocks * 10;
-    score += ((stats.threepm - baselines.threepm) / baselines.threepm) * weights.threepm * 10;
-    score += ((stats.fgPct - baselines.fgPct) / baselines.fgPct) * weights.fgPct * 10;
-    score += ((stats.ftPct - baselines.ftPct) / baselines.ftPct) * weights.ftPct * 10;
-    score += ((baselines.turnovers - stats.turnovers) / baselines.turnovers) * Math.abs(weights.turnovers) * 10;
-    
-    return score;
-  };
-
   const handleParse = () => {
     if (!rawData.trim()) return;
     const parsed = parseESPNFreeAgents(rawData);
     if (parsed.length > 0) {
-      setPlayers(parsed);
+      setRawPlayers(parsed);
     }
   };
+
+  // Calculate CRIS for all players
+  const players = useMemo(() => {
+    if (rawPlayers.length === 0) return [];
+    return calculateCRISForAll(rawPlayers.map(p => ({
+      ...p,
+      fgPct: p.fgPct,
+      ftPct: p.ftPct,
+      threepm: p.threepm,
+      rebounds: p.rebounds,
+      assists: p.assists,
+      steals: p.steals,
+      blocks: p.blocks,
+      turnovers: p.turnovers,
+      points: p.points,
+    })));
+  }, [rawPlayers]);
 
   const filteredPlayers = useMemo(() => {
     let result = players;
@@ -180,9 +196,10 @@ export const FreeAgents = () => {
       result = result.filter(p => p.positions.includes(positionFilter));
     }
 
+    const scoreKey = useCris ? 'cris' : 'wCris';
     return result.sort((a, b) => {
       switch (sortBy) {
-        case "cris": return (b.cris || 0) - (a.cris || 0);
+        case "cris": return (b[scoreKey] || 0) - (a[scoreKey] || 0);
         case "points": return b.points - a.points;
         case "rebounds": return b.rebounds - a.rebounds;
         case "assists": return b.assists - a.assists;
@@ -192,9 +209,9 @@ export const FreeAgents = () => {
         default: return 0;
       }
     });
-  }, [players, search, positionFilter, sortBy]);
+  }, [players, search, positionFilter, sortBy, useCris]);
 
-  const toggleCompare = (player: Player) => {
+  const toggleCompare = (player: FreeAgentPlayer) => {
     if (compareList.find(p => p.id === player.id)) {
       setCompareList(compareList.filter(p => p.id !== player.id));
     } else if (compareList.length < 4) {
@@ -234,8 +251,20 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
     );
   }
 
+  const scoreKey = useCris ? 'cris' : 'wCris';
+  const scoreLabel = useCris ? 'CRIS' : 'wCRIS';
+
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Header with CRIS Toggle */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-display font-bold">Free Agents</h2>
+          <CrisExplanation />
+        </div>
+        <CrisToggle useCris={useCris} onChange={setUseCris} />
+      </div>
+
       {/* Filters */}
       <Card className="gradient-card border-border p-4">
         <div className="flex flex-col md:flex-row gap-4">
@@ -266,7 +295,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="cris">CRIS Score</SelectItem>
+              <SelectItem value="cris">{scoreLabel}</SelectItem>
               <SelectItem value="points">Points</SelectItem>
               <SelectItem value="rebounds">Rebounds</SelectItem>
               <SelectItem value="assists">Assists</SelectItem>
@@ -275,7 +304,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectItem value="threepm">3PM</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => setPlayers([])}>
+          <Button variant="outline" size="icon" onClick={() => setRawPlayers([])}>
             <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
@@ -319,8 +348,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     <p className="font-bold">{player.rebounds.toFixed(1)}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">CRIS</p>
-                    <p className="font-bold text-primary">{player.cris?.toFixed(1)}</p>
+                    <p className="text-muted-foreground">{scoreLabel}</p>
+                    <p className="font-bold text-primary">{player[scoreKey]?.toFixed(1)}</p>
                   </div>
                 </div>
               </div>
@@ -329,80 +358,68 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {/* Player Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredPlayers.map((player, idx) => (
-          <Card
-            key={player.id}
-            className={cn(
-              "gradient-card border-border p-4 hover:border-primary/50 transition-all cursor-pointer",
-              compareList.find(p => p.id === player.id) && "border-primary"
-            )}
-            onClick={() => setSelectedPlayer(player)}
-          >
-            <div className="flex items-start gap-3">
-              <div className="relative">
-                <PlayerPhoto name={player.name} size="lg" />
-                <span className="absolute -top-1 -left-1 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                  {idx + 1}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-display font-bold text-lg truncate">{player.name}</h3>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>{player.nbaTeam}</span>
-                  <span>•</span>
-                  <span>{player.positions.join("/")}</span>
-                  {player.status && (
-                    <Badge variant="destructive" className="text-xs">{player.status}</Badge>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <Badge className="bg-primary/20 text-primary border-primary/50 text-xs font-bold">
-                    CRIS: {player.cris?.toFixed(2) || "--"}
-                  </Badge>
-                  <Badge variant="outline" className="text-xs">
-                    {player.rostPct?.toFixed(0)}% Rost
-                  </Badge>
-                </div>
-              </div>
-              <Button
-                variant={compareList.find(p => p.id === player.id) ? "default" : "outline"}
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleCompare(player);
-                }}
-              >
-                <GitCompare className="w-4 h-4" />
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-5 gap-2 mt-4 pt-4 border-t border-border">
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground">PTS</p>
-                <p className="font-display font-bold text-primary">{player.points.toFixed(1)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground">REB</p>
-                <p className="font-display font-bold">{player.rebounds.toFixed(1)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground">AST</p>
-                <p className="font-display font-bold">{player.assists.toFixed(1)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground">STL</p>
-                <p className="font-display font-bold">{player.steals.toFixed(1)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground">BLK</p>
-                <p className="font-display font-bold">{player.blocks.toFixed(1)}</p>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+      {/* Stats Table */}
+      <Card className="gradient-card border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-secondary/20">
+                <th className="text-left p-3 font-display">#</th>
+                <th className="text-left p-3 font-display min-w-[180px]">Player</th>
+                <th className="text-center p-2 font-display">MIN</th>
+                <th className="text-center p-2 font-display">FG%</th>
+                <th className="text-center p-2 font-display">FT%</th>
+                <th className="text-center p-2 font-display">3PM</th>
+                <th className="text-center p-2 font-display">REB</th>
+                <th className="text-center p-2 font-display">AST</th>
+                <th className="text-center p-2 font-display">STL</th>
+                <th className="text-center p-2 font-display">BLK</th>
+                <th className="text-center p-2 font-display">TO</th>
+                <th className="text-center p-2 font-display">PTS</th>
+                <th className="text-center p-2 font-display border-l-2 border-primary/50">{scoreLabel}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPlayers.map((player, idx) => (
+                <tr 
+                  key={player.id} 
+                  className="border-b border-border/50 hover:bg-muted/30 cursor-pointer"
+                  onClick={() => setSelectedPlayer(player as FreeAgentPlayer)}
+                >
+                  <td className="p-2 font-bold text-primary">{idx + 1}</td>
+                  <td className="p-2">
+                    <div className="flex items-center gap-2">
+                      <PlayerPhoto name={player.name} size="sm" />
+                      <div>
+                        <div className="font-semibold">{player.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {player.nbaTeam} • {player.positions.join("/")}
+                          {player.status && player.status !== 'healthy' && (
+                            <Badge variant="destructive" className="text-xs ml-1">{player.status}</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="text-center p-2">{player.minutes.toFixed(1)}</td>
+                  <td className="text-center p-2">{formatPct(player.fgPct)}</td>
+                  <td className="text-center p-2">{formatPct(player.ftPct)}</td>
+                  <td className="text-center p-2">{player.threepm.toFixed(1)}</td>
+                  <td className="text-center p-2">{player.rebounds.toFixed(1)}</td>
+                  <td className="text-center p-2">{player.assists.toFixed(1)}</td>
+                  <td className="text-center p-2">{player.steals.toFixed(1)}</td>
+                  <td className="text-center p-2">{player.blocks.toFixed(1)}</td>
+                  <td className="text-center p-2">{player.turnovers.toFixed(1)}</td>
+                  <td className="text-center p-2">{player.points.toFixed(1)}</td>
+                  <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
+                    {player[scoreKey]?.toFixed(1)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       {selectedPlayer && (
         <PlayerDetailSheet

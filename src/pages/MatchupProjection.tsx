@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw } from "lucide-react";
+import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info } from "lucide-react";
+import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 
 interface TeamStats {
   fgPct: number;
@@ -22,17 +24,8 @@ interface MatchupData {
   opponent: { name: string; stats: TeamStats };
 }
 
-const CATEGORIES = [
-  { key: 'fgPct', label: 'FG%', format: 'pct', lowerIsBetter: false },
-  { key: 'ftPct', label: 'FT%', format: 'pct', lowerIsBetter: false },
-  { key: 'threepm', label: '3PM', format: 'num', lowerIsBetter: false },
-  { key: 'rebounds', label: 'REB', format: 'num', lowerIsBetter: false },
-  { key: 'assists', label: 'AST', format: 'num', lowerIsBetter: false },
-  { key: 'steals', label: 'STL', format: 'num', lowerIsBetter: false },
-  { key: 'blocks', label: 'BLK', format: 'num', lowerIsBetter: false },
-  { key: 'turnovers', label: 'TO', format: 'num', lowerIsBetter: true },
-  { key: 'points', label: 'PTS', format: 'num', lowerIsBetter: false },
-];
+const COUNTING_STATS = ['threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'];
+const MULTIPLIER = 40;
 
 export const MatchupProjection = () => {
   const [myTeamData, setMyTeamData] = useState("");
@@ -43,15 +36,12 @@ export const MatchupProjection = () => {
   const parseTeamStats = (data: string): { name: string; stats: TeamStats } | null => {
     const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
     
-    let teamName = "Your Team";
-    const stats: Partial<TeamStats> = {};
-    
-    // Look for team name and stat values
+    let teamName = "Team";
     const numbers: number[] = [];
     
     for (const line of lines) {
       // Team name might be a line that's not a number
-      if (!line.match(/^[\d.]+$/) && line.length > 2 && !line.toLowerCase().includes('avg')) {
+      if (!line.match(/^[.\d]+$/) && line.length > 2 && !line.toLowerCase().includes('avg')) {
         // Could be team name
         if (!line.match(/^(FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS|MIN)/i)) {
           teamName = line;
@@ -98,10 +88,9 @@ export const MatchupProjection = () => {
     }
   };
 
-  const formatValue = (value: number, format: string) => {
-    if (format === 'pct') {
-      return `.${Math.round(value * 10000).toString().padStart(4, '0').slice(0, 4)}`;
-    }
+  const formatValue = (value: number, format: string, isMultiplied: boolean) => {
+    if (format === 'pct') return formatPct(value);
+    if (isMultiplied) return Math.round(value).toString();
     return value.toFixed(1);
   };
 
@@ -112,6 +101,20 @@ export const MatchupProjection = () => {
         <p className="text-center text-muted-foreground">
           Paste your team's category averages and your opponent's to compare
         </p>
+        
+        {/* Multiplier Notice */}
+        <Card className="p-4 bg-primary/10 border-primary/30">
+          <div className="flex items-start gap-3">
+            <Info className="w-5 h-5 text-primary mt-0.5" />
+            <div>
+              <p className="font-semibold text-primary">Counting Stats Multiplier</p>
+              <p className="text-sm text-muted-foreground">
+                Counting stats (3PM, REB, AST, STL, BLK, TO, PTS) are multiplied by {MULTIPLIER} to simulate an average {MULTIPLIER}-game fantasy week.
+                Percentages (FG%, FT%) are not multiplied.
+              </p>
+            </div>
+          </div>
+        </Card>
         
         <div className="grid md:grid-cols-2 gap-4">
           <Card className="gradient-card shadow-card p-4 border-border">
@@ -167,13 +170,20 @@ export const MatchupProjection = () => {
     );
   }
 
-  // Calculate comparisons
+  // Calculate comparisons with multiplied counting stats
   const comparisons = CATEGORIES.map(cat => {
-    const myValue = matchup.myTeam.stats[cat.key as keyof TeamStats];
-    const theirValue = matchup.opponent.stats[cat.key as keyof TeamStats];
+    const isCountingStat = COUNTING_STATS.includes(cat.key);
+    const multiplier = isCountingStat ? MULTIPLIER : 1;
+    
+    const myRaw = matchup.myTeam.stats[cat.key as keyof TeamStats];
+    const theirRaw = matchup.opponent.stats[cat.key as keyof TeamStats];
+    
+    const myValue = myRaw * multiplier;
+    const theirValue = theirRaw * multiplier;
     
     let winner: 'you' | 'them' | 'tie';
-    if (cat.lowerIsBetter) {
+    // For turnovers, lower is better
+    if (cat.key === 'turnovers') {
       winner = myValue < theirValue ? 'you' : myValue > theirValue ? 'them' : 'tie';
     } else {
       winner = myValue > theirValue ? 'you' : myValue < theirValue ? 'them' : 'tie';
@@ -181,11 +191,12 @@ export const MatchupProjection = () => {
 
     return {
       category: cat.label,
+      key: cat.key,
       myValue,
       theirValue,
       winner,
-      lowerIsBetter: cat.lowerIsBetter,
       format: cat.format,
+      isMultiplied: isCountingStat,
     };
   });
 
@@ -202,6 +213,12 @@ export const MatchupProjection = () => {
           <RefreshCw className="w-4 h-4 mr-2" />
           New Matchup
         </Button>
+      </div>
+
+      {/* Multiplier Notice */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Info className="w-4 h-4" />
+        <span>Counting stats are multiplied by {MULTIPLIER} to simulate an average {MULTIPLIER}-game week.</span>
       </div>
 
       {/* Matchup Summary */}
@@ -263,7 +280,7 @@ export const MatchupProjection = () => {
                 comp.winner === 'you' && "text-stat-positive"
               )}>
                 <p className="font-display font-bold text-2xl md:text-3xl">
-                  {formatValue(comp.myValue, comp.format)}
+                  {formatValue(comp.myValue, comp.format, comp.isMultiplied)}
                 </p>
                 {comp.winner === 'you' && (
                   <div className="flex items-center justify-center gap-1 mt-1">
@@ -282,7 +299,8 @@ export const MatchupProjection = () => {
                   comp.winner === 'tie' && "bg-muted text-muted-foreground"
                 )}>
                   {comp.category}
-                  {comp.lowerIsBetter && <span className="text-xs ml-1">(lower)</span>}
+                  {comp.key === 'turnovers' && <span className="text-xs ml-1">(lower)</span>}
+                  {comp.isMultiplied && <span className="text-xs ml-1">×{MULTIPLIER}</span>}
                 </div>
               </div>
 
@@ -292,7 +310,7 @@ export const MatchupProjection = () => {
                 comp.winner === 'them' && "text-stat-negative"
               )}>
                 <p className="font-display font-bold text-2xl md:text-3xl">
-                  {formatValue(comp.theirValue, comp.format)}
+                  {formatValue(comp.theirValue, comp.format, comp.isMultiplied)}
                 </p>
                 {comp.winner === 'them' && (
                   <div className="flex items-center justify-center gap-1 mt-1">
