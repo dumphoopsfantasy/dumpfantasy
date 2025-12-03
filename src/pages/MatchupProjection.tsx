@@ -24,13 +24,17 @@ interface MatchupData {
   opponent: { name: string; stats: TeamStats };
 }
 
+interface MatchupProjectionProps {
+  persistedMatchup: MatchupData | null;
+  onMatchupChange: (data: MatchupData | null) => void;
+}
+
 const COUNTING_STATS = ['threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'];
 const MULTIPLIER = 40;
 
-export const MatchupProjection = () => {
+export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: MatchupProjectionProps) => {
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
-  const [matchup, setMatchup] = useState<MatchupData | null>(null);
 
   // Parse team stats from ESPN paste (averages section)
   const parseTeamStats = (data: string): { name: string; stats: TeamStats } | null => {
@@ -81,11 +85,18 @@ export const MatchupProjection = () => {
     const oppParsed = parseTeamStats(opponentData);
     
     if (myParsed && oppParsed) {
-      setMatchup({
+      const newMatchup = {
         myTeam: { name: myParsed.name || "Your Team", stats: myParsed.stats },
         opponent: { name: oppParsed.name || "Opponent", stats: oppParsed.stats },
-      });
+      };
+      onMatchupChange(newMatchup);
     }
+  };
+
+  const handleReset = () => {
+    onMatchupChange(null);
+    setMyTeamData("");
+    setOpponentData("");
   };
 
   const formatValue = (value: number, format: string, isMultiplied: boolean) => {
@@ -94,7 +105,7 @@ export const MatchupProjection = () => {
     return value.toFixed(1);
   };
 
-  if (!matchup) {
+  if (!persistedMatchup) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         <h2 className="font-display font-bold text-2xl text-center">Matchup Projection</h2>
@@ -175,8 +186,8 @@ export const MatchupProjection = () => {
     const isCountingStat = COUNTING_STATS.includes(cat.key);
     const multiplier = isCountingStat ? MULTIPLIER : 1;
     
-    const myRaw = matchup.myTeam.stats[cat.key as keyof TeamStats];
-    const theirRaw = matchup.opponent.stats[cat.key as keyof TeamStats];
+    const myRaw = persistedMatchup.myTeam.stats[cat.key as keyof TeamStats];
+    const theirRaw = persistedMatchup.opponent.stats[cat.key as keyof TeamStats];
     
     const myValue = myRaw * multiplier;
     const theirValue = theirRaw * multiplier;
@@ -209,7 +220,7 @@ export const MatchupProjection = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
-        <Button variant="outline" size="sm" onClick={() => setMatchup(null)}>
+        <Button variant="outline" size="sm" onClick={handleReset}>
           <RefreshCw className="w-4 h-4 mr-2" />
           New Matchup
         </Button>
@@ -226,7 +237,7 @@ export const MatchupProjection = () => {
         <div className="flex items-center justify-center gap-4 md:gap-8">
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">You</p>
-            <p className="font-display font-bold text-xl md:text-2xl">{matchup.myTeam.name}</p>
+            <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.myTeam.name}</p>
           </div>
           <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary/30">
             <span className="font-display font-bold text-2xl md:text-4xl text-stat-positive">{wins}</span>
@@ -237,7 +248,7 @@ export const MatchupProjection = () => {
           </div>
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">Opponent</p>
-            <p className="font-display font-bold text-xl md:text-2xl">{matchup.opponent.name}</p>
+            <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.opponent.name}</p>
           </div>
         </div>
 

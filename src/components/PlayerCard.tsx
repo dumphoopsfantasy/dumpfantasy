@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
+import { NBATeamLogo } from "@/components/NBATeamLogo";
 
 interface PlayerCardProps {
   player: PlayerStats;
@@ -105,6 +106,7 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
     )}>
       <div className="flex items-center gap-3 mb-3">
         <PlayerPhoto name={player.player} size="md" />
+        <NBATeamLogo teamCode={player.team} size="sm" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {rank && !hasNoStats && (

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Player } from "@/types/fantasy";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
+import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -502,6 +503,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                   <td className="p-2">
                     <div className="flex items-center gap-2">
                       <PlayerPhoto name={player.name} size="sm" />
+                      <NBATeamLogo teamCode={player.nbaTeam} size="sm" />
                       <div>
                         <div className="font-semibold">{player.name}</div>
                         <div className="text-xs text-muted-foreground">
