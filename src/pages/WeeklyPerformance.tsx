@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Trophy, TrendingUp, TrendingDown, Upload, RefreshCw } from "lucide-react";
+import { Trophy, Upload, RefreshCw } from "lucide-react";
 
 interface MatchupTeam {
   abbr: string;
@@ -50,109 +50,104 @@ export const WeeklyPerformance = () => {
     const result: Matchup[] = [];
     let week = "";
     
-    // Find week title
-    const weekMatch = lines.find(l => l.toLowerCase().includes('matchup'));
-    if (weekMatch) {
-      week = weekMatch;
-    }
+    // Find week title like "Matchup 7 (Dec 1 - 7)"
+    const weekMatch = lines.find(l => l.toLowerCase().includes('matchup') && l.includes('('));
+    if (weekMatch) week = weekMatch;
     
-    // Look for matchup blocks - pattern: Team1 record score vs Team2 record score
-    // Then FG% FT% 3PM REB AST STL BLK TO PTS headers followed by stats
+    // Look for stat blocks: team abbr followed by 9 numbers
+    // Pattern: ABBR .xxxx .xxxx num num num num num num num
+    const statLineRegex = /^([A-Z]{2,5})\s+([.\d]+)\s+([.\d]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$/;
+    
+    // Find team matchup headers like "Bilbo (4-2-0, 2nd) 2-7-0"
+    const teamHeaderRegex = /^(.+?)\s*\((\d+-\d+-\d+),\s*\d+\w*\)\s*(\d+-\d+-\d+)$/;
     
     let i = 0;
     while (i < lines.length) {
       const line = lines[i];
       
-      // Look for team abbreviation followed by stats (e.g., "Bilb .4598 .7561 29 59 41 9 10 24 220")
-      // Or first team line like "Bilbo (4-2-0, 2nd) 2-7-0"
-      
-      // Check if line contains a record pattern like "(4-2-0, 2nd)"
-      const teamRecordMatch = line.match(/^(.+?)\s*\((\d+-\d+-\d+),\s*\w+\)\s*(\d+-\d+-\d+)$/);
-      if (teamRecordMatch) {
-        const team1Name = teamRecordMatch[1].trim();
-        const team1SeasonRecord = teamRecordMatch[2];
-        const team1WeekRecord = teamRecordMatch[3];
+      // Try to match team header
+      const team1Match = line.match(teamHeaderRegex);
+      if (team1Match) {
+        const team1Name = team1Match[1].trim();
+        const team1Record = team1Match[2];
+        const team1WeekRecord = team1Match[3];
         
-        // Next line should be team 2
+        // Look for second team
         i++;
-        if (i >= lines.length) break;
-        
-        const team2Match = lines[i].match(/^(.+?)\s*\((\d+-\d+-\d+),\s*\w+\)\s*(\d+-\d+-\d+)$/);
-        if (team2Match) {
-          const team2Name = team2Match[1].trim();
-          const team2SeasonRecord = team2Match[2];
-          const team2WeekRecord = team2Match[3];
-          
-          // Skip to stats header (FG% FT% 3PM...)
-          while (i < lines.length && !lines[i].toLowerCase().includes('fg%')) {
+        while (i < lines.length) {
+          const team2Match = lines[i].match(teamHeaderRegex);
+          if (team2Match) {
+            const team2Name = team2Match[1].trim();
+            const team2Record = team2Match[2];
+            const team2WeekRecord = team2Match[3];
+            
+            // Now find stat lines
+            let team1Stats: number[] | null = null;
+            let team2Stats: number[] | null = null;
+            let team1Abbr = "";
+            let team2Abbr = "";
+            
             i++;
-          }
-          i++; // Skip header
-          
-          // Next lines should be team stats
-          // Format: ABBR .xxxx .xxxx num num num num num num num
-          const stats1: number[] = [];
-          const stats2: number[] = [];
-          let team1Abbr = "";
-          let team2Abbr = "";
-          
-          // Look for stat lines
-          for (let j = 0; j < 10 && i < lines.length; j++) {
-            const statLine = lines[i].trim();
-            const statMatch = statLine.match(/^(\w+)\s+([.\d]+)\s+([.\d]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$/);
-            if (statMatch) {
-              const abbr = statMatch[1];
-              const nums = statMatch.slice(2).map(n => parseFloat(n));
-              if (stats1.length === 0) {
-                team1Abbr = abbr;
-                stats1.push(...nums);
-              } else if (stats2.length === 0) {
-                team2Abbr = abbr;
-                stats2.push(...nums);
-                break;
+            while (i < lines.length && (!team1Stats || !team2Stats)) {
+              const statMatch = lines[i].match(statLineRegex);
+              if (statMatch) {
+                const abbr = statMatch[1];
+                const nums = statMatch.slice(2).map(n => parseFloat(n));
+                if (!team1Stats) {
+                  team1Abbr = abbr;
+                  team1Stats = nums;
+                } else if (!team2Stats) {
+                  team2Abbr = abbr;
+                  team2Stats = nums;
+                }
               }
+              // Stop if we hit next matchup header or specific keywords
+              if (lines[i].match(teamHeaderRegex) && team1Stats) break;
+              if (lines[i].toLowerCase().includes('matchup') && lines[i].toLowerCase().includes('box')) break;
+              i++;
             }
-            i++;
-          }
-          
-          if (stats1.length === 9 && stats2.length === 9) {
-            result.push({
-              team1: {
-                abbr: team1Abbr,
-                name: team1Name,
-                record: team1SeasonRecord,
-                weekRecord: team1WeekRecord,
-                stats: {
-                  fgPct: stats1[0],
-                  ftPct: stats1[1],
-                  threepm: stats1[2],
-                  rebounds: stats1[3],
-                  assists: stats1[4],
-                  steals: stats1[5],
-                  blocks: stats1[6],
-                  turnovers: stats1[7],
-                  points: stats1[8],
+            
+            if (team1Stats && team2Stats && team1Stats.length === 9 && team2Stats.length === 9) {
+              result.push({
+                team1: {
+                  abbr: team1Abbr,
+                  name: team1Name,
+                  record: team1Record,
+                  weekRecord: team1WeekRecord,
+                  stats: {
+                    fgPct: team1Stats[0],
+                    ftPct: team1Stats[1],
+                    threepm: team1Stats[2],
+                    rebounds: team1Stats[3],
+                    assists: team1Stats[4],
+                    steals: team1Stats[5],
+                    blocks: team1Stats[6],
+                    turnovers: team1Stats[7],
+                    points: team1Stats[8],
+                  }
+                },
+                team2: {
+                  abbr: team2Abbr,
+                  name: team2Name,
+                  record: team2Record,
+                  weekRecord: team2WeekRecord,
+                  stats: {
+                    fgPct: team2Stats[0],
+                    ftPct: team2Stats[1],
+                    threepm: team2Stats[2],
+                    rebounds: team2Stats[3],
+                    assists: team2Stats[4],
+                    steals: team2Stats[5],
+                    blocks: team2Stats[6],
+                    turnovers: team2Stats[7],
+                    points: team2Stats[8],
+                  }
                 }
-              },
-              team2: {
-                abbr: team2Abbr,
-                name: team2Name,
-                record: team2SeasonRecord,
-                weekRecord: team2WeekRecord,
-                stats: {
-                  fgPct: stats2[0],
-                  ftPct: stats2[1],
-                  threepm: stats2[2],
-                  rebounds: stats2[3],
-                  assists: stats2[4],
-                  steals: stats2[5],
-                  blocks: stats2[6],
-                  turnovers: stats2[7],
-                  points: stats2[8],
-                }
-              }
-            });
+              });
+            }
+            break;
           }
+          i++;
         }
       }
       i++;
@@ -173,7 +168,7 @@ export const WeeklyPerformance = () => {
 
   const formatValue = (value: number, format: string) => {
     if (format === 'pct') {
-      return `.${Math.round(value * 10000).toString().padStart(4, '0').slice(0, 4)}`;
+      return `.${value.toFixed(3).slice(2)}`;
     }
     return value.toString();
   };
