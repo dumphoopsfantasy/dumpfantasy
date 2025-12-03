@@ -83,8 +83,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       const halfLen = line.length / 2;
       if (halfLen === Math.floor(halfLen) && line.substring(0, halfLen) === line.substring(halfLen)) {
         const name = line.substring(0, halfLen).trim();
-        // Validate it looks like a name (starts with capital, has space)
+        // Validate it looks like a name (starts with capital, has space, not a header)
         if (!/^[A-Z][a-z]/.test(name) || !name.includes(' ')) continue;
+        // Skip if it looks like a header or navigation
+        if (/^(Fantasy|ESPN|Add|Drop|Trade|Watch)/i.test(name)) continue;
         
         let team = '';
         let positions: string[] = [];
@@ -119,7 +121,13 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
           if (nextLine.match(/^[A-Z][a-z].*[A-Z][a-z].*\1$/)) break;
         }
         
-        if (team && positions.length > 0) {
+        // Be more lenient - accept player even if we only found team OR positions
+        if (team || positions.length > 0) {
+          // Default team to 'FA' if not found
+          if (!team) team = 'FA';
+          // Default positions if not found
+          if (positions.length === 0) positions = ['UTIL'];
+          
           playerEntries.push({ name, team, positions, status: status || undefined });
         }
       }
@@ -203,23 +211,26 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       if (minIdx > -1) {
         const numericValues: number[] = [];
         
-        // Find where stats end (look for pagination like "1 2 3 4 5" or footer content)
-        const footerPatterns = /^(Fantasy Basketball Support|Username|Password|ESPN\.com|Copyright|\d+\s+\d+\s+\d+)/i;
+        // Be very specific about when to stop - only stop at actual footer content, not at random text
+        const hardStopPatterns = /^(Username|Password|ESPN\.com|Copyright|©|\d{4}\s+ESPN)/i;
         
         for (let i = minIdx + 1; i < lines.length; i++) {
           const line = lines[i];
           
-          // Stop at footer/pagination
-          if (footerPatterns.test(line)) {
+          // Hard stop at login/footer content
+          if (hardStopPatterns.test(line)) {
             console.log(`Stopping stat collection at line ${i}: ${line.substring(0, 30)}`);
             break;
           }
           
-          // Skip headers
-          if (/^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS|MIN)$/i.test(line)) continue;
+          // Skip headers and text labels
+          if (/^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS|MIN|Fantasy|Support|Basketball|Page)$/i.test(line)) continue;
           
-          // Collect numbers (including negative like -4.59)
-          if (/^[-+]?\d*\.?\d+$/.test(line) || line === '--') {
+          // Skip pagination numbers (single digits or space-separated digits)
+          if (/^\d+$/.test(line) && parseInt(line) <= 20) continue;
+          
+          // Collect decimal numbers and percentages (including negative like -4.59)
+          if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
             numericValues.push(line === '--' ? 0 : parseFloat(line));
           }
         }
