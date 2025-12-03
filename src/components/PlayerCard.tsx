@@ -13,12 +13,21 @@ interface PlayerCardProps {
 
 export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) => {
   const isOnIR = player.slot?.toLowerCase().includes('ir');
-  // Show stats if player has ANY stat data (points, rebounds, etc.) even if minutes is 0
-  const hasStatsData = player.points > 0 || player.rebounds > 0 || player.assists > 0 || player.minutes > 0;
-  const hasNoStats = !hasStatsData;
+  // A player has valid stats if they have ANY stat data (from Last 15 averages)
+  const hasValidStats = player.points > 0 || player.rebounds > 0 || player.assists > 0 || 
+                        player.steals > 0 || player.blocks > 0 || player.threepm > 0 ||
+                        player.fgPct > 0 || player.ftPct > 0;
+  const hasNoStats = !hasValidStats;
   
-  // For comparison purposes, exclude IR players from the pool
-  const comparablePlayers = allPlayers.filter(p => !p.slot?.toLowerCase().includes('ir'));
+  // For CRIS comparison: only include players WITH valid stats, regardless of IR status
+  // IR players WITH stats (like RJ Barrett) should be compared
+  // IR players WITHOUT stats (like Dejounte Murray) should be excluded
+  const playersWithStats = allPlayers.filter(p => {
+    const pHasStats = p.points > 0 || p.rebounds > 0 || p.assists > 0 || 
+                      p.steals > 0 || p.blocks > 0 || p.threepm > 0 ||
+                      p.fgPct > 0 || p.ftPct > 0;
+    return pHasStats;
+  });
   
   const getStatusBadgeStyle = (status: string) => {
     switch (status?.toUpperCase()) {
@@ -48,17 +57,15 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
     return pts + reb + ast + stl + blk + tpm + fg + ft + to;
   };
 
-  // Get category rank among comparable roster (excludes IR players for fair comparison)
+  // Get category rank among players WITH VALID STATS (per CRIS spec)
   const getCategoryRank = (value: number, stat: string, lowerBetter = false): number => {
-    // Use comparable players (non-IR) for ranking
-    const poolToCompare = isOnIR ? comparablePlayers : comparablePlayers;
-    if (poolToCompare.length === 0) return 0;
-    const validPlayers = poolToCompare.filter(p => p.minutes > 0);
+    // Use players with stats for ranking (includes IR players with stats like RJ Barrett)
+    if (playersWithStats.length === 0) return 0;
     
-    // Add current player if they're on IR with stats (for their own ranking calculation)
-    const playersForRanking = isOnIR && !hasNoStats 
-      ? [...validPlayers, player].filter((p, i, arr) => arr.findIndex(x => x.player === p.player) === i)
-      : validPlayers;
+    // Add current player if they have stats (for their own ranking calculation)
+    const playersForRanking = hasValidStats 
+      ? [...playersWithStats].filter((p, i, arr) => arr.findIndex(x => x.player === p.player) === i)
+      : playersWithStats;
     
     const sorted = [...playersForRanking].sort((a, b) => {
       const aVal = a[stat as keyof PlayerStats] as number;
@@ -79,11 +86,8 @@ export const PlayerCard = ({ player, rank, allPlayers = [] }: PlayerCardProps) =
     return 'text-stat-negative';
   };
 
-  // Count for ranking display - use comparable players + this player if IR with stats
-  const validComparablePlayers = comparablePlayers.filter(p => p.minutes > 0);
-  const validPlayersCount = isOnIR && !hasNoStats 
-    ? validComparablePlayers.length + 1 
-    : validComparablePlayers.length;
+  // Count for ranking display - only players WITH valid stats
+  const validPlayersCount = playersWithStats.length;
   const crisScore = calculateCRIS(player);
 
   // Format percentage to thousandths (.485 or 1.000 for 100%)

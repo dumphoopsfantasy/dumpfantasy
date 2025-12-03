@@ -203,21 +203,39 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       if (minIdx > -1) {
         const numericValues: number[] = [];
         
+        // Find where stats end (look for pagination like "1 2 3 4 5" or footer content)
+        const footerPatterns = /^(Fantasy Basketball Support|Username|Password|ESPN\.com|Copyright|\d+\s+\d+\s+\d+)/i;
+        
         for (let i = minIdx + 1; i < lines.length; i++) {
           const line = lines[i];
+          
+          // Stop at footer/pagination
+          if (footerPatterns.test(line)) {
+            console.log(`Stopping stat collection at line ${i}: ${line.substring(0, 30)}`);
+            break;
+          }
+          
           // Skip headers
-          if (/^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS)$/i.test(line)) continue;
-          // Collect numbers
+          if (/^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS|MIN)$/i.test(line)) continue;
+          
+          // Collect numbers (including negative like -4.59)
           if (/^[-+]?\d*\.?\d+$/.test(line) || line === '--') {
             numericValues.push(line === '--' ? 0 : parseFloat(line));
           }
         }
         
-        // 15 columns per player
+        console.log(`Collected ${numericValues.length} numeric values`);
+        
+        // 15 columns per player: MIN, FGM/FGA(skip), FG%, FTM/FTA(skip), FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
         const COLS = 15;
         const numPlayers = Math.floor(numericValues.length / COLS);
         
-        for (let i = 0; i < Math.min(numPlayers, playerEntries.length); i++) {
+        console.log(`Can build ${numPlayers} players from stats, have ${playerEntries.length} player entries`);
+        
+        // Use MIN(numPlayers, playerEntries) to avoid index errors
+        const targetCount = Math.min(numPlayers, playerEntries.length, DISPLAY_LIMIT);
+        
+        for (let i = 0; i < targetCount; i++) {
           const base = i * COLS;
           const p = playerEntries[i];
           

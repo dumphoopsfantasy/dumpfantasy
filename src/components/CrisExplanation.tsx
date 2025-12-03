@@ -24,7 +24,7 @@ export const CrisExplanation = () => {
           <div>
             <p className="font-semibold text-primary">CRI = Category Ranking Index (Score)</p>
             <p className="text-muted-foreground">
-              Higher CRI = stronger overall category performance.
+              Higher CRI = stronger overall category performance across all 9 categories.
             </p>
           </div>
           <div>
@@ -51,6 +51,16 @@ export const CrisExplanation = () => {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="border-t border-border pt-3">
+            <p className="font-semibold text-amber-400">Important Notes:</p>
+            <ul className="list-disc list-inside text-muted-foreground space-y-1 text-xs">
+              <li>All stats shown are <strong>Last 15 AVERAGES</strong> (per game)</li>
+              <li>Matchup projections multiply counting stats by <strong>×40</strong> to simulate a full week (~40 player-games)</li>
+              <li>FG% and FT% are NOT multiplied (they stay as percentages)</li>
+              <li>Players WITHOUT any stats are excluded from CRI calculations</li>
+              <li>IR players WITH stats (like RJ Barrett) ARE included in rankings</li>
+            </ul>
           </div>
         </Card>
       </CollapsibleContent>
