@@ -11,8 +11,7 @@ import { PlayerStats } from "@/types/player";
 import { Player } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy } from "lucide-react";
+import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Weekly matchup types
@@ -38,14 +37,9 @@ interface MatchupProjectionData {
   opponent: { name: string; record: string; standing: string; lastMatchup?: string; stats: MatchupStats };
 }
 
-// Stat window options
-const STAT_WINDOWS = ["Last 7", "Last 15", "Last 30", "Season"] as const;
-type StatWindow = typeof STAT_WINDOWS[number];
-
 const Index = () => {
   // Roster state
   const [players, setPlayers] = useState<PlayerStats[]>([]);
-  const [statWindow, setStatWindow] = useState<StatWindow>("Last 15");
   
   // Free agents state (persisted)
   const [freeAgents, setFreeAgents] = useState<Player[]>([]);
@@ -148,27 +142,15 @@ const Index = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Stat Window Selector */}
-                <div className="flex items-center justify-between bg-card/50 rounded-lg p-3 border border-border">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Stats based on:</span>
-                    <Select value={statWindow} onValueChange={(v) => setStatWindow(v as StatWindow)}>
-                      <SelectTrigger className="w-[140px] h-8 font-display font-semibold bg-primary/10 border-primary/30">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STAT_WINDOWS.map(w => (
-                          <SelectItem key={w} value={w}>{w}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <p className="text-xs text-muted-foreground hidden md:block">
-                    Select the stat window that matches your ESPN view
+                {/* Stat Window Reminder */}
+                <div className="flex items-center gap-2 bg-card/50 rounded-lg p-3 border border-border">
+                  <Info className="w-4 h-4 text-primary" />
+                  <p className="text-sm text-muted-foreground">
+                    Stats shown match the view you selected on ESPN (Last 7, Last 15, Last 30, or Season averages)
                   </p>
                 </div>
                 
-                <TeamAverages players={players} statWindow={statWindow} />
+                <TeamAverages players={players} />
                 <PlayerRankings players={players} />
 
                 <Tabs defaultValue="all" className="w-full">
@@ -241,7 +223,6 @@ const Index = () => {
             <MatchupProjection 
               persistedMatchup={matchupData}
               onMatchupChange={setMatchupData}
-              statWindow={statWindow}
             />
           </TabsContent>
 
