@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -31,6 +31,8 @@ const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET'
 
 type SortKey = 'cris' | 'wCris' | 'minutes' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points';
 
+const DISPLAY_LIMIT = 50;
+
 export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
   const [rawData, setRawData] = useState("");
@@ -41,6 +43,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgentPlayer | null>(null);
   const [compareList, setCompareList] = useState<FreeAgentPlayer[]>([]);
   const [useCris, setUseCris] = useState(true);
+  const [showStatsView, setShowStatsView] = useState(false);
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -294,7 +297,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       ? (useCris ? 'cris' : 'wCris') 
       : sortKey;
     
-    return [...result].sort((a, b) => {
+    const sorted = [...result].sort((a, b) => {
       let aVal = a[activeSortKey as keyof typeof a] as number;
       let bVal = b[activeSortKey as keyof typeof b] as number;
       
@@ -304,6 +307,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       }
       return sortAsc ? aVal - bVal : bVal - aVal;
     });
+    
+    // Limit to 50 players
+    return sorted.slice(0, DISPLAY_LIMIT);
   }, [players, search, positionFilter, sortKey, sortAsc, useCris]);
 
   const handleSort = (key: SortKey) => {
@@ -386,10 +392,33 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       {/* Header with CRIS Toggle */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-display font-bold">Free Agents ({players.length})</h2>
+          <h2 className="text-xl font-display font-bold">Free Agents (Top {DISPLAY_LIMIT})</h2>
           <CrisExplanation />
         </div>
-        <CrisToggle useCris={useCris} onChange={setUseCris} />
+        <div className="flex items-center gap-3">
+          {/* Stats vs Score Toggle */}
+          <div className="flex items-center gap-2 bg-secondary/30 rounded-lg p-1">
+            <Button
+              variant={showStatsView ? "ghost" : "secondary"}
+              size="sm"
+              onClick={() => setShowStatsView(false)}
+              className="h-8 px-3"
+            >
+              <Hash className="w-4 h-4 mr-1" />
+              Score
+            </Button>
+            <Button
+              variant={showStatsView ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setShowStatsView(true)}
+              className="h-8 px-3"
+            >
+              <BarChart3 className="w-4 h-4 mr-1" />
+              Stats
+            </Button>
+          </div>
+          <CrisToggle useCris={useCris} onChange={setUseCris} />
+        </div>
       </div>
 
       {/* Filters */}
@@ -479,16 +508,26 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <tr className="border-b border-border bg-secondary/20">
                 <th className="text-left p-3 font-display">#</th>
                 <th className="text-left p-3 font-display min-w-[180px]">Player</th>
-                <SortHeader label="MIN" sortKeyProp="minutes" />
-                <SortHeader label="FG%" sortKeyProp="fgPct" />
-                <SortHeader label="FT%" sortKeyProp="ftPct" />
-                <SortHeader label="3PM" sortKeyProp="threepm" />
-                <SortHeader label="REB" sortKeyProp="rebounds" />
-                <SortHeader label="AST" sortKeyProp="assists" />
-                <SortHeader label="STL" sortKeyProp="steals" />
-                <SortHeader label="BLK" sortKeyProp="blocks" />
-                <SortHeader label="TO" sortKeyProp="turnovers" />
-                <SortHeader label="PTS" sortKeyProp="points" />
+                {showStatsView ? (
+                  <>
+                    <SortHeader label="MIN" sortKeyProp="minutes" />
+                    <SortHeader label="FG%" sortKeyProp="fgPct" />
+                    <SortHeader label="FT%" sortKeyProp="ftPct" />
+                    <SortHeader label="3PM" sortKeyProp="threepm" />
+                    <SortHeader label="REB" sortKeyProp="rebounds" />
+                    <SortHeader label="AST" sortKeyProp="assists" />
+                    <SortHeader label="STL" sortKeyProp="steals" />
+                    <SortHeader label="BLK" sortKeyProp="blocks" />
+                    <SortHeader label="TO" sortKeyProp="turnovers" />
+                    <SortHeader label="PTS" sortKeyProp="points" />
+                  </>
+                ) : (
+                  <>
+                    <SortHeader label="PTS" sortKeyProp="points" />
+                    <SortHeader label="REB" sortKeyProp="rebounds" />
+                    <SortHeader label="AST" sortKeyProp="assists" />
+                  </>
+                )}
                 <SortHeader label={scoreLabel} sortKeyProp="cris" className="border-l-2 border-primary/50" />
               </tr>
             </thead>
@@ -515,16 +554,26 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       </div>
                     </div>
                   </td>
-                  <td className="text-center p-2">{player.minutes.toFixed(1)}</td>
-                  <td className="text-center p-2">{formatPct(player.fgPct)}</td>
-                  <td className="text-center p-2">{formatPct(player.ftPct)}</td>
-                  <td className="text-center p-2">{player.threepm.toFixed(1)}</td>
-                  <td className="text-center p-2">{player.rebounds.toFixed(1)}</td>
-                  <td className="text-center p-2">{player.assists.toFixed(1)}</td>
-                  <td className="text-center p-2">{player.steals.toFixed(1)}</td>
-                  <td className="text-center p-2">{player.blocks.toFixed(1)}</td>
-                  <td className="text-center p-2">{player.turnovers.toFixed(1)}</td>
-                  <td className="text-center p-2">{player.points.toFixed(1)}</td>
+                  {showStatsView ? (
+                    <>
+                      <td className="text-center p-2">{player.minutes.toFixed(1)}</td>
+                      <td className="text-center p-2">{formatPct(player.fgPct)}</td>
+                      <td className="text-center p-2">{formatPct(player.ftPct)}</td>
+                      <td className="text-center p-2">{player.threepm.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.rebounds.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.assists.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.steals.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.blocks.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.turnovers.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.points.toFixed(1)}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="text-center p-2">{player.points.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.rebounds.toFixed(1)}</td>
+                      <td className="text-center p-2">{player.assists.toFixed(1)}</td>
+                    </>
+                  )}
                   <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
                     {player[scoreKey]?.toFixed(1)}
                   </td>

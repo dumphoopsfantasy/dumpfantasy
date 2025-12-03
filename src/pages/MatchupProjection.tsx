@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
@@ -19,9 +18,20 @@ interface TeamStats {
   points: number;
 }
 
+interface TeamInfo {
+  name: string;
+  record: string;
+  standing: string;
+  lastMatchup?: string;
+}
+
+interface MatchupTeam extends TeamInfo {
+  stats: TeamStats;
+}
+
 interface MatchupData {
-  myTeam: { name: string; stats: TeamStats };
-  opponent: { name: string; stats: TeamStats };
+  myTeam: MatchupTeam;
+  opponent: MatchupTeam;
 }
 
 interface MatchupProjectionProps {
@@ -36,43 +46,160 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
 
-  // Parse team stats from ESPN paste (averages section)
-  const parseTeamStats = (data: string): { name: string; stats: TeamStats } | null => {
+  // Parse ESPN full page paste
+  const parseESPNTeamPage = (data: string): { info: TeamInfo; stats: TeamStats } | null => {
     const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
     
-    let teamName = "Team";
-    const numbers: number[] = [];
+    // Skip ESPN navigation
+    const skipPatterns = /^(hsb\.|ESPN|NFL|NBA|MLB|NCAAF|NHL|Soccer|WNBA|More Sports|Watch|Fantasy|Where to Watch|Fantasy Basketball Home|My Team|League|Settings|Members|Rosters|Schedule|Message Board|Transaction Counter|History|Draft Recap|Email League|Recent Activity|Players|Add Players|Watch List|Daily Leaders|Live Draft Trends|Added \/ Dropped|Player Rater|Player News|Projections|Waiver Order|Waiver Report|Undroppables|FantasyCast|Scoreboard|Standings|Opposing Teams|ESPN BET|Copyright|ESPN\.com|Member Services|Interest-Based|Privacy|Terms|NBPA)$/i;
     
-    for (const line of lines) {
-      // Team name might be a line that's not a number
-      if (!line.match(/^[.\d]+$/) && line.length > 2 && !line.toLowerCase().includes('avg')) {
-        // Could be team name
-        if (!line.match(/^(FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS|MIN)/i)) {
-          teamName = line;
+    let teamName = "";
+    let record = "";
+    let standing = "";
+    let lastMatchup = "";
+    
+    // Find team info block pattern: "TeamName\n4-2-0\n(2nd of 10)"
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // Skip navigation/headers
+      if (skipPatterns.test(line)) continue;
+      if (line.length < 2 || line.length > 50) continue;
+      
+      // Look for record pattern (e.g., "4-2-0")
+      const recordMatch = line.match(/^(\d+-\d+-\d+)$/);
+      if (recordMatch) {
+        // Previous line might be team name
+        if (i > 0 && !skipPatterns.test(lines[i - 1])) {
+          const prevLine = lines[i - 1];
+          // Check it's not a position or stat header
+          if (!prevLine.match(/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS)/i)) {
+            teamName = prevLine;
+            record = recordMatch[1];
+            
+            // Check next line for standing
+            if (i + 1 < lines.length) {
+              const standingMatch = lines[i + 1].match(/\((\d+)(st|nd|rd|th) of (\d+)\)/i);
+              if (standingMatch) {
+                standing = `${standingMatch[1]}${standingMatch[2]} of ${standingMatch[3]}`;
+              }
+            }
+          }
         }
       }
       
-      // Collect numbers
-      const numMatch = line.match(/^([.\d]+)$/);
-      if (numMatch) {
-        numbers.push(parseFloat(numMatch[1]));
+      // Look for "Last Matchup" section
+      if (line === 'Last Matchup' && i + 3 < lines.length) {
+        // Pattern: FREAK\n3-6-0\nBilbo\n6-3-0
+        const team1 = lines[i + 1];
+        const score1 = lines[i + 2];
+        const team2 = lines[i + 3];
+        const score2 = lines[i + 4];
+        if (score1?.match(/^\d+-\d+-\d+$/) && score2?.match(/^\d+-\d+-\d+$/)) {
+          lastMatchup = `${team1} ${score1} vs ${team2} ${score2}`;
+        }
       }
     }
     
-    // If we have 9 numbers, they should be FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
-    if (numbers.length >= 9) {
+    // Parse stats - look for the stats table (after "STATS" or "Research" header)
+    // Stats order: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
+    const statsStartIdx = lines.findIndex(l => l === 'STATS' || l === 'Research');
+    
+    // Collect all numeric stat lines
+    const statNumbers: number[] = [];
+    
+    if (statsStartIdx > -1) {
+      for (let i = statsStartIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Skip headers
+        if (/^(MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS)$/i.test(line)) continue;
+        
+        // Stop at footer
+        if (line.includes('ESPN.com') || line.includes('Copyright')) break;
+        
+        // Collect numbers and percentages
+        if (/^[.\d]+$/.test(line) || line === '--') {
+          statNumbers.push(line === '--' ? 0 : parseFloat(line));
+        }
+      }
+    }
+    
+    // Calculate averages from all player rows
+    // Each player has 15 stats: MIN, FGM/FGA (skip), FG%, FTM/FTA (skip), FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
+    // We need: FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS (indices: 2, 4, 5, 6, 7, 8, 9, 10, 11)
+    
+    const COLS = 15;
+    const numPlayers = Math.floor(statNumbers.length / COLS);
+    
+    if (numPlayers > 0) {
+      let totals = { fgPct: 0, ftPct: 0, threepm: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0 };
+      let validCount = 0;
+      
+      for (let p = 0; p < numPlayers; p++) {
+        const base = p * COLS;
+        const min = statNumbers[base]; // MIN
+        
+        // Skip players with no minutes (injured)
+        if (min === 0 || isNaN(min)) continue;
+        
+        validCount++;
+        totals.fgPct += statNumbers[base + 2] || 0;      // FG%
+        totals.ftPct += statNumbers[base + 4] || 0;      // FT%
+        totals.threepm += statNumbers[base + 5] || 0;    // 3PM
+        totals.rebounds += statNumbers[base + 6] || 0;   // REB
+        totals.assists += statNumbers[base + 7] || 0;    // AST
+        totals.steals += statNumbers[base + 8] || 0;     // STL
+        totals.blocks += statNumbers[base + 9] || 0;     // BLK
+        totals.turnovers += statNumbers[base + 10] || 0; // TO
+        totals.points += statNumbers[base + 11] || 0;    // PTS
+      }
+      
+      if (validCount > 0) {
+        return {
+          info: {
+            name: teamName || "Team",
+            record,
+            standing,
+            lastMatchup,
+          },
+          stats: {
+            fgPct: totals.fgPct / validCount,
+            ftPct: totals.ftPct / validCount,
+            threepm: totals.threepm,
+            rebounds: totals.rebounds,
+            assists: totals.assists,
+            steals: totals.steals,
+            blocks: totals.blocks,
+            turnovers: totals.turnovers,
+            points: totals.points,
+          }
+        };
+      }
+    }
+    
+    // Fallback: try simple number extraction for manual paste
+    const simpleNumbers: number[] = [];
+    for (const line of lines) {
+      const numMatch = line.match(/^([.\d]+)$/);
+      if (numMatch) {
+        simpleNumbers.push(parseFloat(numMatch[1]));
+      }
+    }
+    
+    if (simpleNumbers.length >= 9) {
       return {
-        name: teamName,
+        info: { name: teamName || "Team", record, standing, lastMatchup },
         stats: {
-          fgPct: numbers[0] < 1 ? numbers[0] : numbers[0] / 100,
-          ftPct: numbers[1] < 1 ? numbers[1] : numbers[1] / 100,
-          threepm: numbers[2],
-          rebounds: numbers[3],
-          assists: numbers[4],
-          steals: numbers[5],
-          blocks: numbers[6],
-          turnovers: numbers[7],
-          points: numbers[8],
+          fgPct: simpleNumbers[0] < 1 ? simpleNumbers[0] : simpleNumbers[0] / 100,
+          ftPct: simpleNumbers[1] < 1 ? simpleNumbers[1] : simpleNumbers[1] / 100,
+          threepm: simpleNumbers[2],
+          rebounds: simpleNumbers[3],
+          assists: simpleNumbers[4],
+          steals: simpleNumbers[5],
+          blocks: simpleNumbers[6],
+          turnovers: simpleNumbers[7],
+          points: simpleNumbers[8],
         }
       };
     }
@@ -81,13 +208,13 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
   };
 
   const handleCompare = () => {
-    const myParsed = parseTeamStats(myTeamData);
-    const oppParsed = parseTeamStats(opponentData);
+    const myParsed = parseESPNTeamPage(myTeamData);
+    const oppParsed = parseESPNTeamPage(opponentData);
     
     if (myParsed && oppParsed) {
-      const newMatchup = {
-        myTeam: { name: myParsed.name || "Your Team", stats: myParsed.stats },
-        opponent: { name: oppParsed.name || "Opponent", stats: oppParsed.stats },
+      const newMatchup: MatchupData = {
+        myTeam: { ...myParsed.info, stats: myParsed.stats },
+        opponent: { ...oppParsed.info, stats: oppParsed.stats },
       };
       onMatchupChange(newMatchup);
     }
@@ -110,18 +237,17 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       <div className="max-w-4xl mx-auto space-y-6">
         <h2 className="font-display font-bold text-2xl text-center">Matchup Projection</h2>
         <p className="text-center text-muted-foreground">
-          Paste your team's category averages and your opponent's to compare
+          Paste the full ESPN team page for each team (Your Team & Opponent)
         </p>
         
-        {/* Multiplier Notice */}
         <Card className="p-4 bg-primary/10 border-primary/30">
           <div className="flex items-start gap-3">
             <Info className="w-5 h-5 text-primary mt-0.5" />
             <div>
-              <p className="font-semibold text-primary">Counting Stats Multiplier</p>
+              <p className="font-semibold text-primary">How to Use</p>
               <p className="text-sm text-muted-foreground">
-                Counting stats (3PM, REB, AST, STL, BLK, TO, PTS) are multiplied by {MULTIPLIER} to simulate an average {MULTIPLIER}-game fantasy week.
-                Percentages (FG%, FT%) are not multiplied.
+                Copy the entire ESPN team page (Ctrl+A, Ctrl+C) including the team name, record, and stats table.
+                Counting stats are multiplied by {MULTIPLIER} to simulate a full week.
               </p>
             </div>
           </div>
@@ -131,19 +257,13 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
           <Card className="gradient-card shadow-card p-4 border-border">
             <h3 className="font-display font-bold mb-2 text-stat-positive">Your Team</h3>
             <Textarea
-              placeholder={`Paste your team's stats:
+              placeholder={`Paste the full ESPN page for your team...
 
-.487
-.825
-52
-198
-112
-42
-24
-58
-542
-
-(FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS)`}
+The parser will extract:
+- Team name (e.g., "Bilbo")
+- Record (e.g., "4-2-0")
+- Standing (e.g., "2nd of 10")
+- Player stats to calculate averages`}
               value={myTeamData}
               onChange={(e) => setMyTeamData(e.target.value)}
               className="min-h-[200px] font-mono text-sm bg-muted/50"
@@ -153,19 +273,9 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
           <Card className="gradient-card shadow-card p-4 border-border">
             <h3 className="font-display font-bold mb-2 text-stat-negative">Opponent</h3>
             <Textarea
-              placeholder={`Paste opponent's stats:
+              placeholder={`Paste the full ESPN page for opponent...
 
-.465
-.792
-48
-185
-125
-38
-28
-52
-528
-
-(FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS)`}
+Navigate to their team page and copy the whole page.`}
               value={opponentData}
               onChange={(e) => setOpponentData(e.target.value)}
               className="min-h-[200px] font-mono text-sm bg-muted/50"
@@ -193,7 +303,6 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     const theirValue = theirRaw * multiplier;
     
     let winner: 'you' | 'them' | 'tie';
-    // For turnovers, lower is better
     if (cat.key === 'turnovers') {
       winner = myValue < theirValue ? 'you' : myValue > theirValue ? 'them' : 'tie';
     } else {
@@ -229,7 +338,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       {/* Multiplier Notice */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Info className="w-4 h-4" />
-        <span>Counting stats are multiplied by {MULTIPLIER} to simulate an average {MULTIPLIER}-game week.</span>
+        <span>Counting stats multiplied by {MULTIPLIER} for weekly projection.</span>
       </div>
 
       {/* Matchup Summary */}
@@ -238,6 +347,12 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">You</p>
             <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.myTeam.name}</p>
+            {persistedMatchup.myTeam.record && (
+              <p className="text-sm text-muted-foreground">{persistedMatchup.myTeam.record}</p>
+            )}
+            {persistedMatchup.myTeam.standing && (
+              <p className="text-xs text-primary">{persistedMatchup.myTeam.standing}</p>
+            )}
           </div>
           <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary/30">
             <span className="font-display font-bold text-2xl md:text-4xl text-stat-positive">{wins}</span>
@@ -249,8 +364,21 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">Opponent</p>
             <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.opponent.name}</p>
+            {persistedMatchup.opponent.record && (
+              <p className="text-sm text-muted-foreground">{persistedMatchup.opponent.record}</p>
+            )}
+            {persistedMatchup.opponent.standing && (
+              <p className="text-xs text-primary">{persistedMatchup.opponent.standing}</p>
+            )}
           </div>
         </div>
+
+        {/* Previous Matchup Info */}
+        {persistedMatchup.myTeam.lastMatchup && (
+          <div className="text-center mt-2 text-xs text-muted-foreground">
+            Last: {persistedMatchup.myTeam.lastMatchup}
+          </div>
+        )}
 
         <div className="text-center mt-4 pt-4 border-t border-border">
           {wins > losses ? (
@@ -285,11 +413,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
             )}
           >
             <div className="flex items-center justify-between">
-              {/* Your Value */}
-              <div className={cn(
-                "flex-1 text-center",
-                comp.winner === 'you' && "text-stat-positive"
-              )}>
+              <div className={cn("flex-1 text-center", comp.winner === 'you' && "text-stat-positive")}>
                 <p className="font-display font-bold text-2xl md:text-3xl">
                   {formatValue(comp.myValue, comp.format, comp.isMultiplied)}
                 </p>
@@ -301,7 +425,6 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
                 )}
               </div>
 
-              {/* Category */}
               <div className="px-4 md:px-8">
                 <div className={cn(
                   "px-4 py-2 rounded-lg font-display font-bold text-sm md:text-base",
@@ -315,11 +438,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
                 </div>
               </div>
 
-              {/* Their Value */}
-              <div className={cn(
-                "flex-1 text-center",
-                comp.winner === 'them' && "text-stat-negative"
-              )}>
+              <div className={cn("flex-1 text-center", comp.winner === 'them' && "text-stat-negative")}>
                 <p className="font-display font-bold text-2xl md:text-3xl">
                   {formatValue(comp.theirValue, comp.format, comp.isMultiplied)}
                 </p>
