@@ -15,125 +15,106 @@ export const LeagueStandings = () => {
   const parseLeagueData = (data: string): LeagueTeam[] => {
     const lines = data.trim().split('\n').filter(l => l.trim());
     const result: LeagueTeam[] = [];
-
-    // Try to detect if data is tab-separated or multi-line format
-    let i = 0;
-    while (i < lines.length) {
+    
+    // Collect all numeric values and team names
+    const teamData: { name: string; manager: string; stats: number[]; record: string }[] = [];
+    const allNumbers: number[] = [];
+    const teamNames: { name: string; manager: string; lineIndex: number }[] = [];
+    
+    // First pass: identify team names and collect all numbers
+    for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       
-      // Skip header rows
-      if (line.toLowerCase().includes('team') || 
-          line.toLowerCase().includes('rank') ||
-          line.match(/^(rk|fg%|ft%|3pm|reb|ast|stl|blk|to|pts|all|last|moves)/i)) {
-        i++;
+      // Skip headers
+      if (line.toLowerCase().includes('fg%') || 
+          line.toLowerCase().includes('team') ||
+          line.toLowerCase() === 'all' ||
+          line.toLowerCase() === 'last' ||
+          line.toLowerCase() === 'moves' ||
+          line.toLowerCase() === 'rk') {
         continue;
       }
-
-      // Try to parse as tab-separated row first
-      const tabs = line.split('\t').map(c => c.trim()).filter(c => c);
       
-      if (tabs.length >= 10) {
-        // Tab-separated format: Name, FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, ...
-        const teamName = tabs[0];
-        const stats = tabs.slice(1).map(v => {
-          // Handle percentage values that might be like ".4853"
-          const num = parseFloat(v);
-          return isNaN(num) ? 0 : num;
-        });
-        
-        if (stats.some(v => v > 0)) {
-          result.push({
-            name: teamName,
-            manager: '',
-            fgPct: stats[0] || 0,
-            ftPct: stats[1] || 0,
-            threepm: stats[2] || 0,
-            rebounds: stats[3] || 0,
-            assists: stats[4] || 0,
-            steals: stats[5] || 0,
-            blocks: stats[6] || 0,
-            turnovers: stats[7] || 0,
-            points: stats[8] || 0,
-            record: tabs[10] || '',
-          });
+      // Check for manager line (in parentheses)
+      if (line.startsWith('(') && line.endsWith(')')) {
+        if (teamNames.length > 0 && !teamNames[teamNames.length - 1].manager) {
+          teamNames[teamNames.length - 1].manager = line.slice(1, -1).trim();
         }
-        i++;
         continue;
       }
-
-      // Check if this looks like a rank number
-      const rankMatch = line.match(/^(\d+)$/);
-      if (rankMatch) {
-        i++;
-        continue;
-      }
-
-      // Check if this is a team name line (not starting with a number or stat)
-      const isTeamName = !line.match(/^[\d.]+$/) && 
-                         !line.match(/^[.\d-]+$/) &&
-                         line.length > 2 &&
-                         !line.match(/^\d+-\d+-\d+$/);
-
-      if (isTeamName) {
-        let teamName = line;
-        let manager = '';
-        
-        // Check if next line is manager name in parentheses
-        if (i + 1 < lines.length && lines[i + 1].trim().startsWith('(')) {
-          const managerLine = lines[i + 1].trim();
-          manager = managerLine.replace(/[()]/g, '').trim();
-          i++;
-        }
-        
-        // Extract manager from same line if in parentheses
-        const parenthMatch = teamName.match(/(.+?)\s*\(([^)]+)\)/);
-        if (parenthMatch) {
-          teamName = parenthMatch[1].trim();
-          manager = parenthMatch[2].trim();
-        }
-
-        // Now look for stats in subsequent lines
-        const stats: number[] = [];
-        let j = i + 1;
-        while (j < lines.length && stats.length < 10) {
-          const statLine = lines[j].trim();
-          
-          // Stop if we hit another team name or header
-          if (statLine.match(/^[A-Za-z]/) && !statLine.match(/^[.\d]+$/)) {
-            break;
+      
+      // Check if this is a record (W-L-T format)
+      const recordMatch = line.match(/^(\d+-\d+-\d+)$/);
+      if (recordMatch) {
+        if (teamData.length > 0 || teamNames.length > 0) {
+          const idx = teamData.length > 0 ? teamData.length - 1 : -1;
+          if (idx >= 0) {
+            teamData[idx].record = recordMatch[1];
           }
-          
-          // Parse numbers from this line
-          const nums = statLine.split(/[\s\t]+/).map(v => {
-            const num = parseFloat(v);
-            return isNaN(num) ? null : num;
-          }).filter(n => n !== null) as number[];
-          
-          stats.push(...nums);
-          j++;
         }
-
-        if (stats.length >= 9 && stats.some(v => v > 0)) {
-          result.push({
-            name: teamName,
-            manager: manager,
-            fgPct: stats[0] || 0,
-            ftPct: stats[1] || 0,
-            threepm: stats[2] || 0,
-            rebounds: stats[3] || 0,
-            assists: stats[4] || 0,
-            steals: stats[5] || 0,
-            blocks: stats[6] || 0,
-            turnovers: stats[7] || 0,
-            points: stats[8] || 0,
-            record: stats[9]?.toString() || '',
-          });
-          i = j;
-          continue;
-        }
+        continue;
       }
       
-      i++;
+      // Check if this is just a rank number
+      if (line.match(/^\d+$/) && parseInt(line) <= 20) {
+        continue;
+      }
+      
+      // Check if this is a number (stat value)
+      const numMatch = line.match(/^[.\d]+$/);
+      if (numMatch) {
+        allNumbers.push(parseFloat(line));
+        continue;
+      }
+      
+      // Otherwise it's likely a team name
+      if (line.length > 2 && !line.match(/^[\d.]+$/) && line !== 'All') {
+        teamNames.push({ name: line, manager: '', lineIndex: i });
+      }
+    }
+    
+    // Calculate stats per team (9 categories)
+    const statsPerTeam = 9;
+    const numTeams = teamNames.length;
+    
+    if (numTeams > 0 && allNumbers.length >= numTeams * statsPerTeam) {
+      for (let t = 0; t < numTeams; t++) {
+        const startIdx = t * statsPerTeam;
+        const stats = allNumbers.slice(startIdx, startIdx + statsPerTeam);
+        
+        // Find record for this team (should be after stats)
+        const recordStartIdx = numTeams * statsPerTeam;
+        let record = '';
+        
+        // Look for W-L-T pattern in remaining data
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          const recordMatch = line.match(/^(\d+-\d+-\d+)$/);
+          if (recordMatch) {
+            // Count how many records we've seen
+            const recordsBefore = lines.slice(0, i).filter(l => l.trim().match(/^\d+-\d+-\d+$/)).length;
+            if (recordsBefore === t) {
+              record = recordMatch[1];
+              break;
+            }
+          }
+        }
+        
+        result.push({
+          name: teamNames[t].name,
+          manager: teamNames[t].manager,
+          fgPct: stats[0] || 0,
+          ftPct: stats[1] || 0,
+          threepm: stats[2] || 0,
+          rebounds: stats[3] || 0,
+          assists: stats[4] || 0,
+          steals: stats[5] || 0,
+          blocks: stats[6] || 0,
+          turnovers: stats[7] || 0,
+          points: stats[8] || 0,
+          record: record,
+        });
+      }
     }
 
     return result;
