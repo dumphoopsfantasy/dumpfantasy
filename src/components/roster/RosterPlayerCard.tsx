@@ -76,15 +76,15 @@ export const RosterPlayerCard = ({ player, slot, onClick }: RosterPlayerCardProp
           <StatBadge label="TO" value={formatStat(player.turnovers, "decimal")} negative size="sm" />
         </div>
 
-        {/* CRIS Score */}
-        {player.cris !== undefined && (
+        {/* CRI Score */}
+        {player.cri !== undefined && (
           <div className="hidden lg:block text-right">
-            <p className="text-xs text-muted-foreground uppercase">CRIS</p>
+            <p className="text-xs text-muted-foreground uppercase">CRI</p>
             <p className={cn(
               "font-display font-bold text-lg",
-              player.cris > 5 ? "text-stat-positive" : player.cris < 0 ? "text-stat-negative" : "text-foreground"
+              player.cri > 5 ? "text-stat-positive" : player.cri < 0 ? "text-stat-negative" : "text-foreground"
             )}>
-              {player.cris.toFixed(2)}
+              {player.cri.toFixed(2)}
             </p>
           </div>
         )}

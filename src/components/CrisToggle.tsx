@@ -18,7 +18,7 @@ export const CrisToggle = ({ useCris, onChange }: CrisToggleProps) => {
         )}
         onClick={() => onChange(true)}
       >
-        CRIS
+        CRI
       </Button>
       <Button
         variant="ghost"
@@ -29,7 +29,7 @@ export const CrisToggle = ({ useCris, onChange }: CrisToggleProps) => {
         )}
         onClick={() => onChange(false)}
       >
-        wCRIS
+        wCRI
       </Button>
     </div>
   );

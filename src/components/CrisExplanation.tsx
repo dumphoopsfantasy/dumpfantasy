@@ -16,15 +16,15 @@ export const CrisExplanation = () => {
       <CollapsibleTrigger asChild>
         <button className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
           <Info className="w-4 h-4" />
-          <span>What is CRIS / wCRIS?</span>
+          <span>What is CRI / wCRI?</span>
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <Card className="mt-2 p-4 bg-secondary/20 border-border text-sm space-y-3">
           <div>
-            <p className="font-semibold text-primary">CRIS = Category Ranking Index Standing</p>
+            <p className="font-semibold text-primary">CRI = Category Ranking Index (Score)</p>
             <p className="text-muted-foreground">
-              Higher CRIS = stronger overall category performance.
+              Higher CRI = stronger overall category performance.
             </p>
           </div>
           <div>
@@ -32,11 +32,14 @@ export const CrisExplanation = () => {
             <ol className="list-decimal list-inside text-muted-foreground space-y-1">
               <li>Rank each player/team in each of the 9 categories (rank 1 = best)</li>
               <li>Invert ranks: inverted = (N + 1) - rank</li>
-              <li>CRIS = sum of all inverted ranks</li>
+              <li>CRI = sum of all inverted ranks (the point total)</li>
             </ol>
+            <p className="text-muted-foreground mt-2">
+              <strong>CRIS</strong> = CRI Standing (the rank position by CRI)
+            </p>
           </div>
           <div>
-            <p className="font-semibold text-primary">wCRIS = Weighted CRIS</p>
+            <p className="font-semibold text-primary">wCRI = Weighted CRI</p>
             <p className="text-muted-foreground mb-2">
               Applies category weights to emphasize more important stats:
             </p>

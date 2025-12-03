@@ -81,9 +81,9 @@ export const WeeklyPerformance = ({
     return calculateCRISForAll(allTeams);
   }, [matchups]);
 
-  const getTeamCRIS = (abbr: string): { cris: number; wCris: number } => {
+  const getTeamCRIS = (abbr: string): { cri: number; wCri: number } => {
     const team = teamsWithCRIS.find(t => t.abbr === abbr);
-    return { cris: team?.cris || 0, wCris: team?.wCris || 0 };
+    return { cri: team?.cri || 0, wCri: team?.wCri || 0 };
   };
 
   const parseWeeklyData = (data: string): { matchups: Matchup[]; week: string } => {
@@ -383,7 +383,7 @@ Only data below "Scoreboard" will be parsed.`}
         matchupIdx, 
         team: matchup.team1, 
         opponent: matchup.team2,
-        cris: team1CRIS.cris, 
+        cri: team1CRIS.cri, 
         weekWins: team1Wins,
         weekLosses: team2Wins,
         isFirstInMatchup: true 
@@ -392,13 +392,13 @@ Only data below "Scoreboard" will be parsed.`}
         matchupIdx, 
         team: matchup.team2, 
         opponent: matchup.team1,
-        cris: team2CRIS.cris, 
+        cri: team2CRIS.cri, 
         weekWins: team2Wins,
         weekLosses: team1Wins,
         isFirstInMatchup: false 
       },
     ];
-  }).sort((a, b) => b.cris - a.cris);
+  }).sort((a, b) => b.cri - a.cri);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -427,7 +427,7 @@ Only data below "Scoreboard" will be parsed.`}
                     {cat.label}
                   </th>
                 ))}
-                <th className="p-2 text-center font-display text-xs border-l border-primary/50 text-primary">CRIS</th>
+                <th className="p-2 text-center font-display text-xs border-l border-primary/50 text-primary">CRI</th>
               </tr>
             </thead>
             <tbody>
@@ -474,7 +474,7 @@ Only data below "Scoreboard" will be parsed.`}
                       );
                     })}
                     <td className="p-2 text-center font-bold text-primary border-l border-primary/50">
-                      {row.cris.toFixed(0)}
+                      {row.cri.toFixed(0)}
                     </td>
                   </tr>
                 );

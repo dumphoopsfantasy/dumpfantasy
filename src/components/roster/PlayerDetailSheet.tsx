@@ -61,8 +61,8 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSh
           </div>
           <div className="bg-secondary/30 rounded-lg p-4 text-center">
             <TrendingUp className="w-5 h-5 mx-auto mb-1 text-stat-positive" />
-            <p className="text-xs text-muted-foreground">CRIS</p>
-            <p className="font-display font-bold text-xl">{player.cris?.toFixed(2) ?? "--"}</p>
+            <p className="text-xs text-muted-foreground">CRI</p>
+            <p className="font-display font-bold text-xl">{player.cri?.toFixed(2) ?? "--"}</p>
           </div>
           <div className="bg-secondary/30 rounded-lg p-4 text-center">
             <Target className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />

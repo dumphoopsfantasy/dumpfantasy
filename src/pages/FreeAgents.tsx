@@ -17,8 +17,8 @@ import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
 
 interface FreeAgentPlayer extends Player {
-  cris: number;
-  wCris: number;
+  cri: number;
+  wCri: number;
 }
 
 interface FreeAgentsProps {
@@ -29,7 +29,7 @@ interface FreeAgentsProps {
 // Known NBA team codes
 const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
 
-type SortKey = 'cris' | 'wCris' | 'minutes' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points';
+type SortKey = 'cri' | 'wCri' | 'minutes' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points';
 
 const DISPLAY_LIMIT = 50;
 
@@ -38,7 +38,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
   const [rawData, setRawData] = useState("");
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState<string>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("cris");
+  const [sortKey, setSortKey] = useState<SortKey>("cri");
   const [sortAsc, setSortAsc] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgentPlayer | null>(null);
   const [compareList, setCompareList] = useState<FreeAgentPlayer[]>([]);
@@ -303,8 +303,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       result = result.filter(p => p.positions.includes(positionFilter));
     }
 
-    const activeSortKey = sortKey === 'cris' || sortKey === 'wCris' 
-      ? (useCris ? 'cris' : 'wCris') 
+    const activeSortKey = sortKey === 'cri' || sortKey === 'wCri' 
+      ? (useCris ? 'cri' : 'wCri') 
       : sortKey;
     
     const sorted = [...result].sort((a, b) => {
@@ -394,8 +394,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
     );
   }
 
-  const scoreKey = useCris ? 'cris' : 'wCris';
-  const scoreLabel = useCris ? 'CRIS' : 'wCRIS';
+  const scoreKey = useCris ? 'cri' : 'wCri';
+  const scoreLabel = useCris ? 'CRI' : 'wCRI';
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -540,7 +540,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     ))}
                   </>
                 )}
-                <SortHeader label={scoreLabel} sortKeyProp="cris" className="border-l-2 border-primary/50" />
+                <SortHeader label={scoreLabel} sortKeyProp="cri" className="border-l-2 border-primary/50" />
               </tr>
             </thead>
             <tbody>
