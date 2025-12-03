@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Player } from "@/types/fantasy";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, X, GitCompare, Upload, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
@@ -19,8 +20,16 @@ interface FreeAgentPlayer extends Player {
   wCris: number;
 }
 
-export const FreeAgents = () => {
-  const [rawPlayers, setRawPlayers] = useState<Player[]>([]);
+interface FreeAgentsProps {
+  persistedPlayers?: Player[];
+  onPlayersChange?: (players: Player[]) => void;
+}
+
+// Known NBA team codes
+const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
+
+export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgentsProps) => {
+  const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
   const [rawData, setRawData] = useState("");
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState<string>("all");
@@ -28,118 +37,133 @@ export const FreeAgents = () => {
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgentPlayer | null>(null);
   const [compareList, setCompareList] = useState<FreeAgentPlayer[]>([]);
   const [useCris, setUseCris] = useState(true);
+  const { toast } = useToast();
+
+  // Sync with persisted data
+  useEffect(() => {
+    if (persistedPlayers.length > 0 && rawPlayers.length === 0) {
+      setRawPlayers(persistedPlayers);
+    }
+  }, [persistedPlayers]);
+
+  // Notify parent of changes
+  useEffect(() => {
+    if (onPlayersChange && rawPlayers.length > 0) {
+      onPlayersChange(rawPlayers);
+    }
+  }, [rawPlayers, onPlayersChange]);
 
   const parseESPNFreeAgents = (data: string): Player[] => {
-    const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
+    console.log('Parsing Free Agents data...');
+    const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     const result: Player[] = [];
     
-    // Find the stats header line (MIN FGM/FGA FG%...)
-    const statsIdx = lines.findIndex(l => l === 'MIN');
-    if (statsIdx === -1) return result;
+    // Find players section - look for "Players" or player name patterns
+    // Skip ESPN navigation (NFL, NBA, etc.)
+    const skipPatterns = /^(ESPN|NFL|NBA|MLB|NCAAF|NHL|Soccer|WNBA|More Sports|Watch|Fantasy|Where to Watch|hsb\.|Copyright|Fantasy Basketball Home|My Team|League|Settings|Members|Rosters|Schedule|Message Board|Transaction Counter|History|Draft Recap|Email League|Recent Activity|Players$|Add Players|Watch List|Daily Leaders|Live Draft Trends|Added \/ Dropped|Player Rater|Player News|Projections|Waiver Order|Waiver Report|Undroppables|FantasyCast|Scoreboard|Standings|Opposing Teams)$/i;
     
-    // Find all stat rows - they start with a number (minutes) and have many values
-    const statLines: number[][] = [];
-    for (let i = statsIdx; i < lines.length; i++) {
-      const line = lines[i];
-      // Match stat line: starts with minutes (number), contains / for FGM/FGA
-      if (line.match(/^[\d.]+\s/) && line.includes('/')) {
-        const parts = line.split(/\s+/);
-        if (parts.length >= 12) {
-          const nums = [
-            parseFloat(parts[0]),  // MIN
-            parseFloat(parts[2]),  // FG%
-            parseFloat(parts[4]),  // FT%
-            parseFloat(parts[5]),  // 3PM
-            parseFloat(parts[6]),  // REB
-            parseFloat(parts[7]),  // AST
-            parseFloat(parts[8]),  // STL
-            parseFloat(parts[9]),  // BLK
-            parseFloat(parts[10]), // TO
-            parseFloat(parts[11]), // PTS
-            parts.length > 13 ? parseFloat(parts[13]) : 0, // %ROST
-          ];
-          if (!nums.some(isNaN)) {
-            statLines.push(nums);
-          }
-        }
-      }
+    // Collect player entries
+    interface PlayerEntry {
+      name: string;
+      team: string;
+      positions: string[];
+      status?: string;
     }
     
-    // Parse player entries before stats section
-    // Look for pattern: Name, Team (2-4 letters), optional Status, Position(s)
-    const playerEntries: { name: string; team: string; positions: string[]; status?: string }[] = [];
+    const playerEntries: PlayerEntry[] = [];
     
-    let i = 0;
-    while (i < statsIdx) {
+    // Look for doubled player names (ESPN pattern)
+    for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
-      // Skip known headers and navigation
-      if (['STATS', 'Research', 'MIN', 'FGM/FGA', 'Watch List', 'Filter', 'Available'].includes(line)) {
-        i++;
-        continue;
-      }
+      // Skip navigation items
+      if (skipPatterns.test(line)) continue;
+      if (line.length < 4 || line.length > 50) continue;
       
-      // Player name - look for doubled name pattern OR reasonable name length
-      // ESPN format often has: "Ayo DosunmuAyo Dosunmu" (name repeated)
+      // Check for doubled name pattern
       const doubleMatch = line.match(/^([A-Z][a-zA-Z'.-]+(?: [A-Z][a-zA-Z'.-]+)+)\1$/);
       if (doubleMatch) {
-        playerEntries.push({ name: doubleMatch[1], team: '', positions: [] });
-        i++;
-        continue;
-      }
-      
-      // Single name (for simpler parsing) - skip if it looks like a header
-      if (line.match(/^[A-Z][a-z]+(?: [A-Z][a-z'.]+)+$/) && 
-          !['Player Name', 'Pro Team', 'Health', 'Compare Players'].includes(line) &&
-          line.length > 4 && line.length < 30) {
-        // Check if this isn't already the last player's name
-        const exists = playerEntries.find(p => p.name === line);
-        if (!exists) {
-          playerEntries.push({ name: line, team: '', positions: [] });
+        const name = doubleMatch[1].trim();
+        
+        // Look ahead for team, positions, status
+        let team = '';
+        let positions: string[] = [];
+        let status = '';
+        
+        for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+          const nextLine = lines[j];
+          
+          // Team code
+          if (!team && NBA_TEAMS.includes(nextLine.toUpperCase())) {
+            team = nextLine.toUpperCase();
+            continue;
+          }
+          
+          // Positions
+          if (positions.length === 0 && /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i.test(nextLine)) {
+            positions = nextLine.toUpperCase().split(/,\s*/);
+            continue;
+          }
+          
+          // Status
+          if (!status && ['DTD', 'O', 'GTD', 'IR', 'SUSP'].includes(nextLine.toUpperCase())) {
+            status = nextLine.toUpperCase();
+            continue;
+          }
+          
+          // Stop at FA or next player
+          if (nextLine === 'FA' || nextLine.match(/^[A-Z][a-z]+.*[A-Z][a-z]+\1$/)) break;
+        }
+        
+        if (team && positions.length > 0) {
+          playerEntries.push({ name, team, positions, status: status || undefined });
         }
       }
-      
-      // Team code (2-4 uppercase)
-      if (line.match(/^[A-Z]{2,4}$/) && playerEntries.length > 0) {
-        const last = playerEntries[playerEntries.length - 1];
-        if (!last.team) {
-          last.team = line;
-        }
-      }
-      
-      // Status
-      if (['O', 'DTD', 'GTD', 'IR', 'SUSP'].includes(line.toUpperCase()) && playerEntries.length > 0) {
-        playerEntries[playerEntries.length - 1].status = line.toUpperCase();
-      }
-      
-      // Positions
-      const posMatch = line.match(/^((?:PG|SG|SF|PF|C|G|F)(?:,\s*(?:PG|SG|SF|PF|C|G|F))*)$/i);
-      if (posMatch && playerEntries.length > 0) {
-        playerEntries[playerEntries.length - 1].positions = posMatch[1].toUpperCase().split(/,\s*/);
-      }
-      
-      // FA marker - skip
-      if (line === 'FA' || line.match(/^WA \(/)) {
-        i++;
-        continue;
-      }
-      
-      i++;
     }
     
-    // Filter valid players and match with stats
-    const validPlayers = playerEntries.filter(p => p.team && p.positions.length > 0);
+    console.log(`Found ${playerEntries.length} player entries`);
     
-    for (let j = 0; j < Math.min(validPlayers.length, statLines.length); j++) {
-      const player = validPlayers[j];
-      const stats = statLines[j];
+    // Parse stats - look for lines with stat patterns
+    const statRows: number[][] = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // Stats line pattern: MIN FGM/FGA FG% FTM/FTA FT% 3PM REB AST STL BLK TO PTS
+      // Example: "28.5 5.2/11.3 .460 2.1/2.5 .840 1.8 4.2 3.5 1.2 0.5 1.8 14.3"
+      const statMatch = line.match(/^(\d+\.?\d*)\s+[\d.]+\/[\d.]+\s+\.(\d+)\s+[\d.]+\/[\d.]+\s+\.(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+      
+      if (statMatch) {
+        statRows.push([
+          parseFloat(statMatch[1]),  // MIN
+          parseFloat('0.' + statMatch[2]),  // FG%
+          parseFloat('0.' + statMatch[3]),  // FT%
+          parseFloat(statMatch[4]),  // 3PM
+          parseFloat(statMatch[5]),  // REB
+          parseFloat(statMatch[6]),  // AST
+          parseFloat(statMatch[7]),  // STL
+          parseFloat(statMatch[8]),  // BLK
+          parseFloat(statMatch[9]),  // TO
+          parseFloat(statMatch[10]), // PTS
+        ]);
+      }
+    }
+    
+    console.log(`Found ${statRows.length} stat rows`);
+    
+    // Match players with stats
+    const maxLen = Math.min(playerEntries.length, statRows.length);
+    
+    for (let i = 0; i < maxLen; i++) {
+      const p = playerEntries[i];
+      const stats = statRows[i];
       
       result.push({
-        id: `fa-${j}`,
-        name: player.name,
-        nbaTeam: player.team,
-        positions: player.positions,
-        status: player.status as "DTD" | "IR" | "O" | "SUSP" | "healthy" | undefined,
+        id: `fa-${i}`,
+        name: p.name,
+        nbaTeam: p.team,
+        positions: p.positions,
+        status: p.status as any,
         minutes: stats[0],
         fgm: 0, fga: 0, fgPct: stats[1],
         ftm: 0, fta: 0, ftPct: stats[2],
@@ -150,18 +174,84 @@ export const FreeAgents = () => {
         blocks: stats[7],
         turnovers: stats[8],
         points: stats[9],
-        rostPct: stats[10],
       });
     }
     
+    // If no inline stats found, try line-by-line number extraction
+    if (result.length === 0 && playerEntries.length > 0) {
+      console.log('Trying line-by-line stat extraction...');
+      
+      // Collect all numeric values after MIN header
+      const minIdx = lines.findIndex(l => l === 'MIN');
+      if (minIdx > -1) {
+        const numericValues: number[] = [];
+        
+        for (let i = minIdx + 1; i < lines.length; i++) {
+          const line = lines[i];
+          // Skip headers
+          if (/^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS)$/i.test(line)) continue;
+          // Collect numbers
+          if (/^[-+]?\d*\.?\d+$/.test(line) || line === '--') {
+            numericValues.push(line === '--' ? 0 : parseFloat(line));
+          }
+        }
+        
+        // 15 columns per player
+        const COLS = 15;
+        const numPlayers = Math.floor(numericValues.length / COLS);
+        
+        for (let i = 0; i < Math.min(numPlayers, playerEntries.length); i++) {
+          const base = i * COLS;
+          const p = playerEntries[i];
+          
+          result.push({
+            id: `fa-${i}`,
+            name: p.name,
+            nbaTeam: p.team,
+            positions: p.positions,
+            status: p.status as any,
+            minutes: numericValues[base] || 0,
+            fgm: 0, fga: 0, fgPct: numericValues[base + 2] || 0,
+            ftm: 0, fta: 0, ftPct: numericValues[base + 4] || 0,
+            threepm: numericValues[base + 5] || 0,
+            rebounds: numericValues[base + 6] || 0,
+            assists: numericValues[base + 7] || 0,
+            steals: numericValues[base + 8] || 0,
+            blocks: numericValues[base + 9] || 0,
+            turnovers: numericValues[base + 10] || 0,
+            points: numericValues[base + 11] || 0,
+          });
+        }
+      }
+    }
+    
+    console.log(`Returning ${result.length} free agents`);
     return result;
   };
 
   const handleParse = () => {
-    if (!rawData.trim()) return;
+    if (!rawData.trim()) {
+      toast({
+        title: "No data",
+        description: "Please paste your ESPN Free Agents data first",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     const parsed = parseESPNFreeAgents(rawData);
     if (parsed.length > 0) {
       setRawPlayers(parsed);
+      toast({
+        title: "Success!",
+        description: `Loaded ${parsed.length} free agents`,
+      });
+    } else {
+      toast({
+        title: "No players found",
+        description: "Could not parse free agent data. Make sure to copy the entire ESPN Free Agents page.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -219,6 +309,12 @@ export const FreeAgents = () => {
     }
   };
 
+  const handleReset = () => {
+    setRawPlayers([]);
+    setRawData("");
+    if (onPlayersChange) onPlayersChange([]);
+  };
+
   if (players.length === 0) {
     return (
       <Card className="gradient-card shadow-card p-6 border-border max-w-4xl mx-auto">
@@ -259,7 +355,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       {/* Header with CRIS Toggle */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-display font-bold">Free Agents</h2>
+          <h2 className="text-xl font-display font-bold">Free Agents ({players.length})</h2>
           <CrisExplanation />
         </div>
         <CrisToggle useCris={useCris} onChange={setUseCris} />
@@ -304,7 +400,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectItem value="threepm">3PM</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => setRawPlayers([])}>
+          <Button variant="outline" size="icon" onClick={handleReset}>
             <RefreshCw className="w-4 h-4" />
           </Button>
         </div>

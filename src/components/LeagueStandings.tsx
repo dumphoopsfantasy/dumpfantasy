@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,13 +18,32 @@ interface TeamWithCris extends LeagueTeam {
 
 type SortKey = 'originalRank' | 'cris' | 'wCris' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'record';
 
-export const LeagueStandings = () => {
+interface LeagueStandingsProps {
+  persistedTeams?: LeagueTeam[];
+  onTeamsChange?: (teams: LeagueTeam[]) => void;
+}
+
+export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueStandingsProps) => {
   const [rawData, setRawData] = useState("");
-  const [rawTeams, setRawTeams] = useState<LeagueTeam[]>([]);
+  const [rawTeams, setRawTeams] = useState<LeagueTeam[]>(persistedTeams);
   const [useCris, setUseCris] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('originalRank');
   const [sortAsc, setSortAsc] = useState(true);
   const { toast } = useToast();
+
+  // Sync with persisted data
+  useEffect(() => {
+    if (persistedTeams.length > 0 && rawTeams.length === 0) {
+      setRawTeams(persistedTeams);
+    }
+  }, [persistedTeams]);
+
+  // Notify parent of changes
+  useEffect(() => {
+    if (onTeamsChange && rawTeams.length > 0) {
+      onTeamsChange(rawTeams);
+    }
+  }, [rawTeams, onTeamsChange]);
 
   const parseLeagueData = (data: string): LeagueTeam[] => {
     const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
@@ -138,6 +157,12 @@ export const LeagueStandings = () => {
 
     setRawTeams(parsed);
     toast({ title: "Success!", description: `Loaded ${parsed.length} teams` });
+  };
+
+  const handleReset = () => {
+    setRawTeams([]);
+    setRawData("");
+    if (onTeamsChange) onTeamsChange([]);
   };
 
   // Calculate CRIS for all teams
@@ -264,12 +289,12 @@ The page should include the "Season Stats" section with team names, managers, an
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-display font-bold">League Category Rankings</h2>
+          <h2 className="text-xl font-display font-bold">League Category Rankings ({teams.length} teams)</h2>
           <CrisExplanation />
         </div>
         <div className="flex items-center gap-3">
           <CrisToggle useCris={useCris} onChange={setUseCris} />
-          <Button variant="outline" size="sm" onClick={() => setRawTeams([])}>
+          <Button variant="outline" size="sm" onClick={handleReset}>
             <RefreshCw className="w-4 h-4 mr-2" />
             New Import
           </Button>
