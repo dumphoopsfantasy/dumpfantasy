@@ -10,6 +10,7 @@ export interface LeagueTeam {
   blocks: number;
   turnovers: number;
   points: number;
+  record?: string;
 }
 
 export interface CategoryRanking {
