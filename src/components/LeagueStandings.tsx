@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Upload, Trophy } from "lucide-react";
+import { Upload, Trophy, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { LeagueTeam } from "@/types/league";
 import { cn } from "@/lib/utils";
@@ -13,96 +13,90 @@ export const LeagueStandings = () => {
   const { toast } = useToast();
 
   const parseLeagueData = (data: string): LeagueTeam[] => {
-    const lines = data.trim().split('\n').filter(l => l.trim());
+    const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
     const result: LeagueTeam[] = [];
     
-    // Collect all numeric values and team names
-    const teamData: { name: string; manager: string; stats: number[]; record: string }[] = [];
-    const allNumbers: number[] = [];
-    const teamNames: { name: string; manager: string; lineIndex: number }[] = [];
+    // Find where "Season Stats" section starts
+    let seasonStatsStart = lines.findIndex(l => l.toLowerCase().includes('season stats'));
+    if (seasonStatsStart === -1) {
+      // Try to find by looking for the pattern of team names
+      seasonStatsStart = 0;
+    }
     
-    // First pass: identify team names and collect all numbers
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+    // Collect team names with managers and their stats
+    const teamEntries: { name: string; manager: string }[] = [];
+    const statValues: number[] = [];
+    const records: string[] = [];
+    
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
       
-      // Skip headers
-      if (line.toLowerCase().includes('fg%') || 
-          line.toLowerCase().includes('team') ||
+      // Skip header lines
+      if (line.toLowerCase() === 'rk' || 
+          line.toLowerCase() === 'team' ||
           line.toLowerCase() === 'all' ||
           line.toLowerCase() === 'last' ||
           line.toLowerCase() === 'moves' ||
-          line.toLowerCase() === 'rk') {
+          line.toLowerCase().includes('fg%') ||
+          line.toLowerCase().includes('season stats') ||
+          line.toLowerCase().includes('projected') ||
+          line.toLowerCase().includes('playoff')) {
+        i++;
         continue;
       }
       
       // Check for manager line (in parentheses)
       if (line.startsWith('(') && line.endsWith(')')) {
-        if (teamNames.length > 0 && !teamNames[teamNames.length - 1].manager) {
-          teamNames[teamNames.length - 1].manager = line.slice(1, -1).trim();
+        if (teamEntries.length > 0 && !teamEntries[teamEntries.length - 1].manager) {
+          teamEntries[teamEntries.length - 1].manager = line.slice(1, -1).trim();
         }
+        i++;
         continue;
       }
       
-      // Check if this is a record (W-L-T format)
+      // Check if this is a record (W-L-T format like "8-1-0")
       const recordMatch = line.match(/^(\d+-\d+-\d+)$/);
       if (recordMatch) {
-        if (teamData.length > 0 || teamNames.length > 0) {
-          const idx = teamData.length > 0 ? teamData.length - 1 : -1;
-          if (idx >= 0) {
-            teamData[idx].record = recordMatch[1];
-          }
-        }
+        records.push(recordMatch[1]);
+        i++;
         continue;
       }
       
-      // Check if this is just a rank number
-      if (line.match(/^\d+$/) && parseInt(line) <= 20) {
+      // Check if this is just a rank number (1-20)
+      if (line.match(/^\d+$/) && parseInt(line) <= 30) {
+        i++;
         continue;
       }
       
-      // Check if this is a number (stat value)
+      // Check if this is a number (stat value like .4853 or 398)
       const numMatch = line.match(/^[.\d]+$/);
       if (numMatch) {
-        allNumbers.push(parseFloat(line));
+        statValues.push(parseFloat(line));
+        i++;
         continue;
       }
       
-      // Otherwise it's likely a team name
-      if (line.length > 2 && !line.match(/^[\d.]+$/) && line !== 'All') {
-        teamNames.push({ name: line, manager: '', lineIndex: i });
+      // Otherwise it's likely a team name (non-numeric, more than 2 chars)
+      if (line.length > 2 && !line.match(/^[\d.]+$/)) {
+        teamEntries.push({ name: line, manager: '' });
       }
+      
+      i++;
     }
     
-    // Calculate stats per team (9 categories)
+    // We expect 9 stats per team (FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS)
     const statsPerTeam = 9;
-    const numTeams = teamNames.length;
+    const numTeams = teamEntries.length;
     
-    if (numTeams > 0 && allNumbers.length >= numTeams * statsPerTeam) {
+    if (numTeams > 0 && statValues.length >= numTeams * statsPerTeam) {
       for (let t = 0; t < numTeams; t++) {
         const startIdx = t * statsPerTeam;
-        const stats = allNumbers.slice(startIdx, startIdx + statsPerTeam);
-        
-        // Find record for this team (should be after stats)
-        const recordStartIdx = numTeams * statsPerTeam;
-        let record = '';
-        
-        // Look for W-L-T pattern in remaining data
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          const recordMatch = line.match(/^(\d+-\d+-\d+)$/);
-          if (recordMatch) {
-            // Count how many records we've seen
-            const recordsBefore = lines.slice(0, i).filter(l => l.trim().match(/^\d+-\d+-\d+$/)).length;
-            if (recordsBefore === t) {
-              record = recordMatch[1];
-              break;
-            }
-          }
-        }
+        const stats = statValues.slice(startIdx, startIdx + statsPerTeam);
         
         result.push({
-          name: teamNames[t].name,
-          manager: teamNames[t].manager,
+          name: teamEntries[t].name,
+          manager: teamEntries[t].manager,
           fgPct: stats[0] || 0,
           ftPct: stats[1] || 0,
           threepm: stats[2] || 0,
@@ -112,7 +106,7 @@ export const LeagueStandings = () => {
           blocks: stats[6] || 0,
           turnovers: stats[7] || 0,
           points: stats[8] || 0,
-          record: record,
+          record: records[t] || '',
         });
       }
     }
@@ -134,7 +128,7 @@ export const LeagueStandings = () => {
     if (parsed.length === 0) {
       toast({
         title: "No teams found",
-        description: "Could not parse league data. Try copying the full standings table from ESPN.",
+        description: "Could not parse league data. Try copying the entire page from ESPN standings.",
         variant: "destructive",
       });
       return;
@@ -163,8 +157,8 @@ export const LeagueStandings = () => {
   };
 
   const categories = [
-    { key: 'fgPct' as keyof LeagueTeam, label: 'FG%', format: (v: number) => v < 1 ? `${(v * 100).toFixed(1)}%` : `${v.toFixed(1)}%` },
-    { key: 'ftPct' as keyof LeagueTeam, label: 'FT%', format: (v: number) => v < 1 ? `${(v * 100).toFixed(1)}%` : `${v.toFixed(1)}%` },
+    { key: 'fgPct' as keyof LeagueTeam, label: 'FG%', format: (v: number) => v < 1 ? `.${Math.round(v * 10000).toString().slice(0,4)}` : `${v.toFixed(1)}%` },
+    { key: 'ftPct' as keyof LeagueTeam, label: 'FT%', format: (v: number) => v < 1 ? `.${Math.round(v * 10000).toString().slice(0,4)}` : `${v.toFixed(1)}%` },
     { key: 'threepm' as keyof LeagueTeam, label: '3PM', format: (v: number) => v.toFixed(0) },
     { key: 'rebounds' as keyof LeagueTeam, label: 'REB', format: (v: number) => v.toFixed(0) },
     { key: 'assists' as keyof LeagueTeam, label: 'AST', format: (v: number) => v.toFixed(0) },
@@ -184,20 +178,15 @@ export const LeagueStandings = () => {
           <div>
             <h2 className="text-xl font-display font-bold">League Standings</h2>
             <p className="text-sm text-muted-foreground">
-              Paste your league's season category totals from ESPN
+              Copy and paste the entire ESPN standings page
             </p>
           </div>
         </div>
 
         <Textarea
-          placeholder={`Paste league standings data from ESPN. Example format:
+          placeholder={`Copy the ENTIRE ESPN standings page (Ctrl+A, Ctrl+C) and paste here.
 
-Wooden Nickelers
-  (Quentin Lee)
-.4853  .8036  398  1643  1012  233  214  568  4586  8-1-0
-
-Or tab-separated:
-Team Name	.4853	.8036	398	1643	1012	233	214	568	4586`}
+The page should include the "Season Stats" section with team names, managers, and category totals.`}
           value={rawData}
           onChange={(e) => setRawData(e.target.value)}
           className="min-h-[200px] font-mono text-sm mb-4 bg-muted/50"
@@ -216,6 +205,7 @@ Team Name	.4853	.8036	398	1643	1012	233	214	568	4586`}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-display font-bold">League Category Rankings</h2>
         <Button variant="outline" size="sm" onClick={() => setTeams([])}>
+          <RefreshCw className="w-4 h-4 mr-2" />
           New Import
         </Button>
       </div>

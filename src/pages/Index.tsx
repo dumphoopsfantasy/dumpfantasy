@@ -16,9 +16,28 @@ const Index = () => {
   const [players, setPlayers] = useState<PlayerStats[]>([]);
 
   const handleDataParsed = (data: PlayerStats[]) => {
-    const sortedData = [...data].sort((a, b) => b.points - a.points);
-    setPlayers(sortedData);
+    setPlayers(data);
   };
+
+  // Calculate CRIS and sort by it (excluding players with no stats)
+  const calculateCRIS = (p: PlayerStats): number => {
+    if (p.minutes === 0) return -999;
+    const weights = { points: 1.0, rebounds: 1.2, assists: 1.5, steals: 2.0, blocks: 2.0, threepm: 1.3, fgPct: 1.0, ftPct: 0.8, turnovers: -1.5 };
+    const baselines = { points: 12, rebounds: 5, assists: 3, steals: 1, blocks: 0.5, threepm: 1.5, fgPct: 0.45, ftPct: 0.75, turnovers: 2 };
+    let score = 0;
+    score += ((p.points - baselines.points) / baselines.points) * weights.points * 10;
+    score += ((p.rebounds - baselines.rebounds) / baselines.rebounds) * weights.rebounds * 10;
+    score += ((p.assists - baselines.assists) / baselines.assists) * weights.assists * 10;
+    score += ((p.steals - baselines.steals) / baselines.steals) * weights.steals * 10;
+    score += ((p.blocks - baselines.blocks) / Math.max(baselines.blocks, 0.1)) * weights.blocks * 10;
+    score += ((p.threepm - baselines.threepm) / baselines.threepm) * weights.threepm * 10;
+    score += ((p.fgPct - baselines.fgPct) / baselines.fgPct) * weights.fgPct * 10;
+    score += ((p.ftPct - baselines.ftPct) / baselines.ftPct) * weights.ftPct * 10;
+    score += ((baselines.turnovers - p.turnovers) / baselines.turnovers) * Math.abs(weights.turnovers) * 10;
+    return score;
+  };
+
+  const sortedByValue = [...players].sort((a, b) => calculateCRIS(b) - calculateCRIS(a));
 
   const handleReset = () => {
     setPlayers([]);
@@ -107,14 +126,14 @@ const Index = () => {
                   </TabsList>
 
                   <TabsContent value="all" className="mt-4 space-y-3">
-                    {players.map((player, index) => (
-                      <PlayerCard key={index} player={player} rank={index + 1} />
+                    {sortedByValue.map((player, index) => (
+                      <PlayerCard key={index} player={player} rank={index + 1} allPlayers={players} />
                     ))}
                   </TabsContent>
 
                   <TabsContent value="starters" className="mt-4 space-y-3">
                     {starters.length > 0 ? (
-                      starters.map((player, index) => <PlayerCard key={index} player={player} />)
+                      starters.map((player, index) => <PlayerCard key={index} player={player} allPlayers={players} />)
                     ) : (
                       <p className="text-center text-muted-foreground py-8">No starters found</p>
                     )}
@@ -122,7 +141,7 @@ const Index = () => {
 
                   <TabsContent value="bench" className="mt-4 space-y-3">
                     {bench.length > 0 ? (
-                      bench.map((player, index) => <PlayerCard key={index} player={player} />)
+                      bench.map((player, index) => <PlayerCard key={index} player={player} allPlayers={players} />)
                     ) : (
                       <p className="text-center text-muted-foreground py-8">No bench players found</p>
                     )}
@@ -130,7 +149,7 @@ const Index = () => {
 
                   <TabsContent value="ir" className="mt-4 space-y-3">
                     {ir.length > 0 ? (
-                      ir.map((player, index) => <PlayerCard key={index} player={player} />)
+                      ir.map((player, index) => <PlayerCard key={index} player={player} allPlayers={players} />)
                     ) : (
                       <p className="text-center text-muted-foreground py-8">No IR players found</p>
                     )}
