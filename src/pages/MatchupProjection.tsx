@@ -303,8 +303,6 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
             <Textarea
               placeholder={`Paste the full ESPN page for your team...
 
-Paste the full ESPN page for your team...
-
 Navigate to your team page and copy the whole page`}
               value={myTeamData}
               onChange={(e) => setMyTeamData(e.target.value)}
