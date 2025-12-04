@@ -1,93 +1,245 @@
 import { useState, useMemo } from "react";
 import { RosterSlot, Player } from "@/types/fantasy";
-import { RosterPlayerCard } from "@/components/roster/RosterPlayerCard";
+import { RosterTable } from "@/components/roster/RosterTable";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { Card } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { formatStat } from "@/lib/playerUtils";
-import { CrisToggle } from "@/components/CrisToggle";
+import { Button } from "@/components/ui/button";
 import { CrisExplanation } from "@/components/CrisExplanation";
-import { calculateCRISForAll, formatPct } from "@/lib/crisUtils";
+import { formatPct, CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { sampleRoster } from "@/data/sampleData";
 import { cn } from "@/lib/utils";
+
+type SlotFilter = "all" | "starter" | "bench" | "ir";
 
 export const YourTeam = () => {
   const [roster] = useState<RosterSlot[]>(sampleRoster);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [sortBy, setSortBy] = useState<string>("slot");
   const [useCris, setUseCris] = useState(true);
+  const [slotFilter, setSlotFilter] = useState<SlotFilter>("all");
+  const [sortColumn, setSortColumn] = useState<string>(useCris ? "cri" : "wCri");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
-  // Get all players from roster
-  const allPlayers = roster.map(r => r.player);
-  const activePlayers = allPlayers.filter(p => p.minutes > 0);
+  // Calculate CRI/wCRI using exact logic from user spec
+  const enhancedRoster = useMemo(() => {
+    // Step 1: Identify active players with stats (Starter/Bench only, with min > 0)
+    const activePlayersWithStats = roster.filter(
+      (slot) =>
+        (slot.slotType === "starter" || slot.slotType === "bench") &&
+        slot.player.minutes > 0
+    );
 
-  // Calculate CRI/wCRI for active players
-  const playersWithCRI = useMemo(() => {
-    if (activePlayers.length === 0) return [];
-    return calculateCRISForAll(activePlayers.map(p => ({
-      fgPct: p.fgPct,
-      ftPct: p.ftPct,
-      threepm: p.threepm,
-      rebounds: p.rebounds,
-      assists: p.assists,
-      steals: p.steals,
-      blocks: p.blocks,
-      turnovers: p.turnovers,
-      points: p.points,
-    })));
-  }, [activePlayers]);
+    const N = activePlayersWithStats.length;
+    if (N === 0) return roster.map((slot) => ({ ...slot, player: { ...slot.player } }));
 
-  // Create CRI ranks
-  const criRanks = useMemo(() => {
-    const criSorted = [...playersWithCRI].map((p, idx) => ({ idx, cri: p.cri, wCri: p.wCri }));
-    criSorted.sort((a, b) => b.cri - a.cri);
-    const wCriSorted = [...criSorted].sort((a, b) => b.wCri - a.wCri);
-    
-    const ranks = new Map<number, { criRank: number; wCriRank: number; cri: number; wCri: number }>();
-    criSorted.forEach((item, rank) => {
-      ranks.set(item.idx, { 
-        criRank: rank + 1, 
-        wCriRank: 0, 
-        cri: item.cri, 
-        wCri: item.wCri 
+    // Step 2: Calculate category ranks (1 = best)
+    const categories = [
+      { key: "fgPct", higherBetter: true },
+      { key: "ftPct", higherBetter: true },
+      { key: "threepm", higherBetter: true },
+      { key: "rebounds", higherBetter: true },
+      { key: "assists", higherBetter: true },
+      { key: "steals", higherBetter: true },
+      { key: "blocks", higherBetter: true },
+      { key: "turnovers", higherBetter: false }, // Lower is better
+      { key: "points", higherBetter: true },
+    ];
+
+    // Map player id to category scores
+    const categoryScores: Record<string, Record<string, number>> = {};
+    activePlayersWithStats.forEach((slot) => {
+      categoryScores[slot.player.id] = {};
+    });
+
+    categories.forEach((cat) => {
+      // Sort players by this category
+      const sorted = [...activePlayersWithStats].sort((a, b) => {
+        const valA = a.player[cat.key as keyof Player] as number;
+        const valB = b.player[cat.key as keyof Player] as number;
+        return cat.higherBetter ? valB - valA : valA - valB;
+      });
+
+      // Assign scores: best gets N, worst gets 1
+      sorted.forEach((slot, idx) => {
+        const score = N - idx; // Best (idx=0) gets N, worst gets 1
+        categoryScores[slot.player.id][cat.key] = score;
       });
     });
-    wCriSorted.forEach((item, rank) => {
-      const existing = ranks.get(item.idx);
-      if (existing) existing.wCriRank = rank + 1;
-    });
-    return ranks;
-  }, [playersWithCRI]);
 
-  // Enhance roster players with CRI data
-  const enhancedRoster = useMemo(() => {
-    let activeIdx = 0;
-    return roster.map(slot => {
-      const player = slot.player;
-      if (player.minutes > 0) {
-        const criData = criRanks.get(activeIdx);
-        activeIdx++;
-        if (criData) {
-          return {
-            ...slot,
-            player: {
-              ...player,
-              cri: useCris ? criData.cri : criData.wCri,
-              criRank: useCris ? criData.criRank : criData.wCriRank,
-            }
-          };
-        }
+    // Step 3: Calculate CRI and wCRI for active players
+    const criValues: Record<string, { cri: number; wCri: number }> = {};
+
+    activePlayersWithStats.forEach((slot) => {
+      const scores = categoryScores[slot.player.id];
+      let cri = 0;
+      let wCri = 0;
+
+      cri += scores.fgPct + scores.ftPct + scores.threepm + scores.rebounds +
+             scores.assists + scores.steals + scores.blocks + scores.turnovers + scores.points;
+
+      wCri += scores.fgPct * CRIS_WEIGHTS.fgPct;
+      wCri += scores.ftPct * CRIS_WEIGHTS.ftPct;
+      wCri += scores.threepm * CRIS_WEIGHTS.threepm;
+      wCri += scores.rebounds * CRIS_WEIGHTS.rebounds;
+      wCri += scores.assists * CRIS_WEIGHTS.assists;
+      wCri += scores.steals * CRIS_WEIGHTS.steals;
+      wCri += scores.blocks * CRIS_WEIGHTS.blocks;
+      wCri += scores.turnovers * CRIS_WEIGHTS.turnovers;
+      wCri += scores.points * CRIS_WEIGHTS.points;
+
+      criValues[slot.player.id] = { cri, wCri };
+    });
+
+    // Step 4: Calculate ranks (1 = highest CRI/wCRI)
+    const criRanks: Record<string, number> = {};
+    const wCriRanks: Record<string, number> = {};
+
+    const sortedByCri = [...activePlayersWithStats].sort(
+      (a, b) => criValues[b.player.id].cri - criValues[a.player.id].cri
+    );
+    sortedByCri.forEach((slot, idx) => {
+      criRanks[slot.player.id] = idx + 1;
+    });
+
+    const sortedByWCri = [...activePlayersWithStats].sort(
+      (a, b) => criValues[b.player.id].wCri - criValues[a.player.id].wCri
+    );
+    sortedByWCri.forEach((slot, idx) => {
+      wCriRanks[slot.player.id] = idx + 1;
+    });
+
+    // Step 5: Enhance all roster slots with CRI data
+    return roster.map((slot) => {
+      const isActiveWithStats =
+        (slot.slotType === "starter" || slot.slotType === "bench") &&
+        slot.player.minutes > 0;
+
+      if (isActiveWithStats && criValues[slot.player.id]) {
+        return {
+          ...slot,
+          player: {
+            ...slot.player,
+            cri: criValues[slot.player.id].cri,
+            wCri: criValues[slot.player.id].wCri,
+            criRank: criRanks[slot.player.id],
+            wCriRank: wCriRanks[slot.player.id],
+          },
+        };
       }
-      return slot;
-    });
-  }, [roster, criRanks, useCris]);
 
-  // Count by slot type
-  const startersCount = roster.filter(r => r.slotType === "starter").length;
-  const benchCount = roster.filter(r => r.slotType === "bench").length;
-  const irCount = roster.filter(r => r.slotType === "ir").length;
-  const playingTodayCount = roster.filter(r => r.player.opponent).length;
+      // IR players or players without stats - no CRI
+      return {
+        ...slot,
+        player: {
+          ...slot.player,
+          cri: undefined,
+          wCri: undefined,
+          criRank: undefined,
+          wCriRank: undefined,
+        },
+      };
+    });
+  }, [roster]);
+
+  // Filter by slot type
+  const filteredRoster = useMemo(() => {
+    if (slotFilter === "all") return enhancedRoster;
+    return enhancedRoster.filter((slot) => slot.slotType === slotFilter);
+  }, [enhancedRoster, slotFilter]);
+
+  // Sort roster
+  const sortedRoster = useMemo(() => {
+    return [...filteredRoster].sort((a, b) => {
+      const playerA = a.player;
+      const playerB = b.player;
+      let valA: number | undefined;
+      let valB: number | undefined;
+
+      switch (sortColumn) {
+        case "cri":
+          valA = playerA.cri;
+          valB = playerB.cri;
+          break;
+        case "wCri":
+          valA = playerA.wCri;
+          valB = playerB.wCri;
+          break;
+        case "min":
+          valA = playerA.minutes;
+          valB = playerB.minutes;
+          break;
+        case "fgPct":
+          valA = playerA.fgPct;
+          valB = playerB.fgPct;
+          break;
+        case "ftPct":
+          valA = playerA.ftPct;
+          valB = playerB.ftPct;
+          break;
+        case "threepm":
+          valA = playerA.threepm;
+          valB = playerB.threepm;
+          break;
+        case "rebounds":
+          valA = playerA.rebounds;
+          valB = playerB.rebounds;
+          break;
+        case "assists":
+          valA = playerA.assists;
+          valB = playerB.assists;
+          break;
+        case "steals":
+          valA = playerA.steals;
+          valB = playerB.steals;
+          break;
+        case "blocks":
+          valA = playerA.blocks;
+          valB = playerB.blocks;
+          break;
+        case "turnovers":
+          valA = playerA.turnovers;
+          valB = playerB.turnovers;
+          // Lower is better for TO, so reverse
+          if (sortDirection === "desc") {
+            return (valA ?? Infinity) - (valB ?? Infinity);
+          }
+          return (valB ?? 0) - (valA ?? 0);
+        case "points":
+          valA = playerA.points;
+          valB = playerB.points;
+          break;
+        default:
+          return 0;
+      }
+
+      // Handle undefined values (push to end)
+      if (valA === undefined && valB === undefined) return 0;
+      if (valA === undefined) return 1;
+      if (valB === undefined) return -1;
+
+      return sortDirection === "desc" ? valB - valA : valA - valB;
+    });
+  }, [filteredRoster, sortColumn, sortDirection]);
+
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection((prev) => (prev === "desc" ? "asc" : "desc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("desc");
+    }
+  };
+
+  const handleToggleCris = (useCriMode: boolean) => {
+    setUseCris(useCriMode);
+    setSortColumn(useCriMode ? "cri" : "wCri");
+    setSortDirection("desc");
+  };
+
+  // Get active players for team averages (excluding IR)
+  const activePlayers = roster
+    .filter((slot) => slot.slotType !== "ir" && slot.player.minutes > 0)
+    .map((slot) => slot.player);
 
   // Team totals (averages)
   const teamTotals = useMemo(() => {
@@ -106,174 +258,196 @@ export const YourTeam = () => {
   }, [activePlayers]);
 
   // Weekly projections (x40 for counting stats)
-  const weeklyProjections = useMemo(() => ({
-    pts: teamTotals.pts * 40,
-    reb: teamTotals.reb * 40,
-    ast: teamTotals.ast * 40,
-    threepm: teamTotals.threepm * 40,
-    stl: teamTotals.stl * 40,
-    blk: teamTotals.blk * 40,
-    to: teamTotals.to * 40,
-    fgPct: teamTotals.fgPct, // Percentages stay the same
-    ftPct: teamTotals.ftPct,
-  }), [teamTotals]);
+  const weeklyProjections = useMemo(
+    () => ({
+      pts: teamTotals.pts * 40,
+      reb: teamTotals.reb * 40,
+      ast: teamTotals.ast * 40,
+      threepm: teamTotals.threepm * 40,
+      stl: teamTotals.stl * 40,
+      blk: teamTotals.blk * 40,
+      to: teamTotals.to * 40,
+      fgPct: teamTotals.fgPct,
+      ftPct: teamTotals.ftPct,
+    }),
+    [teamTotals]
+  );
 
-  const sortedRoster = useMemo(() => {
-    if (sortBy === "slot") return enhancedRoster;
-    
-    return [...enhancedRoster].sort((a, b) => {
-      const playerA = a.player;
-      const playerB = b.player;
-      
-      switch (sortBy) {
-        case "points": return playerB.points - playerA.points;
-        case "rebounds": return playerB.rebounds - playerA.rebounds;
-        case "assists": return playerB.assists - playerA.assists;
-        case "cris": return (playerB.cri || 0) - (playerA.cri || 0);
-        default: return 0;
-      }
-    });
-  }, [enhancedRoster, sortBy]);
-
-  const scoreLabel = useCris ? 'CRI' : 'wCRI';
+  // Counts
+  const startersCount = roster.filter((r) => r.slotType === "starter").length;
+  const benchCount = roster.filter((r) => r.slotType === "bench").length;
+  const irCount = roster.filter((r) => r.slotType === "ir").length;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       {/* Team Summary Card */}
-      <Card className="gradient-card border-border p-6">
-        <div className="mb-4">
-          <h2 className="font-display font-bold text-lg">TEAM AVERAGES</h2>
-          <p className="text-xs text-muted-foreground">Per-game averages from active roster ({activePlayers.length} players)</p>
+      <Card className="gradient-card border-border p-4">
+        <div className="mb-3">
+          <h2 className="font-display font-bold text-base">TEAM AVERAGES</h2>
+          <p className="text-[10px] text-muted-foreground">
+            Per-game averages from active roster ({activePlayers.length} players)
+          </p>
         </div>
-        
-        <div className="grid grid-cols-3 md:grid-cols-9 gap-4 mb-6">
+
+        <div className="grid grid-cols-3 md:grid-cols-9 gap-3 mb-4">
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">FG%</p>
-            <p className="font-display font-bold text-xl">{formatPct(teamTotals.fgPct)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">FG%</p>
+            <p className="font-display font-bold text-lg">{formatPct(teamTotals.fgPct)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">FT%</p>
-            <p className="font-display font-bold text-xl">{formatPct(teamTotals.ftPct)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">FT%</p>
+            <p className="font-display font-bold text-lg">{formatPct(teamTotals.ftPct)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">3PM</p>
-            <p className="font-display font-bold text-xl">{teamTotals.threepm.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">3PM</p>
+            <p className="font-display font-bold text-lg">{teamTotals.threepm.toFixed(1)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">REB</p>
-            <p className="font-display font-bold text-xl">{teamTotals.reb.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">REB</p>
+            <p className="font-display font-bold text-lg">{teamTotals.reb.toFixed(1)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">AST</p>
-            <p className="font-display font-bold text-xl">{teamTotals.ast.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">AST</p>
+            <p className="font-display font-bold text-lg">{teamTotals.ast.toFixed(1)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">STL</p>
-            <p className="font-display font-bold text-xl">{teamTotals.stl.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">STL</p>
+            <p className="font-display font-bold text-lg">{teamTotals.stl.toFixed(1)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">BLK</p>
-            <p className="font-display font-bold text-xl">{teamTotals.blk.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">BLK</p>
+            <p className="font-display font-bold text-lg">{teamTotals.blk.toFixed(1)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">TO</p>
-            <p className="font-display font-bold text-xl text-stat-negative">{teamTotals.to.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">TO</p>
+            <p className="font-display font-bold text-lg text-stat-negative">
+              {teamTotals.to.toFixed(1)}
+            </p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">PTS</p>
-            <p className="font-display font-bold text-xl text-primary">{teamTotals.pts.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">PTS</p>
+            <p className="font-display font-bold text-lg text-primary">
+              {teamTotals.pts.toFixed(1)}
+            </p>
           </div>
         </div>
 
         {/* Weekly Projections */}
-        <div className="border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground mb-3">WEEKLY PROJECTIONS (×40 for counting stats)</p>
-          <div className="grid grid-cols-3 md:grid-cols-9 gap-4">
+        <div className="border-t border-border pt-3">
+          <p className="text-[10px] text-muted-foreground mb-2">
+            WEEKLY PROJECTIONS (×40 for counting stats)
+          </p>
+          <div className="grid grid-cols-3 md:grid-cols-9 gap-3">
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">FG%</p>
+              <p className="text-[10px] text-muted-foreground uppercase">FG%</p>
               <p className="font-display font-semibold text-sm">{formatPct(weeklyProjections.fgPct)}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">FT%</p>
+              <p className="text-[10px] text-muted-foreground uppercase">FT%</p>
               <p className="font-display font-semibold text-sm">{formatPct(weeklyProjections.ftPct)}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">3PM</p>
+              <p className="text-[10px] text-muted-foreground uppercase">3PM</p>
               <p className="font-display font-semibold text-sm">{weeklyProjections.threepm.toFixed(0)}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">REB</p>
+              <p className="text-[10px] text-muted-foreground uppercase">REB</p>
               <p className="font-display font-semibold text-sm">{weeklyProjections.reb.toFixed(0)}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">AST</p>
+              <p className="text-[10px] text-muted-foreground uppercase">AST</p>
               <p className="font-display font-semibold text-sm">{weeklyProjections.ast.toFixed(0)}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">STL</p>
+              <p className="text-[10px] text-muted-foreground uppercase">STL</p>
               <p className="font-display font-semibold text-sm">{weeklyProjections.stl.toFixed(0)}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">BLK</p>
+              <p className="text-[10px] text-muted-foreground uppercase">BLK</p>
               <p className="font-display font-semibold text-sm">{weeklyProjections.blk.toFixed(0)}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">TO</p>
-              <p className="font-display font-semibold text-sm text-stat-negative">{weeklyProjections.to.toFixed(0)}</p>
+              <p className="text-[10px] text-muted-foreground uppercase">TO</p>
+              <p className="font-display font-semibold text-sm text-stat-negative">
+                {weeklyProjections.to.toFixed(0)}
+              </p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground uppercase">PTS</p>
-              <p className="font-display font-semibold text-sm text-primary">{weeklyProjections.pts.toFixed(0)}</p>
+              <p className="text-[10px] text-muted-foreground uppercase">PTS</p>
+              <p className="font-display font-semibold text-sm text-primary">
+                {weeklyProjections.pts.toFixed(0)}
+              </p>
             </div>
           </div>
         </div>
       </Card>
 
-      {/* Roster Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h2 className="font-display font-bold text-xl">My Roster</h2>
-          <Badge variant="outline" className="text-xs">{roster.length} players</Badge>
-          <Badge variant="secondary" className="text-xs">Active: {startersCount}</Badge>
-          <Badge variant="secondary" className="text-xs">Bench: {benchCount}</Badge>
-          {irCount > 0 && <Badge variant="destructive" className="text-xs">IR: {irCount}</Badge>}
-          {playingTodayCount > 0 && (
-            <Badge className="text-xs bg-primary/20 text-primary border-primary/50">
-              Playing Today: {playingTodayCount}
-            </Badge>
-          )}
+      {/* Roster Header with Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="font-display font-bold text-lg">My Roster</h2>
+          <Badge variant="outline" className="text-[10px]">{roster.length} players</Badge>
         </div>
-        <div className="flex items-center gap-3">
-          <CrisToggle useCris={useCris} onChange={setUseCris} />
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Slot Filters */}
+          <div className="flex items-center gap-1 bg-secondary/30 rounded-md p-0.5">
+            {[
+              { key: "all", label: "All" },
+              { key: "starter", label: `Starters (${startersCount})` },
+              { key: "bench", label: `Bench (${benchCount})` },
+              { key: "ir", label: `IR (${irCount})` },
+            ].map((filter) => (
+              <Button
+                key={filter.key}
+                variant={slotFilter === filter.key ? "secondary" : "ghost"}
+                size="sm"
+                className={cn(
+                  "h-6 px-2 text-[10px]",
+                  slotFilter === filter.key && "bg-secondary"
+                )}
+                onClick={() => setSlotFilter(filter.key as SlotFilter)}
+              >
+                {filter.label}
+              </Button>
+            ))}
+          </div>
+
+          {/* CRI/wCRI Toggle */}
+          <div className="flex items-center gap-1 bg-secondary/30 rounded-md p-0.5">
+            <Button
+              variant={useCris ? "secondary" : "ghost"}
+              size="sm"
+              className={cn("h-6 px-3 text-[10px] font-display", useCris && "bg-primary text-primary-foreground")}
+              onClick={() => handleToggleCris(true)}
+            >
+              CRI
+            </Button>
+            <Button
+              variant={!useCris ? "secondary" : "ghost"}
+              size="sm"
+              className={cn("h-6 px-3 text-[10px] font-display", !useCris && "bg-primary text-primary-foreground")}
+              onClick={() => handleToggleCris(false)}
+            >
+              wCRI
+            </Button>
+          </div>
+
           <CrisExplanation />
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Sort by..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="slot">Slot Order</SelectItem>
-              <SelectItem value="points">Points</SelectItem>
-              <SelectItem value="rebounds">Rebounds</SelectItem>
-              <SelectItem value="assists">Assists</SelectItem>
-              <SelectItem value="cris">{scoreLabel}</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </div>
 
-      {/* All Players List */}
-      <div className="space-y-2">
-        {sortedRoster.map((slot) => (
-          <RosterPlayerCard
-            key={slot.player.id}
-            player={slot.player}
-            slot={slot.slot}
-            slotType={slot.slotType}
-            onClick={() => setSelectedPlayer(slot.player)}
-            useCris={useCris}
-          />
-        ))}
-      </div>
+      {/* Compact Roster Table */}
+      <Card className="gradient-card border-border p-2">
+        <RosterTable
+          roster={sortedRoster as any}
+          useCris={useCris}
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          onSort={handleSort}
+          onPlayerClick={setSelectedPlayer}
+        />
+      </Card>
 
       <PlayerDetailSheet
         player={selectedPlayer}

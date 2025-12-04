@@ -4,11 +4,12 @@ import { cn } from "@/lib/utils";
 
 interface PlayerPhotoProps {
   name: string;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
   className?: string;
 }
 
 const sizeClasses = {
+  xs: "w-6 h-6 text-[8px]",
   sm: "w-10 h-10 text-xs",
   md: "w-14 h-14 text-sm",
   lg: "w-20 h-20 text-base",
@@ -45,7 +46,7 @@ export const PlayerPhoto = ({ name, size = "md", className }: PlayerPhotoProps) 
   const [currentUrlIndex, setCurrentUrlIndex] = useState(0);
   const [allFailed, setAllFailed] = useState(false);
   
-  const photoSize = size === "sm" ? "small" : "medium";
+  const photoSize = size === "xs" || size === "sm" ? "small" : "medium";
   const urls = getPhotoUrls(name, photoSize);
   const initials = getPlayerInitials(name);
 

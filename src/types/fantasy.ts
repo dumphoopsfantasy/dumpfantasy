@@ -34,6 +34,9 @@ export interface Player {
   // Advanced metrics
   gamescore?: number;
   cri?: number;
+  wCri?: number;
+  criRank?: number;
+  wCriRank?: number;
   cris?: number;
   playoffRank?: number;
   rostPct?: number;
