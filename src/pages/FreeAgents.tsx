@@ -98,17 +98,27 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       // Skip very short or very long lines
       if (line.length < 6 || line.length > 80) continue;
       
-      // Method 1: Check for doubled name pattern
+      let name = '';
+      
+      // Method 1: Check for doubled name pattern on same line ("Noah ClowneyNoah Clowney")
       const halfLen = line.length / 2;
       if (halfLen === Math.floor(halfLen) && line.substring(0, halfLen) === line.substring(halfLen)) {
-        const name = line.substring(0, halfLen).trim();
-        
-        // Validate it looks like a name - allow:
-        // - Standard names: "Noah Clowney" (starts with capital, has space)
-        // - Names with initials: "AJ Green" (two capitals)
-        // - Names with apostrophes: "D'Angelo Russell"
-        const isValidName = name.includes(' ') && /^[A-Z]/.test(name) && name.length >= 4;
-        if (!isValidName) continue;
+        name = line.substring(0, halfLen).trim();
+      }
+      // Method 2: Check for consecutive identical lines (no photo pattern: "Caleb Love\nCaleb Love")
+      else if (i + 1 < lines.length && line === lines[i + 1] && line.includes(' ') && /^[A-Z]/.test(line)) {
+        name = line.trim();
+        i++; // Skip the duplicate line
+      }
+      
+      if (!name) continue;
+      
+      // Validate it looks like a name - allow:
+      // - Standard names: "Noah Clowney" (starts with capital, has space)
+      // - Names with initials: "AJ Green" (two capitals)
+      // - Names with apostrophes: "D'Angelo Russell"
+      const isValidName = name.includes(' ') && /^[A-Z]/.test(name) && name.length >= 4;
+      if (!isValidName) continue;
         
         // Skip navigation/header text
         if (/^(Fantasy|ESPN|Add|Drop|Trade|Watch|Support|Research|Basketball|Football|Hockey|Baseball)/i.test(name)) continue;
@@ -216,7 +226,6 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
             gameTime: gameTime || undefined
           });
         }
-      }
     }
     
     console.log(`Phase 1: Found ${playerList.length} players from bio section`);
