@@ -450,6 +450,119 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </Card>
 
+      {/* Team Averages Summary */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Your Team */}
+        <Card className="gradient-card border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display font-bold text-stat-positive">{persistedMatchup.myTeam.name}</h3>
+            <span className="text-xs text-muted-foreground">Weekly projection (×{MULTIPLIER})</span>
+          </div>
+          <div className="grid grid-cols-5 gap-2 mb-3">
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">PTS</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.points.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg text-primary">{Math.round(persistedMatchup.myTeam.stats.points * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">REB</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.rebounds.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.rebounds * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">AST</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.assists.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.assists * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">3PM</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.threepm.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.threepm * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">STL</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.steals.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.steals * MULTIPLIER)}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">BLK</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.blocks.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.blocks * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">TO</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.turnovers.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg text-stat-negative">{Math.round(persistedMatchup.myTeam.stats.turnovers * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">FG%</p>
+              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.myTeam.stats.fgPct)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">FT%</p>
+              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.myTeam.stats.ftPct)}</p>
+            </div>
+          </div>
+        </Card>
+
+        {/* Opponent */}
+        <Card className="gradient-card border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display font-bold text-stat-negative">{persistedMatchup.opponent.name}</h3>
+            <span className="text-xs text-muted-foreground">Weekly projection (×{MULTIPLIER})</span>
+          </div>
+          <div className="grid grid-cols-5 gap-2 mb-3">
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">PTS</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.points.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg text-primary">{Math.round(persistedMatchup.opponent.stats.points * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">REB</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.rebounds.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.rebounds * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">AST</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.assists.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.assists * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">3PM</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.threepm.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.threepm * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">STL</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.steals.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.steals * MULTIPLIER)}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">BLK</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.blocks.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.blocks * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">TO</p>
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.turnovers.toFixed(1)}</p>
+              <p className="font-display font-bold text-lg text-stat-negative">{Math.round(persistedMatchup.opponent.stats.turnovers * MULTIPLIER)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">FG%</p>
+              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.opponent.stats.fgPct)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">FT%</p>
+              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.opponent.stats.ftPct)}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
       {/* Category Breakdown */}
       <div className="space-y-3">
         {comparisons.map((comp) => (
