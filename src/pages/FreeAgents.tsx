@@ -254,6 +254,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       }
       
       // Collect ALL numeric tokens until footer
+      // Handle fractions like "5.9/12.3" by splitting them
       for (let i = dataStartIdx; i < lines.length; i++) {
         const line = lines[i];
         
@@ -268,7 +269,14 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
         
         // Skip page navigation (but don't stop - more data may follow)
         if (/^(\d+\s+)+\.{3}\s*\d+$/.test(line)) continue; // "1 2 3 4 5 ... 19"
-        if (/^\d+$/.test(line) && parseInt(line) < 20) continue; // Single digit page numbers
+        if (/^\d+$/.test(line) && parseInt(line) < 30) continue; // Single digit page numbers
+        
+        // Handle fractions like "5.9/12.3" - split into two values
+        if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
+          const parts = line.split('/');
+          statTokens.push(parts[0], parts[1]);
+          continue;
+        }
         
         // Collect numeric values: integers, decimals, percentages (.XXX), negatives, and '--' placeholders
         if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
@@ -277,9 +285,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       }
     }
     
-    console.log(`Phase 2: Collected ${statTokens.length} stat tokens`);
+    console.log(`Phase 2: Collected ${statTokens.length} stat tokens (expected ~${playerList.length * 17})`);
     
-    // Parse tokens into stat rows (17 values per player)
+    // Parse tokens into stat rows (17 values per player when fractions are split)
+    // Columns: MIN, FGM, FGA, FG%, FTM, FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
     const COLS = 17;
     const numStatRows = Math.floor(statTokens.length / COLS);
     
@@ -314,15 +323,14 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       // 7: 3PM, 8: REB, 9: AST, 10: STL, 11: BLK, 12: TO, 13: PTS
       // 14: PR15, 15: %ROST, 16: +/-
       
+      // FG% is at index 3 - should be in .XXX format like .477
       let fgPct = parseVal(3);
-      // Handle various FG% formats: .477, 0.477, 47.7
-      if (fgPct > 1 && fgPct < 100) fgPct = fgPct / 100;
-      else if (fgPct >= 100) fgPct = fgPct / 1000;
+      // If it's already < 1, it's correct; if > 1, normalize it
+      if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
       
+      // FT% is at index 6
       let ftPct = parseVal(6);
-      // Handle various FT% formats
-      if (ftPct > 1 && ftPct < 100) ftPct = ftPct / 100;
-      else if (ftPct >= 100) ftPct = ftPct / 1000;
+      if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
       
       statsList.push({
         min: parseVal(0),
