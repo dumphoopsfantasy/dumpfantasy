@@ -101,13 +101,25 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
             continue;
           }
           
-          // Opponent with game time (e.g., "@Bkn 7:30 PM", "Min 8:00 PM")
-          if (!opponent) {
-            // Pattern: @Team Time or Team Time
-            const oppTimeMatch = nextLine.match(/^(@?[A-Za-z]{2,4})\s*$/i);
-            if (oppTimeMatch && team) {
-              const oppTeam = oppTimeMatch[1].toUpperCase();
-              if (oppTeam !== team) {
+          // Skip MOVE button text
+          if (nextLine === 'MOVE') continue;
+          
+          // Skip "--" (no game indicator)
+          if (nextLine === '--') continue;
+          
+          // Stop if we hit another slot or STATS
+          if (slotPatterns.includes(nextLine) || nextLine === 'STATS') {
+            break;
+          }
+          
+          // Opponent with game time (e.g., "@Bkn", "Min", then "7:30 PM" or "8:00 PM")
+          if (!opponent && team) {
+            // Pattern: @Team or Team (opponent)
+            const oppMatch = nextLine.match(/^(@?[A-Za-z]{2,4})$/i);
+            if (oppMatch) {
+              const oppTeam = oppMatch[1];
+              // Make sure it's not the player's own team
+              if (oppTeam.toUpperCase().replace('@', '') !== team.toUpperCase()) {
                 opponent = oppTeam;
                 // Look for game time on next line
                 if (j + 1 < lines.length) {
@@ -121,21 +133,13 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
             }
             // Check for game time on same line as opponent
             const oppWithTime = nextLine.match(/^(@?[A-Za-z]{2,4})\s+(\d{1,2}:\d{2}\s*(AM|PM)?)/i);
-            if (oppWithTime && team) {
-              const oppTeam = oppWithTime[1].toUpperCase();
-              if (oppTeam !== team) {
+            if (oppWithTime) {
+              const oppTeam = oppWithTime[1];
+              if (oppTeam.toUpperCase().replace('@', '') !== team.toUpperCase()) {
                 opponent = `${oppTeam} ${oppWithTime[2]}`;
                 continue;
               }
             }
-          }
-          
-          // Skip "--" (no game indicator)
-          if (nextLine === '--') continue;
-          
-          // Stop if we hit MOVE or another slot or STATS
-          if (nextLine === 'MOVE' || slotPatterns.includes(nextLine) || nextLine === 'STATS') {
-            break;
           }
           
           // Stop if we hit another doubled name
