@@ -9,12 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
-import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
+import { calculateCRISForAll, calculateCustomCRI, formatPct, CATEGORIES, CATEGORY_PRESETS } from "@/lib/crisUtils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // Extended Free Agent interface with bonus stats and ranks
 interface FreeAgent extends Player {
@@ -22,6 +23,8 @@ interface FreeAgent extends Player {
   wCri: number;
   criRank: number;
   wCriRank: number;
+  customCri?: number;
+  customCriRank?: number;
   // Bonus insight stats (not used for CRI/wCRI)
   pr15: number;
   rosterPct: number;
@@ -36,7 +39,8 @@ interface FreeAgentsProps {
 // Known NBA team codes
 const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
 
-type SortKey = 'cri' | 'wCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus';
+type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus';
+type ViewMode = 'stats' | 'rankings' | 'advanced';
 
 export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
@@ -50,7 +54,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgent | null>(null);
   const [compareList, setCompareList] = useState<FreeAgent[]>([]);
   const [useCris, setUseCris] = useState(true);
-  const [showStatsView, setShowStatsView] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('stats');
+  const [customCategories, setCustomCategories] = useState<string[]>(CATEGORY_PRESETS.all.categories);
+  const [activePreset, setActivePreset] = useState<string>('all');
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -525,15 +531,36 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       result = result.filter(p => !p.opponent);
     }
 
+    // Calculate custom CRI for Advanced view
+    if (customCategories.length > 0) {
+      const customScores = calculateCustomCRI(result, customCategories, !useCris);
+      result = result.map((p, idx) => ({
+        ...p,
+        customCri: customScores[idx],
+      }));
+      
+      // Assign custom CRI ranks
+      const customSorted = [...result].sort((a, b) => (b.customCri || 0) - (a.customCri || 0));
+      const customRanks = new Map<string, number>();
+      customSorted.forEach((p, idx) => customRanks.set(p.id, idx + 1));
+      result = result.map(p => ({
+        ...p,
+        customCriRank: customRanks.get(p.id) || 0,
+      }));
+    }
+
     // Determine actual sort key
     let activeSortKey = sortKey;
     if (sortKey === 'cri' || sortKey === 'wCri') {
       activeSortKey = useCris ? 'cri' : 'wCri';
     }
+    if (sortKey === 'customCri') {
+      activeSortKey = 'customCri';
+    }
     
     const sorted = [...result].sort((a, b) => {
-      let aVal = a[activeSortKey as keyof FreeAgent] as number;
-      let bVal = b[activeSortKey as keyof FreeAgent] as number;
+      let aVal = (a[activeSortKey as keyof FreeAgent] as number) || 0;
+      let bVal = (b[activeSortKey as keyof FreeAgent] as number) || 0;
       
       // For turnovers, lower is better
       if (sortKey === 'turnovers') {
@@ -543,7 +570,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     });
     
     return sorted;
-  }, [playersWithRanks, search, positionFilter, scheduleFilter, sortKey, sortAsc, useCris]);
+  }, [playersWithRanks, search, positionFilter, scheduleFilter, sortKey, sortAsc, useCris, customCategories]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -632,30 +659,112 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           <CrisExplanation />
         </div>
         <div className="flex items-center gap-3">
-          {/* Stats vs CRIS Rankings Toggle */}
-          <div className="flex items-center gap-2 bg-secondary/30 rounded-lg p-1">
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1">
             <Button
-              variant={!showStatsView ? "secondary" : "ghost"}
+              variant={viewMode === 'stats' ? "secondary" : "ghost"}
               size="sm"
-              onClick={() => setShowStatsView(false)}
+              onClick={() => setViewMode('stats')}
               className="h-8 px-3"
             >
               <BarChart3 className="w-4 h-4 mr-1" />
               Stats
             </Button>
             <Button
-              variant={showStatsView ? "secondary" : "ghost"}
+              variant={viewMode === 'rankings' ? "secondary" : "ghost"}
               size="sm"
-              onClick={() => setShowStatsView(true)}
+              onClick={() => setViewMode('rankings')}
               className="h-8 px-3"
             >
               <Hash className="w-4 h-4 mr-1" />
               Rankings
             </Button>
+            <Button
+              variant={viewMode === 'advanced' ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode('advanced')}
+              className="h-8 px-3"
+            >
+              <Sliders className="w-4 h-4 mr-1" />
+              Advanced
+            </Button>
           </div>
-          {showStatsView && <CrisToggle useCris={useCris} onChange={setUseCris} />}
+          {viewMode === 'rankings' && <CrisToggle useCris={useCris} onChange={setUseCris} />}
         </div>
       </div>
+
+      {/* Advanced Stats Configuration Panel */}
+      {viewMode === 'advanced' && (
+        <Card className="gradient-card border-primary/30 p-4">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-bold text-sm">Custom CRI Builder</h3>
+              <div className="flex items-center gap-2">
+                <CrisToggle useCris={useCris} onChange={setUseCris} />
+              </div>
+            </div>
+            
+            {/* Presets */}
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(CATEGORY_PRESETS).map(([key, preset]) => (
+                <Button
+                  key={key}
+                  variant={activePreset === key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setActivePreset(key);
+                    setCustomCategories(preset.categories);
+                  }}
+                  className={cn(
+                    "h-7 text-xs",
+                    key === 'stocks' && "border-orange-500/50 hover:bg-orange-500/10",
+                    key === 'noPctTo' && "border-emerald-500/50 hover:bg-emerald-500/10"
+                  )}
+                >
+                  {key === 'stocks' && <Shield className="w-3 h-3 mr-1" />}
+                  {preset.name}
+                </Button>
+              ))}
+            </div>
+            
+            {/* Category Toggles */}
+            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-3">
+              {CATEGORIES.map(cat => {
+                const isSelected = customCategories.includes(cat.key);
+                return (
+                  <label
+                    key={cat.key}
+                    className={cn(
+                      "flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all",
+                      isSelected 
+                        ? "border-primary bg-primary/10" 
+                        : "border-border bg-secondary/20 hover:bg-secondary/40"
+                    )}
+                  >
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={(checked) => {
+                        setActivePreset('custom');
+                        if (checked) {
+                          setCustomCategories([...customCategories, cat.key]);
+                        } else {
+                          setCustomCategories(customCategories.filter(c => c !== cat.key));
+                        }
+                      }}
+                    />
+                    <span className="text-xs font-medium">{cat.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            
+            <p className="text-xs text-muted-foreground">
+              Selected: {customCategories.length} categories • 
+              {activePreset !== 'custom' ? ` Using "${CATEGORY_PRESETS[activePreset as keyof typeof CATEGORY_PRESETS]?.name}" preset` : ' Custom selection'}
+            </p>
+          </div>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card className="gradient-card border-border p-4">
@@ -755,7 +864,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 <th className="text-left p-3 font-display">#</th>
                 <th className="text-left p-3 font-display min-w-[180px]">Player</th>
                 <th className="text-center p-2 font-display">OPP</th>
-                {!showStatsView ? (
+                {viewMode === 'stats' && (
                   <>
                     {/* MIN first (bonus but useful) */}
                     <SortHeader label="MIN" sortKeyProp="minutes" />
@@ -777,7 +886,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     <SortHeader label="%ROST" sortKeyProp="rosterPct" />
                     <SortHeader label="+/-" sortKeyProp="plusMinus" />
                   </>
-                ) : (
+                )}
+                {viewMode === 'rankings' && (
                   <>
                     {/* Rankings view - show rank for each category, sortable */}
                     <SortHeader label="FG%" sortKeyProp="fgPct" />
@@ -790,6 +900,15 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     <SortHeader label="TO" sortKeyProp="turnovers" />
                     <SortHeader label="PTS" sortKeyProp="points" />
                     <SortHeader label={`${scoreLabel}#`} sortKeyProp={useCris ? "cri" : "wCri"} className="border-l-2 border-primary/50" />
+                  </>
+                )}
+                {viewMode === 'advanced' && (
+                  <>
+                    {/* Advanced view - show only selected categories */}
+                    {CATEGORIES.filter(cat => customCategories.includes(cat.key)).map(cat => (
+                      <SortHeader key={cat.key} label={cat.label} sortKeyProp={cat.key as SortKey} />
+                    ))}
+                    <SortHeader label={`Custom ${scoreLabel}#`} sortKeyProp="customCri" className="border-l-2 border-primary/50" />
                   </>
                 )}
               </tr>
@@ -827,7 +946,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  {!showStatsView ? (
+                  {viewMode === 'stats' && (
                     <>
                       {/* MIN first */}
                       <td className="text-center p-2">{player.minutes.toFixed(1)}</td>
@@ -859,8 +978,9 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                         {player.plusMinus !== 0 ? (player.plusMinus >= 0 ? '+' : '') + player.plusMinus.toFixed(1) : '—'}
                       </td>
                     </>
-                  ) : (
-                  <>
+                  )}
+                  {viewMode === 'rankings' && (
+                    <>
                       {/* Rankings view - show category ranks with color coding */}
                       {CATEGORIES.map(cat => {
                         const isLowerBetter = cat.key === 'turnovers';
@@ -884,6 +1004,34 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       {/* CRI/wCRI rank */}
                       <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
                         #{player[rankKey]}
+                      </td>
+                    </>
+                  )}
+                  {viewMode === 'advanced' && (
+                    <>
+                      {/* Advanced view - show only selected categories with ranks */}
+                      {CATEGORIES.filter(cat => customCategories.includes(cat.key)).map(cat => {
+                        const isLowerBetter = cat.key === 'turnovers';
+                        const sorted = [...filteredPlayers].sort((a, b) => {
+                          const aVal = a[cat.key as keyof FreeAgent] as number;
+                          const bVal = b[cat.key as keyof FreeAgent] as number;
+                          return isLowerBetter ? aVal - bVal : bVal - aVal;
+                        });
+                        const rank = sorted.findIndex(p => p.id === player.id) + 1;
+                        const total = filteredPlayers.length;
+                        const percentile = rank / total;
+                        const color = percentile <= 0.25 ? 'text-stat-positive' : 
+                                      percentile <= 0.5 ? 'text-emerald-400' : 
+                                      percentile <= 0.75 ? 'text-yellow-400' : 'text-stat-negative';
+                        return (
+                          <td key={cat.key} className={cn("text-center p-2 font-semibold", color)}>
+                            #{rank}
+                          </td>
+                        );
+                      })}
+                      {/* Custom CRI rank */}
+                      <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
+                        #{player.customCriRank || '—'}
                       </td>
                     </>
                   )}
