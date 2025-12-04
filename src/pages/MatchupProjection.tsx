@@ -464,9 +464,13 @@ Navigate to their team page and copy the whole page.`}
           >
             <div className="flex items-center justify-between">
               <div className={cn("flex-1 text-center", comp.winner === "you" && "text-stat-positive")}>
-                <p className="font-display font-bold text-2xl md:text-3xl">{formatAverage(comp.myAvg, comp.format)}</p>
-                {comp.isCountingStat && (
-                  <p className="text-xs text-muted-foreground font-semibold">{formatProjection(comp.myProjected)}</p>
+                {comp.isCountingStat ? (
+                  <>
+                    <p className="font-display font-bold text-2xl md:text-3xl">{formatProjection(comp.myProjected)}</p>
+                    <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.myAvg, comp.format)}</p>
+                  </>
+                ) : (
+                  <p className="font-display font-bold text-2xl md:text-3xl">{formatAverage(comp.myAvg, comp.format)}</p>
                 )}
                 {comp.winner === "you" && (
                   <div className="flex items-center justify-center gap-1 mt-1">
@@ -487,16 +491,17 @@ Navigate to their team page and copy the whole page.`}
                 >
                   {comp.category}
                   {comp.key === "turnovers" && <span className="text-xs ml-1">(lower)</span>}
-                  {comp.isCountingStat && <span className="text-xs ml-1">×{MULTIPLIER}</span>}
                 </div>
               </div>
 
               <div className={cn("flex-1 text-center", comp.winner === "them" && "text-stat-negative")}>
-                <p className="font-display font-bold text-2xl md:text-3xl">
-                  {formatAverage(comp.theirAvg, comp.format)}
-                </p>
-                {comp.isCountingStat && (
-                  <p className="text-xs text-muted-foreground font-semibold">{formatProjection(comp.theirProjected)}</p>
+                {comp.isCountingStat ? (
+                  <>
+                    <p className="font-display font-bold text-2xl md:text-3xl">{formatProjection(comp.theirProjected)}</p>
+                    <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.theirAvg, comp.format)}</p>
+                  </>
+                ) : (
+                  <p className="font-display font-bold text-2xl md:text-3xl">{formatAverage(comp.theirAvg, comp.format)}</p>
                 )}
                 {comp.winner === "them" && (
                   <div className="flex items-center justify-center gap-1 mt-1">
