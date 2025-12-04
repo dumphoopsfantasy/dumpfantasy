@@ -47,7 +47,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
 
-  // Parse ESPN full page paste
+  // Parse ESPN full page paste - extract team info and calculate averages from active players
   const parseESPNTeamPage = (data: string): { info: TeamInfo; stats: TeamStats } | null => {
     const lines = data
       .trim()
@@ -65,39 +65,27 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     let owner = "";
     let lastMatchup = "";
 
-    // Find team info block pattern: "TeamName\n4-2-0\n(2nd of 10)\nAll Hail WembyBill Vasiliadis"
+    // Find team info block pattern
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-
-      // Skip navigation/headers
       if (skipPatterns.test(line)) continue;
       if (line.length < 2 || line.length > 50) continue;
 
       // Look for record pattern (e.g., "4-2-0")
       const recordMatch = line.match(/^(\d+-\d+-\d+)$/);
       if (recordMatch) {
-        // Previous line might be team name
         if (i > 0 && !skipPatterns.test(lines[i - 1])) {
           const prevLine = lines[i - 1];
-          // Check it's not a position or stat header
-          if (
-            !prevLine.match(/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS)/i)
-          ) {
+          if (!prevLine.match(/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS)/i)) {
             teamName = prevLine;
             record = recordMatch[1];
 
-            // Check next line for standing
             if (i + 1 < lines.length) {
               const standingMatch = lines[i + 1].match(/\((\d+)(st|nd|rd|th) of (\d+)\)/i);
               if (standingMatch) {
                 standing = `${standingMatch[1]}${standingMatch[2]} of ${standingMatch[3]}`;
-
-                // Next line after standing might have owner name
-                // Pattern: "All Hail WembyBill Vasiliadis" or just "Bill Vasiliadis"
                 if (i + 2 < lines.length) {
                   const ownerLine = lines[i + 2];
-                  // Look for pattern with name (first + last name typically)
-                  // The line might have team motto + owner name combined
                   const ownerMatch = ownerLine.match(/([A-Z][a-z]+\s+[A-Z][a-z]+)$/);
                   if (ownerMatch) {
                     owner = ownerMatch[1];
@@ -111,7 +99,6 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
 
       // Look for "Last Matchup" section
       if (line === "Last Matchup" && i + 4 < lines.length) {
-        // Pattern: FREAK\n3-6-0\nBilbo\n6-3-0
         const team1 = lines[i + 1];
         const score1 = lines[i + 2];
         const team2 = lines[i + 3];
@@ -122,25 +109,15 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       }
     }
 
-    // Parse stats - look for the stats table (after "STATS" or "Research" header)
-    // Stats order: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
+    // Parse stats - look for the stats table
     const statsStartIdx = lines.findIndex((l) => l === "STATS" || l === "Research");
-
-    // Collect all numeric stat lines
     const statNumbers: number[] = [];
 
     if (statsStartIdx > -1) {
       for (let i = statsStartIdx + 1; i < lines.length; i++) {
         const line = lines[i];
-
-        // Skip headers
-        if (/^(MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS)$/i.test(line))
-          continue;
-
-        // Stop at footer
+        if (/^(MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS)$/i.test(line)) continue;
         if (line.includes("ESPN.com") || line.includes("Copyright")) break;
-
-        // Collect numbers and percentages
         if (/^[.\d]+$/.test(line) || line === "--") {
           statNumbers.push(line === "--" ? 0 : parseFloat(line));
         }
@@ -149,54 +126,38 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
 
     // Calculate averages from all player rows
     // Each player has 15 stats: MIN, FGM/FGA (skip), FG%, FTM/FTA (skip), FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
-    // We need: FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS (indices: 2, 4, 5, 6, 7, 8, 9, 10, 11)
-
     const COLS = 15;
     const numPlayers = Math.floor(statNumbers.length / COLS);
 
     if (numPlayers > 0) {
       let totals = {
-        fgPct: 0,
-        ftPct: 0,
-        threepm: 0,
-        rebounds: 0,
-        assists: 0,
-        steals: 0,
-        blocks: 0,
-        turnovers: 0,
-        points: 0,
+        fgPct: 0, ftPct: 0, threepm: 0, rebounds: 0,
+        assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0,
       };
       let validCount = 0;
 
       for (let p = 0; p < numPlayers; p++) {
         const base = p * COLS;
-        const min = statNumbers[base]; // MIN
-
-        // Skip players with no minutes (injured)
+        const min = statNumbers[base];
+        
+        // Only include active players with stats (minutes > 0)
         if (min === 0 || isNaN(min)) continue;
 
         validCount++;
-        totals.fgPct += statNumbers[base + 2] || 0; // FG%
-        totals.ftPct += statNumbers[base + 4] || 0; // FT%
-        totals.threepm += statNumbers[base + 5] || 0; // 3PM
-        totals.rebounds += statNumbers[base + 6] || 0; // REB
-        totals.assists += statNumbers[base + 7] || 0; // AST
-        totals.steals += statNumbers[base + 8] || 0; // STL
-        totals.blocks += statNumbers[base + 9] || 0; // BLK
-        totals.turnovers += statNumbers[base + 10] || 0; // TO
-        totals.points += statNumbers[base + 11] || 0; // PTS
+        totals.fgPct += statNumbers[base + 2] || 0;
+        totals.ftPct += statNumbers[base + 4] || 0;
+        totals.threepm += statNumbers[base + 5] || 0;
+        totals.rebounds += statNumbers[base + 6] || 0;
+        totals.assists += statNumbers[base + 7] || 0;
+        totals.steals += statNumbers[base + 8] || 0;
+        totals.blocks += statNumbers[base + 9] || 0;
+        totals.turnovers += statNumbers[base + 10] || 0;
+        totals.points += statNumbers[base + 11] || 0;
       }
 
       if (validCount > 0) {
-        // Return averages for all stats (like TeamAverages component)
         return {
-          info: {
-            name: teamName || "Team",
-            record,
-            standing,
-            owner,
-            lastMatchup,
-          },
+          info: { name: teamName || "Team", record, standing, owner, lastMatchup },
           stats: {
             fgPct: totals.fgPct / validCount,
             ftPct: totals.ftPct / validCount,
@@ -212,13 +173,11 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       }
     }
 
-    // Fallback: try simple number extraction for manual paste
+    // Fallback: simple number extraction
     const simpleNumbers: number[] = [];
     for (const line of lines) {
       const numMatch = line.match(/^([.\d]+)$/);
-      if (numMatch) {
-        simpleNumbers.push(parseFloat(numMatch[1]));
-      }
+      if (numMatch) simpleNumbers.push(parseFloat(numMatch[1]));
     }
 
     if (simpleNumbers.length >= 9) {
@@ -246,11 +205,10 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     const oppParsed = parseESPNTeamPage(opponentData);
 
     if (myParsed && oppParsed) {
-      const newMatchup: MatchupData = {
+      onMatchupChange({
         myTeam: { ...myParsed.info, stats: myParsed.stats },
         opponent: { ...oppParsed.info, stats: oppParsed.stats },
-      };
-      onMatchupChange(newMatchup);
+      });
     }
   };
 
@@ -265,9 +223,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     return value.toFixed(1);
   };
 
-  const formatProjection = (value: number) => {
-    return Math.round(value).toString();
-  };
+  const formatProjection = (value: number) => Math.round(value).toString();
 
   if (!persistedMatchup) {
     return (
@@ -284,14 +240,10 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
               <p className="font-semibold text-primary">How Projections Work</p>
               <ul className="text-sm text-muted-foreground space-y-1 mt-1">
                 <li>• Stats match the view you selected on ESPN (Last 7, Last 15, Last 30, or Season Stats)</li>
-                <li>
-                  • <strong>Counting stats</strong> (3PM, REB, AST, STL, BLK, TO, PTS) are multiplied by{" "}
-                  <strong>×{MULTIPLIER}</strong>
-                </li>
-                <li>
-                  • <strong>Percentages</strong> (FG%, FT%) are NOT multiplied
-                </li>
+                <li>• <strong>Counting stats</strong> (3PM, REB, AST, STL, BLK, TO, PTS) are multiplied by <strong>×{MULTIPLIER}</strong></li>
+                <li>• <strong>Percentages</strong> (FG%, FT%) are NOT multiplied</li>
                 <li>• The ×{MULTIPLIER} simulates a full matchup week (~40 player-games)</li>
+                <li>• <strong>TO (Turnovers)</strong>: Lower is better - fewer turnovers wins the category</li>
               </ul>
             </div>
           </div>
@@ -331,19 +283,18 @@ Navigate to their team page and copy the whole page.`}
     );
   }
 
-  // Calculate comparisons with multiplied counting stats
+  // Calculate comparisons with projected values
   const comparisons = CATEGORIES.map((cat) => {
     const isCountingStat = COUNTING_STATS.includes(cat.key);
-
     const myAvg = persistedMatchup.myTeam.stats[cat.key as keyof TeamStats];
     const theirAvg = persistedMatchup.opponent.stats[cat.key as keyof TeamStats];
 
-    // For comparison, use projected values for counting stats
     const myProjected = isCountingStat ? myAvg * MULTIPLIER : myAvg;
     const theirProjected = isCountingStat ? theirAvg * MULTIPLIER : theirAvg;
 
     let winner: "you" | "them" | "tie";
     if (cat.key === "turnovers") {
+      // Lower TO is better
       winner = myProjected < theirProjected ? "you" : myProjected > theirProjected ? "them" : "tie";
     } else {
       winner = myProjected > theirProjected ? "you" : myProjected < theirProjected ? "them" : "tie";
@@ -352,10 +303,8 @@ Navigate to their team page and copy the whole page.`}
     return {
       category: cat.label,
       key: cat.key,
-      myAvg,
-      theirAvg,
-      myProjected,
-      theirProjected,
+      myAvg, theirAvg,
+      myProjected, theirProjected,
       winner,
       format: cat.format,
       isCountingStat,
@@ -383,7 +332,7 @@ Navigate to their team page and copy the whole page.`}
           <Info className="w-4 h-4 text-amber-400" />
           <span className="text-muted-foreground">
             Stats match your ESPN view. Counting stats × <strong className="text-amber-400">{MULTIPLIER}</strong> for
-            weekly projection. FG% and FT% are NOT multiplied.
+            weekly projection. FG% and FT% are NOT multiplied. <strong className="text-amber-400">TO: Lower wins.</strong>
           </span>
         </div>
       </Card>
@@ -401,9 +350,13 @@ Navigate to their team page and copy the whole page.`}
               <p className="text-sm text-muted-foreground">{persistedMatchup.myTeam.record}</p>
             )}
             {persistedMatchup.myTeam.standing && (
-              <p className="text-xs text-primary">{persistedMatchup.myTeam.standing}</p>
+              <p className="text-xs text-primary">({persistedMatchup.myTeam.standing})</p>
+            )}
+            {persistedMatchup.myTeam.lastMatchup && (
+              <p className="text-[10px] text-muted-foreground mt-1">Last: {persistedMatchup.myTeam.lastMatchup}</p>
             )}
           </div>
+          
           <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary/30">
             <span className="font-display font-bold text-2xl md:text-4xl text-stat-positive">{wins}</span>
             <span className="text-muted-foreground">-</span>
@@ -411,24 +364,24 @@ Navigate to their team page and copy the whole page.`}
             <span className="text-muted-foreground">-</span>
             <span className="font-display font-bold text-2xl md:text-4xl text-muted-foreground">{ties}</span>
           </div>
+          
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">Opponent</p>
             <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.opponent.name}</p>
+            {persistedMatchup.opponent.owner && (
+              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.owner}</p>
+            )}
             {persistedMatchup.opponent.record && (
               <p className="text-sm text-muted-foreground">{persistedMatchup.opponent.record}</p>
             )}
             {persistedMatchup.opponent.standing && (
-              <p className="text-xs text-primary">{persistedMatchup.opponent.standing}</p>
+              <p className="text-xs text-primary">({persistedMatchup.opponent.standing})</p>
+            )}
+            {persistedMatchup.opponent.lastMatchup && (
+              <p className="text-[10px] text-muted-foreground mt-1">Last: {persistedMatchup.opponent.lastMatchup}</p>
             )}
           </div>
         </div>
-
-        {/* Previous Matchup Info */}
-        {persistedMatchup.myTeam.lastMatchup && (
-          <div className="text-center mt-2 text-xs text-muted-foreground">
-            Last: {persistedMatchup.myTeam.lastMatchup}
-          </div>
-        )}
 
         <div className="text-center mt-4 pt-4 border-t border-border">
           {wins > losses ? (
@@ -459,51 +412,17 @@ Navigate to their team page and copy the whole page.`}
             <span className="text-xs text-muted-foreground">Weekly projection (×{MULTIPLIER})</span>
           </div>
           <div className="grid grid-cols-5 gap-2 mb-3">
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">PTS</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.points.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg text-primary">{Math.round(persistedMatchup.myTeam.stats.points * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">REB</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.rebounds.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.rebounds * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">AST</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.assists.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.assists * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">3PM</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.threepm.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.threepm * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">STL</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.steals.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.steals * MULTIPLIER)}</p>
-            </div>
+            <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} projected multiplier={MULTIPLIER} highlight />
+            <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} projected multiplier={MULTIPLIER} />
+            <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} projected multiplier={MULTIPLIER} />
+            <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} projected multiplier={MULTIPLIER} />
+            <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} projected multiplier={MULTIPLIER} />
           </div>
           <div className="grid grid-cols-4 gap-2">
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">BLK</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.blocks.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.myTeam.stats.blocks * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">TO</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.stats.turnovers.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg text-stat-negative">{Math.round(persistedMatchup.myTeam.stats.turnovers * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">FG%</p>
-              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.myTeam.stats.fgPct)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">FT%</p>
-              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.myTeam.stats.ftPct)}</p>
-            </div>
+            <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} projected multiplier={MULTIPLIER} />
+            <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} projected multiplier={MULTIPLIER} negative />
+            <StatBox label="FG%" avg={persistedMatchup.myTeam.stats.fgPct} isPct />
+            <StatBox label="FT%" avg={persistedMatchup.myTeam.stats.ftPct} isPct />
           </div>
         </Card>
 
@@ -514,51 +433,17 @@ Navigate to their team page and copy the whole page.`}
             <span className="text-xs text-muted-foreground">Weekly projection (×{MULTIPLIER})</span>
           </div>
           <div className="grid grid-cols-5 gap-2 mb-3">
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">PTS</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.points.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg text-primary">{Math.round(persistedMatchup.opponent.stats.points * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">REB</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.rebounds.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.rebounds * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">AST</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.assists.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.assists * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">3PM</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.threepm.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.threepm * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">STL</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.steals.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.steals * MULTIPLIER)}</p>
-            </div>
+            <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} projected multiplier={MULTIPLIER} highlight />
+            <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} projected multiplier={MULTIPLIER} />
+            <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} projected multiplier={MULTIPLIER} />
+            <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} projected multiplier={MULTIPLIER} />
+            <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} projected multiplier={MULTIPLIER} />
           </div>
           <div className="grid grid-cols-4 gap-2">
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">BLK</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.blocks.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg">{Math.round(persistedMatchup.opponent.stats.blocks * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">TO</p>
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.stats.turnovers.toFixed(1)}</p>
-              <p className="font-display font-bold text-lg text-stat-negative">{Math.round(persistedMatchup.opponent.stats.turnovers * MULTIPLIER)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">FG%</p>
-              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.opponent.stats.fgPct)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-muted-foreground uppercase">FT%</p>
-              <p className="font-display font-bold text-lg">{formatPct(persistedMatchup.opponent.stats.ftPct)}</p>
-            </div>
+            <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} projected multiplier={MULTIPLIER} />
+            <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} projected multiplier={MULTIPLIER} negative />
+            <StatBox label="FG%" avg={persistedMatchup.opponent.stats.fgPct} isPct />
+            <StatBox label="FT%" avg={persistedMatchup.opponent.stats.ftPct} isPct />
           </div>
         </Card>
       </div>
@@ -572,7 +457,7 @@ Navigate to their team page and copy the whole page.`}
               "border-border p-4 transition-all",
               comp.winner === "you" && "bg-stat-positive/5 border-stat-positive/30",
               comp.winner === "them" && "bg-stat-negative/5 border-stat-negative/30",
-              comp.winner === "tie" && "bg-muted/20",
+              comp.winner === "tie" && "bg-muted/20"
             )}
           >
             <div className="flex items-center justify-between">
@@ -599,7 +484,7 @@ Navigate to their team page and copy the whole page.`}
                     "px-4 py-2 rounded-lg font-display font-bold text-sm md:text-base",
                     comp.winner === "you" && "bg-stat-positive/20 text-stat-positive",
                     comp.winner === "them" && "bg-stat-negative/20 text-stat-negative",
-                    comp.winner === "tie" && "bg-muted text-muted-foreground",
+                    comp.winner === "tie" && "bg-muted text-muted-foreground"
                   )}
                 >
                   {comp.category}
@@ -630,3 +515,34 @@ Navigate to their team page and copy the whole page.`}
     </div>
   );
 };
+
+// StatBox component for team averages display
+interface StatBoxProps {
+  label: string;
+  avg: number;
+  projected?: boolean;
+  multiplier?: number;
+  isPct?: boolean;
+  highlight?: boolean;
+  negative?: boolean;
+}
+
+const StatBox = ({ label, avg, projected, multiplier = 40, isPct, highlight, negative }: StatBoxProps) => (
+  <div className="text-center">
+    <p className="text-[10px] text-muted-foreground uppercase">{label}</p>
+    {isPct ? (
+      <p className="font-display font-bold text-lg">{formatPct(avg)}</p>
+    ) : (
+      <>
+        <p className="text-xs text-muted-foreground">{avg.toFixed(1)}</p>
+        <p className={cn(
+          "font-display font-bold text-lg",
+          highlight && "text-primary",
+          negative && "text-stat-negative"
+        )}>
+          {Math.round(avg * multiplier)}
+        </p>
+      </>
+    )}
+  </div>
+);
