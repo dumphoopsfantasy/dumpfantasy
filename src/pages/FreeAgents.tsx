@@ -253,23 +253,24 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
         dataStartIdx++;
       }
       
-      // Collect ALL numeric tokens until footer
-      // Handle fractions like "5.9/12.3" by splitting them
-      for (let i = dataStartIdx; i < lines.length; i++) {
+      // Calculate how many tokens we need (17 per player)
+      const tokensNeeded = playerList.length * 17;
+      
+      // Collect tokens until we have enough OR hit footer
+      for (let i = dataStartIdx; i < lines.length && statTokens.length < tokensNeeded; i++) {
         const line = lines[i];
         
         // Stop at footer content
-        if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy)/i.test(line)) {
+        if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy|Fantasy Basketball Support)/i.test(line)) {
           console.log(`Stopping at footer line ${i}: "${line.substring(0, 30)}"`);
           break;
         }
         
-        // Skip non-data lines
+        // Skip non-data lines (but NOT small numbers - those are valid stats!)
         if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results|\d+\s+of\s+\d+)$/i.test(line)) continue;
         
-        // Skip page navigation (but don't stop - more data may follow)
-        if (/^(\d+\s+)+\.{3}\s*\d+$/.test(line)) continue; // "1 2 3 4 5 ... 19"
-        if (/^\d+$/.test(line) && parseInt(line) < 30) continue; // Single digit page numbers
+        // Skip pagination pattern "1 2 3 4 5 ... 19" on a single line
+        if (/^(\d+\s+)+\.{3}\s*\d+$/.test(line)) continue;
         
         // Handle fractions like "5.9/12.3" - split into two values
         if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
@@ -279,6 +280,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
         }
         
         // Collect numeric values: integers, decimals, percentages (.XXX), negatives, and '--' placeholders
+        // Small integers (0, 1, 2...) ARE valid stat values (blocks, steals, etc.)
         if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
           statTokens.push(line);
         }
