@@ -25,8 +25,9 @@ interface RosterTableProps {
 }
 
 const COLUMNS = [
-  { key: "slot", label: "Slot", sortable: false },
-  { key: "player", label: "Player", sortable: true },
+  { key: "rank", label: "#", sortable: false, className: "w-[30px]" },
+  { key: "player", label: "Player", sortable: true, className: "min-w-[140px]" },
+  { key: "slot", label: "Slot", sortable: false, className: "w-[50px]" },
   { key: "min", label: "MIN", sortable: true },
   { key: "fgPct", label: "FG%", sortable: true },
   { key: "ftPct", label: "FT%", sortable: true },
@@ -37,8 +38,8 @@ const COLUMNS = [
   { key: "blocks", label: "BLK", sortable: true },
   { key: "turnovers", label: "TO", sortable: true },
   { key: "points", label: "PTS", sortable: true },
-  { key: "cri", label: "CRI", sortable: true },
-  { key: "wCri", label: "wCRI", sortable: true },
+  { key: "cri", label: "CRI", sortable: true, className: "border-l border-border" },
+  { key: "wCri", label: "wCRI", sortable: true, className: "border-l border-border" },
 ];
 
 export const RosterTable = ({
@@ -49,8 +50,6 @@ export const RosterTable = ({
   onSort,
   onPlayerClick,
 }: RosterTableProps) => {
-  const scoreLabel = useCris ? "CRI" : "wCRI";
-
   const renderSortIcon = (column: string) => {
     if (sortColumn !== column) {
       return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
@@ -69,7 +68,7 @@ export const RosterTable = ({
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto bg-card/30 rounded-lg border border-border">
       <Table className="w-full">
         <TableHeader>
           <TableRow className="hover:bg-transparent border-border">
@@ -79,9 +78,7 @@ export const RosterTable = ({
                 className={cn(
                   "text-[10px] uppercase font-display h-8 px-1.5 whitespace-nowrap",
                   col.sortable && "cursor-pointer hover:text-primary",
-                  col.key === "player" && "min-w-[140px]",
-                  col.key === "slot" && "w-[50px]",
-                  (col.key === "cri" || col.key === "wCri") && "border-l border-border"
+                  col.className
                 )}
                 onClick={() => col.sortable && onSort(col.key)}
               >
@@ -94,35 +91,36 @@ export const RosterTable = ({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {roster.map((slot) => {
+          {roster.map((slot, idx) => {
             const player = slot.player;
             const statusColor = getStatusColor(player.status);
             const isIR = slot.slotType === "ir";
             const hasStats = player.minutes > 0;
             const rank = useCris ? player.criRank : player.wCriRank;
-            const score = useCris ? player.cri : player.wCri;
 
             return (
               <TableRow
-                key={player.id}
+                key={player.id + idx}
                 onClick={() => onPlayerClick(player)}
                 className={cn(
                   "cursor-pointer hover:bg-primary/5 border-border transition-colors",
                   isIR && "opacity-60 bg-destructive/5"
                 )}
               >
-                {/* Slot */}
-                <TableCell className="px-1.5 py-1">
-                  <Badge
-                    variant={isIR ? "destructive" : "outline"}
-                    className={cn(
-                      "text-[9px] px-1.5 py-0 font-display",
-                      slot.slotType === "starter" && "bg-primary/20 border-primary/50",
-                      slot.slotType === "bench" && "bg-secondary/50"
-                    )}
-                  >
-                    {slot.slot}
-                  </Badge>
+                {/* Rank */}
+                <TableCell className="px-1.5 py-1 text-center">
+                  {rank ? (
+                    <span
+                      className={cn(
+                        "font-display font-bold text-xs",
+                        rank <= 3 ? "text-stat-positive" : rank > 10 ? "text-stat-negative" : "text-muted-foreground"
+                      )}
+                    >
+                      #{rank}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">--</span>
+                  )}
                 </TableCell>
 
                 {/* Player */}
@@ -149,6 +147,20 @@ export const RosterTable = ({
                       </div>
                     </div>
                   </div>
+                </TableCell>
+
+                {/* Slot */}
+                <TableCell className="px-1.5 py-1">
+                  <Badge
+                    variant={isIR ? "destructive" : "outline"}
+                    className={cn(
+                      "text-[9px] px-1.5 py-0 font-display",
+                      slot.slotType === "starter" && "bg-primary/20 border-primary/50",
+                      slot.slotType === "bench" && "bg-secondary/50"
+                    )}
+                  >
+                    {slot.slot}
+                  </Badge>
                 </TableCell>
 
                 {/* Stats */}
@@ -187,19 +199,21 @@ export const RosterTable = ({
                 <TableCell className="px-1.5 py-1 text-center border-l border-border">
                   {hasStats && player.cri !== undefined ? (
                     <div className="flex flex-col items-center">
-                      <span className="text-[10px] font-mono">{player.cri.toFixed(1)}</span>
-                      <span
-                        className={cn(
-                          "text-[9px] font-display font-bold",
-                          player.criRank && player.criRank <= 3
-                            ? "text-stat-positive"
-                            : player.criRank && player.criRank > 10
-                            ? "text-stat-negative"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        #{player.criRank || "--"}
-                      </span>
+                      <span className="text-[10px] font-mono font-semibold">{player.cri.toFixed(1)}</span>
+                      {player.criRank && (
+                        <span
+                          className={cn(
+                            "text-[9px] font-display",
+                            player.criRank <= 3
+                              ? "text-stat-positive"
+                              : player.criRank > 10
+                              ? "text-stat-negative"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          #{player.criRank}
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <span className="text-[10px] text-muted-foreground">--</span>
@@ -210,19 +224,21 @@ export const RosterTable = ({
                 <TableCell className="px-1.5 py-1 text-center border-l border-border">
                   {hasStats && player.wCri !== undefined ? (
                     <div className="flex flex-col items-center">
-                      <span className="text-[10px] font-mono">{player.wCri.toFixed(1)}</span>
-                      <span
-                        className={cn(
-                          "text-[9px] font-display font-bold",
-                          player.wCriRank && player.wCriRank <= 3
-                            ? "text-stat-positive"
-                            : player.wCriRank && player.wCriRank > 10
-                            ? "text-stat-negative"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        #{player.wCriRank || "--"}
-                      </span>
+                      <span className="text-[10px] font-mono font-semibold">{player.wCri.toFixed(1)}</span>
+                      {player.wCriRank && (
+                        <span
+                          className={cn(
+                            "text-[9px] font-display",
+                            player.wCriRank <= 3
+                              ? "text-stat-positive"
+                              : player.wCriRank > 10
+                              ? "text-stat-negative"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          #{player.wCriRank}
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <span className="text-[10px] text-muted-foreground">--</span>
