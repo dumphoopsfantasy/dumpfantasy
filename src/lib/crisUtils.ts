@@ -89,6 +89,76 @@ export function calculateCRISForAll<T extends CategoryStats>(
 }
 
 /**
+ * Calculate custom CRI using only selected categories
+ */
+export function calculateCustomCRI<T extends CategoryStats>(
+  items: T[],
+  selectedCategories: string[],
+  useWeighted = false
+): number[] {
+  if (items.length === 0 || selectedCategories.length === 0) return items.map(() => 0);
+  
+  const N = items.length;
+  const categoryRanks: Record<string, number[]> = {};
+  
+  // Calculate ranks only for selected categories
+  selectedCategories.forEach(catKey => {
+    const cat = CATEGORIES.find(c => c.key === catKey);
+    if (!cat) return;
+    
+    const isLowerBetter = catKey === 'turnovers';
+    const sorted = items
+      .map((item, idx) => ({ idx, value: item[catKey as keyof CategoryStats] }))
+      .sort((a, b) => isLowerBetter ? a.value - b.value : b.value - a.value);
+    
+    categoryRanks[catKey] = new Array(N).fill(0);
+    sorted.forEach((item, rank) => {
+      categoryRanks[catKey][item.idx] = rank + 1;
+    });
+  });
+  
+  // Calculate custom CRI for each item
+  return items.map((_, idx) => {
+    let score = 0;
+    selectedCategories.forEach(catKey => {
+      if (!categoryRanks[catKey]) return;
+      const rank = categoryRanks[catKey][idx];
+      const invertedRank = (N + 1) - rank;
+      if (useWeighted) {
+        score += invertedRank * (CRIS_WEIGHTS[catKey as keyof typeof CRIS_WEIGHTS] || 1);
+      } else {
+        score += invertedRank;
+      }
+    });
+    return score;
+  });
+}
+
+// Preset category configurations
+export const CATEGORY_PRESETS = {
+  all: {
+    name: 'All Categories',
+    categories: ['fgPct', 'ftPct', 'threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'],
+  },
+  noPctTo: {
+    name: 'No PCT/TO',
+    categories: ['threepm', 'rebounds', 'assists', 'steals', 'blocks', 'points'],
+  },
+  stocks: {
+    name: 'STOCKS',
+    categories: ['steals', 'blocks'],
+  },
+  counting: {
+    name: 'Counting Stats',
+    categories: ['threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'],
+  },
+  percentages: {
+    name: 'Percentages',
+    categories: ['fgPct', 'ftPct'],
+  },
+};
+
+/**
  * Format percentage to thousandths place (.485 or 1.000 for 100%)
  */
 export function formatPct(value: number): string {
