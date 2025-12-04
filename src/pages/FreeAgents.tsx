@@ -779,13 +779,17 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                   </>
                 ) : (
                   <>
-                    {/* Rankings view - show rank for each category */}
-                    {CATEGORIES.map(cat => (
-                      <th key={cat.key} className="p-2 font-display text-center text-xs">
-                        {cat.label}
-                      </th>
-                    ))}
-                    <SortHeader label={`${scoreLabel}#`} sortKeyProp="cri" className="border-l-2 border-primary/50" />
+                    {/* Rankings view - show rank for each category, sortable */}
+                    <SortHeader label="FG%" sortKeyProp="fgPct" />
+                    <SortHeader label="FT%" sortKeyProp="ftPct" />
+                    <SortHeader label="3PM" sortKeyProp="threepm" />
+                    <SortHeader label="REB" sortKeyProp="rebounds" />
+                    <SortHeader label="AST" sortKeyProp="assists" />
+                    <SortHeader label="STL" sortKeyProp="steals" />
+                    <SortHeader label="BLK" sortKeyProp="blocks" />
+                    <SortHeader label="TO" sortKeyProp="turnovers" />
+                    <SortHeader label="PTS" sortKeyProp="points" />
+                    <SortHeader label={`${scoreLabel}#`} sortKeyProp={useCris ? "cri" : "wCri"} className="border-l-2 border-primary/50" />
                   </>
                 )}
               </tr>
@@ -856,7 +860,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       </td>
                     </>
                   ) : (
-                    <>
+                  <>
                       {/* Rankings view - show category ranks with color coding */}
                       {CATEGORIES.map(cat => {
                         const isLowerBetter = cat.key === 'turnovers';
