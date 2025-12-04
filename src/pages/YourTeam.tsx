@@ -3,43 +3,125 @@ import { RosterSlot, Player } from "@/types/fantasy";
 import { RosterPlayerCard } from "@/components/roster/RosterPlayerCard";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { formatStat } from "@/lib/playerUtils";
+import { CrisToggle } from "@/components/CrisToggle";
+import { CrisExplanation } from "@/components/CrisExplanation";
+import { calculateCRISForAll, formatPct } from "@/lib/crisUtils";
 import { sampleRoster } from "@/data/sampleData";
+import { cn } from "@/lib/utils";
 
 export const YourTeam = () => {
   const [roster] = useState<RosterSlot[]>(sampleRoster);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [sortBy, setSortBy] = useState<string>("slot");
+  const [useCris, setUseCris] = useState(true);
 
-  const starters = roster.filter(r => r.slotType === "starter");
-  const bench = roster.filter(r => r.slotType === "bench");
-  const ir = roster.filter(r => r.slotType === "ir");
-
+  // Get all players from roster
   const allPlayers = roster.map(r => r.player);
   const activePlayers = allPlayers.filter(p => p.minutes > 0);
 
-  // Team totals
+  // Calculate CRI/wCRI for active players
+  const playersWithCRI = useMemo(() => {
+    if (activePlayers.length === 0) return [];
+    return calculateCRISForAll(activePlayers.map(p => ({
+      fgPct: p.fgPct,
+      ftPct: p.ftPct,
+      threepm: p.threepm,
+      rebounds: p.rebounds,
+      assists: p.assists,
+      steals: p.steals,
+      blocks: p.blocks,
+      turnovers: p.turnovers,
+      points: p.points,
+    })));
+  }, [activePlayers]);
+
+  // Create CRI ranks
+  const criRanks = useMemo(() => {
+    const criSorted = [...playersWithCRI].map((p, idx) => ({ idx, cri: p.cri, wCri: p.wCri }));
+    criSorted.sort((a, b) => b.cri - a.cri);
+    const wCriSorted = [...criSorted].sort((a, b) => b.wCri - a.wCri);
+    
+    const ranks = new Map<number, { criRank: number; wCriRank: number; cri: number; wCri: number }>();
+    criSorted.forEach((item, rank) => {
+      ranks.set(item.idx, { 
+        criRank: rank + 1, 
+        wCriRank: 0, 
+        cri: item.cri, 
+        wCri: item.wCri 
+      });
+    });
+    wCriSorted.forEach((item, rank) => {
+      const existing = ranks.get(item.idx);
+      if (existing) existing.wCriRank = rank + 1;
+    });
+    return ranks;
+  }, [playersWithCRI]);
+
+  // Enhance roster players with CRI data
+  const enhancedRoster = useMemo(() => {
+    let activeIdx = 0;
+    return roster.map(slot => {
+      const player = slot.player;
+      if (player.minutes > 0) {
+        const criData = criRanks.get(activeIdx);
+        activeIdx++;
+        if (criData) {
+          return {
+            ...slot,
+            player: {
+              ...player,
+              cri: useCris ? criData.cri : criData.wCri,
+              criRank: useCris ? criData.criRank : criData.wCriRank,
+            }
+          };
+        }
+      }
+      return slot;
+    });
+  }, [roster, criRanks, useCris]);
+
+  // Count by slot type
+  const startersCount = roster.filter(r => r.slotType === "starter").length;
+  const benchCount = roster.filter(r => r.slotType === "bench").length;
+  const irCount = roster.filter(r => r.slotType === "ir").length;
+  const playingTodayCount = roster.filter(r => r.player.opponent).length;
+
+  // Team totals (averages)
   const teamTotals = useMemo(() => {
     const count = activePlayers.length || 1;
     return {
-      pts: activePlayers.reduce((sum, p) => sum + p.points, 0),
-      reb: activePlayers.reduce((sum, p) => sum + p.rebounds, 0),
-      ast: activePlayers.reduce((sum, p) => sum + p.assists, 0),
-      threepm: activePlayers.reduce((sum, p) => sum + p.threepm, 0),
-      stl: activePlayers.reduce((sum, p) => sum + p.steals, 0),
-      blk: activePlayers.reduce((sum, p) => sum + p.blocks, 0),
-      to: activePlayers.reduce((sum, p) => sum + p.turnovers, 0),
+      pts: activePlayers.reduce((sum, p) => sum + p.points, 0) / count,
+      reb: activePlayers.reduce((sum, p) => sum + p.rebounds, 0) / count,
+      ast: activePlayers.reduce((sum, p) => sum + p.assists, 0) / count,
+      threepm: activePlayers.reduce((sum, p) => sum + p.threepm, 0) / count,
+      stl: activePlayers.reduce((sum, p) => sum + p.steals, 0) / count,
+      blk: activePlayers.reduce((sum, p) => sum + p.blocks, 0) / count,
+      to: activePlayers.reduce((sum, p) => sum + p.turnovers, 0) / count,
       fgPct: activePlayers.reduce((sum, p) => sum + p.fgPct, 0) / count,
       ftPct: activePlayers.reduce((sum, p) => sum + p.ftPct, 0) / count,
     };
   }, [activePlayers]);
 
+  // Weekly projections (x40 for counting stats)
+  const weeklyProjections = useMemo(() => ({
+    pts: teamTotals.pts * 40,
+    reb: teamTotals.reb * 40,
+    ast: teamTotals.ast * 40,
+    threepm: teamTotals.threepm * 40,
+    stl: teamTotals.stl * 40,
+    blk: teamTotals.blk * 40,
+    to: teamTotals.to * 40,
+    fgPct: teamTotals.fgPct, // Percentages stay the same
+    ftPct: teamTotals.ftPct,
+  }), [teamTotals]);
+
   const sortedRoster = useMemo(() => {
-    if (sortBy === "slot") return roster;
+    if (sortBy === "slot") return enhancedRoster;
     
-    return [...roster].sort((a, b) => {
+    return [...enhancedRoster].sort((a, b) => {
       const playerA = a.player;
       const playerB = b.player;
       
@@ -47,136 +129,155 @@ export const YourTeam = () => {
         case "points": return playerB.points - playerA.points;
         case "rebounds": return playerB.rebounds - playerA.rebounds;
         case "assists": return playerB.assists - playerA.assists;
-        case "cris": return (playerB.cris || 0) - (playerA.cris || 0);
+        case "cris": return (playerB.cri || 0) - (playerA.cri || 0);
         default: return 0;
       }
     });
-  }, [roster, sortBy]);
+  }, [enhancedRoster, sortBy]);
+
+  const scoreLabel = useCris ? 'CRI' : 'wCRI';
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Team Summary */}
+      {/* Team Summary Card */}
       <Card className="gradient-card border-border p-6">
-        <h2 className="font-display font-bold text-lg text-muted-foreground mb-4">TEAM TOTALS</h2>
-        <div className="grid grid-cols-3 md:grid-cols-9 gap-4">
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">PTS</p>
-            <p className="font-display font-bold text-2xl text-primary">{teamTotals.pts.toFixed(1)}</p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="font-display font-bold text-lg">TEAM AVERAGES</h2>
+            <p className="text-xs text-muted-foreground">Per-game averages from active roster ({activePlayers.length} players)</p>
           </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">REB</p>
-            <p className="font-display font-bold text-2xl">{teamTotals.reb.toFixed(1)}</p>
+          <div className="flex items-center gap-3">
+            <CrisToggle useCris={useCris} onChange={setUseCris} />
           </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">AST</p>
-            <p className="font-display font-bold text-2xl">{teamTotals.ast.toFixed(1)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">3PM</p>
-            <p className="font-display font-bold text-2xl">{teamTotals.threepm.toFixed(1)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">STL</p>
-            <p className="font-display font-bold text-2xl">{teamTotals.stl.toFixed(1)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">BLK</p>
-            <p className="font-display font-bold text-2xl">{teamTotals.blk.toFixed(1)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground uppercase">TO</p>
-            <p className="font-display font-bold text-2xl text-stat-negative">{teamTotals.to.toFixed(1)}</p>
-          </div>
+        </div>
+        
+        <div className="grid grid-cols-3 md:grid-cols-9 gap-4 mb-6">
           <div className="text-center">
             <p className="text-xs text-muted-foreground uppercase">FG%</p>
-            <p className="font-display font-bold text-2xl">{formatStat(teamTotals.fgPct, "pct")}</p>
+            <p className="font-display font-bold text-xl">{formatPct(teamTotals.fgPct)}</p>
           </div>
           <div className="text-center">
             <p className="text-xs text-muted-foreground uppercase">FT%</p>
-            <p className="font-display font-bold text-2xl">{formatStat(teamTotals.ftPct, "pct")}</p>
+            <p className="font-display font-bold text-xl">{formatPct(teamTotals.ftPct)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground uppercase">3PM</p>
+            <p className="font-display font-bold text-xl">{teamTotals.threepm.toFixed(1)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground uppercase">REB</p>
+            <p className="font-display font-bold text-xl">{teamTotals.reb.toFixed(1)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground uppercase">AST</p>
+            <p className="font-display font-bold text-xl">{teamTotals.ast.toFixed(1)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground uppercase">STL</p>
+            <p className="font-display font-bold text-xl">{teamTotals.stl.toFixed(1)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground uppercase">BLK</p>
+            <p className="font-display font-bold text-xl">{teamTotals.blk.toFixed(1)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground uppercase">TO</p>
+            <p className="font-display font-bold text-xl text-stat-negative">{teamTotals.to.toFixed(1)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground uppercase">PTS</p>
+            <p className="font-display font-bold text-xl text-primary">{teamTotals.pts.toFixed(1)}</p>
+          </div>
+        </div>
+
+        {/* Weekly Projections */}
+        <div className="border-t border-border pt-4">
+          <p className="text-xs text-muted-foreground mb-3">WEEKLY PROJECTIONS (×40 for counting stats)</p>
+          <div className="grid grid-cols-3 md:grid-cols-9 gap-4">
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">FG%</p>
+              <p className="font-display font-semibold text-sm">{formatPct(weeklyProjections.fgPct)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">FT%</p>
+              <p className="font-display font-semibold text-sm">{formatPct(weeklyProjections.ftPct)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">3PM</p>
+              <p className="font-display font-semibold text-sm">{weeklyProjections.threepm.toFixed(0)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">REB</p>
+              <p className="font-display font-semibold text-sm">{weeklyProjections.reb.toFixed(0)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">AST</p>
+              <p className="font-display font-semibold text-sm">{weeklyProjections.ast.toFixed(0)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">STL</p>
+              <p className="font-display font-semibold text-sm">{weeklyProjections.stl.toFixed(0)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">BLK</p>
+              <p className="font-display font-semibold text-sm">{weeklyProjections.blk.toFixed(0)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">TO</p>
+              <p className="font-display font-semibold text-sm text-stat-negative">{weeklyProjections.to.toFixed(0)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground uppercase">PTS</p>
+              <p className="font-display font-semibold text-sm text-primary">{weeklyProjections.pts.toFixed(0)}</p>
+            </div>
           </div>
         </div>
       </Card>
 
-      {/* Sort Control */}
-      <div className="flex justify-end">
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Sort by..." />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="slot">Slot Order</SelectItem>
-            <SelectItem value="points">Points</SelectItem>
-            <SelectItem value="rebounds">Rebounds</SelectItem>
-            <SelectItem value="assists">Assists</SelectItem>
-            <SelectItem value="cris">CRIS</SelectItem>
-          </SelectContent>
-        </Select>
+      {/* Roster Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="font-display font-bold text-xl">My Roster</h2>
+          <Badge variant="outline" className="text-xs">{roster.length} players</Badge>
+          <Badge variant="secondary" className="text-xs">Active: {startersCount}</Badge>
+          <Badge variant="secondary" className="text-xs">Bench: {benchCount}</Badge>
+          {irCount > 0 && <Badge variant="destructive" className="text-xs">IR: {irCount}</Badge>}
+          {playingTodayCount > 0 && (
+            <Badge className="text-xs bg-primary/20 text-primary border-primary/50">
+              Playing Today: {playingTodayCount}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <CrisExplanation />
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Sort by..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="slot">Slot Order</SelectItem>
+              <SelectItem value="points">Points</SelectItem>
+              <SelectItem value="rebounds">Rebounds</SelectItem>
+              <SelectItem value="assists">Assists</SelectItem>
+              <SelectItem value="cris">{scoreLabel}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* Roster Tabs */}
-      <Tabs defaultValue="all" className="w-full">
-        <TabsList className="grid w-full max-w-md mx-auto grid-cols-4 bg-card">
-          <TabsTrigger value="all" className="font-display">
-            All ({roster.length})
-          </TabsTrigger>
-          <TabsTrigger value="starters" className="font-display">
-            Active ({starters.length})
-          </TabsTrigger>
-          <TabsTrigger value="bench" className="font-display">
-            Bench ({bench.length})
-          </TabsTrigger>
-          <TabsTrigger value="ir" className="font-display">
-            IR ({ir.length})
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="all" className="mt-4 space-y-2">
-          {sortedRoster.map((slot) => (
-            <RosterPlayerCard
-              key={slot.player.id}
-              player={slot.player}
-              slot={slot.slot}
-              onClick={() => setSelectedPlayer(slot.player)}
-            />
-          ))}
-        </TabsContent>
-
-        <TabsContent value="starters" className="mt-4 space-y-2">
-          {starters.map((slot) => (
-            <RosterPlayerCard
-              key={slot.player.id}
-              player={slot.player}
-              slot={slot.slot}
-              onClick={() => setSelectedPlayer(slot.player)}
-            />
-          ))}
-        </TabsContent>
-
-        <TabsContent value="bench" className="mt-4 space-y-2">
-          {bench.map((slot) => (
-            <RosterPlayerCard
-              key={slot.player.id}
-              player={slot.player}
-              slot={slot.slot}
-              onClick={() => setSelectedPlayer(slot.player)}
-            />
-          ))}
-        </TabsContent>
-
-        <TabsContent value="ir" className="mt-4 space-y-2">
-          {ir.length > 0 ? ir.map((slot) => (
-            <RosterPlayerCard
-              key={slot.player.id}
-              player={slot.player}
-              slot={slot.slot}
-              onClick={() => setSelectedPlayer(slot.player)}
-            />
-          )) : (
-            <p className="text-center text-muted-foreground py-8">No IR players</p>
-          )}
-        </TabsContent>
-      </Tabs>
+      {/* All Players List */}
+      <div className="space-y-2">
+        {sortedRoster.map((slot) => (
+          <RosterPlayerCard
+            key={slot.player.id}
+            player={slot.player}
+            slot={slot.slot}
+            slotType={slot.slotType}
+            onClick={() => setSelectedPlayer(slot.player)}
+            useCris={useCris}
+          />
+        ))}
+      </div>
 
       <PlayerDetailSheet
         player={selectedPlayer}

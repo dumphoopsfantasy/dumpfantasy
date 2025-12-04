@@ -101,11 +101,37 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
             continue;
           }
           
-          // Opponent (starts with @ or is a team code)
-          if (!opponent && team && (nextLine.startsWith('@') || nextLine.match(/^[A-Z][a-z]{2}$/))) {
-            opponent = nextLine;
-            continue;
+          // Opponent with game time (e.g., "@Bkn 7:30 PM", "Min 8:00 PM")
+          if (!opponent) {
+            // Pattern: @Team Time or Team Time
+            const oppTimeMatch = nextLine.match(/^(@?[A-Za-z]{2,4})\s*$/i);
+            if (oppTimeMatch && team) {
+              const oppTeam = oppTimeMatch[1].toUpperCase();
+              if (oppTeam !== team) {
+                opponent = oppTeam;
+                // Look for game time on next line
+                if (j + 1 < lines.length) {
+                  const timeLine = lines[j + 1];
+                  if (/^\d{1,2}:\d{2}\s*(AM|PM)?$/i.test(timeLine)) {
+                    opponent = `${opponent} ${timeLine}`;
+                  }
+                }
+                continue;
+              }
+            }
+            // Check for game time on same line as opponent
+            const oppWithTime = nextLine.match(/^(@?[A-Za-z]{2,4})\s+(\d{1,2}:\d{2}\s*(AM|PM)?)/i);
+            if (oppWithTime && team) {
+              const oppTeam = oppWithTime[1].toUpperCase();
+              if (oppTeam !== team) {
+                opponent = `${oppTeam} ${oppWithTime[2]}`;
+                continue;
+              }
+            }
           }
+          
+          // Skip "--" (no game indicator)
+          if (nextLine === '--') continue;
           
           // Stop if we hit MOVE or another slot or STATS
           if (nextLine === 'MOVE' || slotPatterns.includes(nextLine) || nextLine === 'STATS') {
