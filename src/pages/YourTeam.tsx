@@ -141,14 +141,9 @@ export const YourTeam = () => {
     <div className="space-y-6 animate-fade-in">
       {/* Team Summary Card */}
       <Card className="gradient-card border-border p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="font-display font-bold text-lg">TEAM AVERAGES</h2>
-            <p className="text-xs text-muted-foreground">Per-game averages from active roster ({activePlayers.length} players)</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <CrisToggle useCris={useCris} onChange={setUseCris} />
-          </div>
+        <div className="mb-4">
+          <h2 className="font-display font-bold text-lg">TEAM AVERAGES</h2>
+          <p className="text-xs text-muted-foreground">Per-game averages from active roster ({activePlayers.length} players)</p>
         </div>
         
         <div className="grid grid-cols-3 md:grid-cols-9 gap-4 mb-6">
@@ -249,9 +244,10 @@ export const YourTeam = () => {
           )}
         </div>
         <div className="flex items-center gap-3">
+          <CrisToggle useCris={useCris} onChange={setUseCris} />
           <CrisExplanation />
           <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Sort by..." />
             </SelectTrigger>
             <SelectContent>
