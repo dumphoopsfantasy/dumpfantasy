@@ -103,8 +103,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       if (halfLen === Math.floor(halfLen) && line.substring(0, halfLen) === line.substring(halfLen)) {
         const name = line.substring(0, halfLen).trim();
         
-        // Validate it looks like a name
-        if (!/^[A-Z][a-z]/.test(name) || !name.includes(' ')) continue;
+        // Validate it looks like a name - allow:
+        // - Standard names: "Noah Clowney" (starts with capital, has space)
+        // - Names with initials: "AJ Green" (two capitals)
+        // - Names with apostrophes: "D'Angelo Russell"
+        const isValidName = name.includes(' ') && /^[A-Z]/.test(name) && name.length >= 4;
+        if (!isValidName) continue;
         
         // Skip navigation/header text
         if (/^(Fantasy|ESPN|Add|Drop|Trade|Watch|Support|Research|Basketball|Football|Hockey|Baseball)/i.test(name)) continue;
@@ -114,10 +118,20 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
         let status = '';
         let opponent = '';
         let gameTime = '';
+        let foundFAWA = false;
         
         // Look ahead for player metadata (up to 25 lines)
         for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
           const nextLine = lines[j];
+          
+          // Check if next line is a doubled name (next player) - stop here
+          const testHalf = nextLine.length / 2;
+          if (testHalf === Math.floor(testHalf) && testHalf >= 3 && 
+              nextLine.substring(0, testHalf) === nextLine.substring(testHalf) &&
+              /^[A-Z]/.test(nextLine.substring(0, testHalf)) &&
+              nextLine.substring(0, testHalf).includes(' ')) {
+            break;
+          }
           
           // Team code (2-4 letter uppercase)
           if (!team) {
@@ -143,6 +157,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
             continue;
           }
           
+          // FA/WA status - mark it but DON'T break, continue to find opponent
+          if (nextLine === 'FA' || nextLine.match(/^WA(\s|\(|$)/)) {
+            foundFAWA = true;
+            continue;
+          }
+          
           // Opponent with time: "Utah 7:30 PM" or "@LAL 7:00 PM" or "vs BOS 7:00 PM"
           if (!opponent) {
             const oppTimeMatch = nextLine.match(/^(@|vs\.?\s*)?([A-Za-z]{2,4})\s+(\d{1,2}:\d{2}\s*(AM|PM)?(\s*ET)?)/i);
@@ -153,11 +173,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
               continue;
             }
             
-            // Just opponent: "@LAL" or "vs BOS" or team code
+            // Just opponent: "@LAL" or "vs BOS" or team code like "Utah", "Bos", "Min"
             const oppMatch = nextLine.match(/^(@|vs\.?\s*)?([A-Za-z]{2,4})$/i);
-            if (oppMatch) {
+            if (oppMatch && foundFAWA) {
               const upperTeam = oppMatch[2].toUpperCase();
-              if (NBA_TEAMS.includes(upperTeam) || ['UTAH'].includes(upperTeam)) {
+              // Check if it's a valid opponent team (not the player's own team)
+              if ((NBA_TEAMS.includes(upperTeam) || ['UTAH'].includes(upperTeam)) && upperTeam !== team) {
                 const prefix = oppMatch[1] ? (oppMatch[1].toLowerCase().includes('v') ? 'vs ' : '@') : '';
                 opponent = prefix + upperTeam;
                 continue;
@@ -170,20 +191,15 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
             const timeMatch = nextLine.match(/^(\d{1,2}:\d{2}\s*(AM|PM)(\s*ET)?)/i);
             if (timeMatch) {
               gameTime = timeMatch[1].trim();
-              continue;
+              break; // Got everything, stop
             }
           }
           
-          // Stop conditions: FA/WA status or next doubled name
-          if (nextLine === 'FA' || nextLine.match(/^WA(\s|\(|$)/)) break;
+          // If we found FA/WA and then opponent+time, we're done
+          if (foundFAWA && opponent && gameTime) break;
           
-          // Check if next line is a doubled name (next player)
-          const testHalf = nextLine.length / 2;
-          if (testHalf === Math.floor(testHalf) && testHalf > 3 && 
-              nextLine.substring(0, testHalf) === nextLine.substring(testHalf) &&
-              /^[A-Z][a-z]/.test(nextLine.substring(0, testHalf))) {
-            break;
-          }
+          // Stop if we hit "--" (no game) after FA/WA
+          if (foundFAWA && nextLine === '--') break;
         }
         
         // Accept player if we found some metadata
@@ -628,7 +644,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               Rankings
             </Button>
           </div>
-          <CrisToggle useCris={useCris} onChange={setUseCris} />
+          {showStatsView && <CrisToggle useCris={useCris} onChange={setUseCris} />}
         </div>
       </div>
 
@@ -732,8 +748,10 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 <th className="text-center p-2 font-display">OPP</th>
                 {!showStatsView ? (
                   <>
+                    {/* MIN first (bonus but useful) */}
+                    <SortHeader label="MIN" sortKeyProp="minutes" />
                     {/* Core 9-cat stats */}
-                    <SortHeader label="FG%" sortKeyProp="fgPct" />
+                    <SortHeader label="FG%" sortKeyProp="fgPct" className="border-l border-border" />
                     <SortHeader label="FT%" sortKeyProp="ftPct" />
                     <SortHeader label="3PM" sortKeyProp="threepm" />
                     <SortHeader label="REB" sortKeyProp="rebounds" />
@@ -745,9 +763,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     {/* CRI/wCRI Rank columns */}
                     <SortHeader label="CRI#" sortKeyProp="cri" className="border-l-2 border-primary/50" />
                     <SortHeader label="wCRI#" sortKeyProp="wCri" />
-                    {/* Bonus insight stats */}
-                    <SortHeader label="MIN" sortKeyProp="minutes" className="border-l-2 border-muted-foreground/30" />
-                    <SortHeader label="PR15" sortKeyProp="pr15" />
+                    {/* Bonus insight stats on right */}
+                    <SortHeader label="PR15" sortKeyProp="pr15" className="border-l border-muted-foreground/30" />
                     <SortHeader label="%ROST" sortKeyProp="rosterPct" />
                     <SortHeader label="+/-" sortKeyProp="plusMinus" />
                   </>
@@ -799,8 +816,10 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                   </td>
                   {!showStatsView ? (
                     <>
+                      {/* MIN first */}
+                      <td className="text-center p-2">{player.minutes.toFixed(1)}</td>
                       {/* Core 9-cat stats - raw values */}
-                      <td className="text-center p-2">{formatPct(player.fgPct)}</td>
+                      <td className="text-center p-2 border-l border-border">{formatPct(player.fgPct)}</td>
                       <td className="text-center p-2">{formatPct(player.ftPct)}</td>
                       <td className="text-center p-2">{player.threepm.toFixed(1)}</td>
                       <td className="text-center p-2">{player.rebounds.toFixed(1)}</td>
@@ -816,11 +835,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       <td className="text-center p-2 font-bold text-orange-400">
                         #{player.wCriRank}
                       </td>
-                      {/* Bonus insight stats */}
-                      <td className="text-center p-2 text-muted-foreground border-l-2 border-muted-foreground/30">
-                        {player.minutes.toFixed(1)}
-                      </td>
-                      <td className="text-center p-2 text-muted-foreground">
+                      {/* Bonus insight stats on right */}
+                      <td className="text-center p-2 text-muted-foreground border-l border-muted-foreground/30">
                         {player.pr15 ? player.pr15.toFixed(2) : '—'}
                       </td>
                       <td className="text-center p-2 text-muted-foreground">
