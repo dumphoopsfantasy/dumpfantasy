@@ -21,7 +21,7 @@ export const YourTeam = () => {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   // Calculate CRI/wCRI using exact logic from user spec
-  const enhancedRoster = useMemo(() => {
+  const { enhancedRoster, categoryRanks, activePlayerCount } = useMemo(() => {
     // Step 1: Identify active players with stats (Starter/Bench only, with min > 0)
     const activePlayersWithStats = roster.filter(
       (slot) =>
@@ -30,7 +30,11 @@ export const YourTeam = () => {
     );
 
     const N = activePlayersWithStats.length;
-    if (N === 0) return roster.map((slot) => ({ ...slot, player: { ...slot.player } }));
+    if (N === 0) return { 
+      enhancedRoster: roster.map((slot) => ({ ...slot, player: { ...slot.player } })),
+      categoryRanks: {},
+      activePlayerCount: 0
+    };
 
     // Step 2: Calculate category ranks (1 = best)
     const categories = [
@@ -45,13 +49,15 @@ export const YourTeam = () => {
       { key: "points", higherBetter: true },
     ];
 
-    // Map player id to category scores
+    // Map player id to category scores and ranks
     const categoryScores: Record<string, Record<string, number>> = {};
+    const catRanks: Record<string, Record<string, number>> = {};
     activePlayersWithStats.forEach((slot) => {
       categoryScores[slot.player.id] = {};
     });
 
     categories.forEach((cat) => {
+      catRanks[cat.key] = {};
       // Sort players by this category
       const sorted = [...activePlayersWithStats].sort((a, b) => {
         const valA = a.player[cat.key as keyof Player] as number;
@@ -60,9 +66,11 @@ export const YourTeam = () => {
       });
 
       // Assign scores: best gets N, worst gets 1
+      // Assign ranks: best gets 1, worst gets N
       sorted.forEach((slot, idx) => {
         const score = N - idx; // Best (idx=0) gets N, worst gets 1
         categoryScores[slot.player.id][cat.key] = score;
+        catRanks[cat.key][slot.player.id] = idx + 1;
       });
     });
 
@@ -109,7 +117,7 @@ export const YourTeam = () => {
     });
 
     // Step 5: Enhance all roster slots with CRI data
-    return roster.map((slot) => {
+    const finalRoster = roster.map((slot) => {
       const isActiveWithStats =
         (slot.slotType === "starter" || slot.slotType === "bench") &&
         slot.player.minutes > 0;
@@ -139,6 +147,8 @@ export const YourTeam = () => {
         },
       };
     });
+
+    return { enhancedRoster: finalRoster, categoryRanks: catRanks, activePlayerCount: N };
   }, [roster]);
 
   // Filter by slot type
@@ -446,6 +456,8 @@ export const YourTeam = () => {
           sortDirection={sortDirection}
           onSort={handleSort}
           onPlayerClick={setSelectedPlayer}
+          categoryRanks={categoryRanks}
+          activePlayerCount={activePlayerCount}
         />
       </Card>
 
