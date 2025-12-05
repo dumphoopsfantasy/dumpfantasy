@@ -85,7 +85,7 @@ const Index = () => {
   };
 
   // Convert PlayerStats to RosterSlot format and calculate CRI/wCRI
-  const rosterWithCRI = useMemo(() => {
+  const { rosterWithCRI, categoryRanks, activePlayerCount } = useMemo(() => {
     // First, convert all players to RosterSlot format
     const allSlots: (RosterSlot & { player: Player & { cri?: number; wCri?: number; criRank?: number; wCriRank?: number } })[] = players.map((p) => {
       const slot = p.slot || "Bench";
@@ -126,10 +126,11 @@ const Index = () => {
     );
     const N = activePlayers.length;
 
-    if (N === 0) return allSlots;
+    if (N === 0) return { rosterWithCRI: allSlots, categoryRanks: {}, activePlayerCount: 0 };
 
-    // Calculate category scores for active players
+    // Calculate category scores AND ranks for active players
     const categoryScores: Record<string, Record<string, number>> = {};
+    const catRanks: Record<string, Record<string, number>> = {};
     
     CRI_CATEGORIES.forEach((cat) => {
       const key = cat.key as keyof Player;
@@ -141,9 +142,12 @@ const Index = () => {
       });
       
       // Assign scores: best gets N, worst gets 1
+      // Assign ranks: best gets 1, worst gets N
       categoryScores[cat.key] = {};
+      catRanks[cat.key] = {};
       sorted.forEach((slot, index) => {
         categoryScores[cat.key][slot.player.id] = N - index;
+        catRanks[cat.key][slot.player.id] = index + 1;
       });
     });
 
@@ -172,7 +176,7 @@ const Index = () => {
     wCriSorted.forEach((p, i) => (wCriRanks[p.id] = i + 1));
 
     // Map scores back to all slots
-    return allSlots.map((slot) => {
+    const finalSlots = allSlots.map((slot) => {
       const criData = activeCRI.find((p) => p.id === slot.player.id);
       if (criData) {
         return {
@@ -209,6 +213,8 @@ const Index = () => {
       }
       return slot;
     });
+
+    return { rosterWithCRI: finalSlots, categoryRanks: catRanks, activePlayerCount: N };
   }, [players]);
 
   // Apply filter and sort
@@ -453,6 +459,8 @@ const Index = () => {
                   sortDirection={sortDirection}
                   onSort={handleSort}
                   onPlayerClick={() => {}}
+                  categoryRanks={categoryRanks}
+                  activePlayerCount={activePlayerCount}
                 />
               </div>
             )}
