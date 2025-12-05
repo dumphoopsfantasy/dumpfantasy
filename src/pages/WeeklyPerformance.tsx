@@ -308,7 +308,7 @@ export const WeeklyPerformance = ({
     return val1 > val2 ? 'team1' : 'team2';
   };
 
-  // Get category rank color (1-10 scale for league of 10)
+  // Get category rank color (1-10 scale for league of 10) - toned down for better readability
   const getCategoryRankColor = (value: number, category: string, allValues: number[]): string => {
     const isLowerBetter = category === 'turnovers';
     const sorted = [...allValues].sort((a, b) => isLowerBetter ? a - b : b - a);
@@ -316,11 +316,12 @@ export const WeeklyPerformance = ({
     const total = sorted.length;
     const percentile = rank / total;
     
-    if (percentile <= 0.2) return 'bg-stat-positive/30 text-stat-positive';
-    if (percentile <= 0.4) return 'bg-emerald-500/20 text-emerald-400';
-    if (percentile <= 0.6) return 'bg-yellow-500/20 text-yellow-400';
-    if (percentile <= 0.8) return 'bg-orange-500/20 text-orange-400';
-    return 'bg-stat-negative/20 text-stat-negative';
+    // Toned down colors for better text readability
+    if (percentile <= 0.2) return 'bg-stat-positive/20 text-foreground';
+    if (percentile <= 0.4) return 'bg-emerald-500/15 text-foreground';
+    if (percentile <= 0.6) return 'bg-transparent text-foreground';
+    if (percentile <= 0.8) return 'bg-orange-500/15 text-foreground';
+    return 'bg-stat-negative/15 text-foreground';
   };
 
   // Get all values for a category across all teams
@@ -416,18 +417,18 @@ Only data below "Scoreboard" will be parsed.`}
       {/* League-wide Stats Table */}
       <Card className="gradient-card border-border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-secondary/30">
-                <th className="p-2 text-left font-display text-xs">#</th>
-                <th className="p-2 text-left font-display text-xs min-w-[120px]">TEAM</th>
-                <th className="p-2 text-center font-display text-xs">W-L</th>
+                <th className="p-3 text-left font-display text-sm">#</th>
+                <th className="p-3 text-left font-display text-sm min-w-[140px]">TEAM</th>
+                <th className="p-3 text-center font-display text-sm">Current Matchup</th>
                 {CATEGORIES.map(cat => (
-                  <th key={cat.key} className="p-2 text-center font-display text-xs text-muted-foreground">
+                  <th key={cat.key} className="p-3 text-center font-display text-sm text-muted-foreground">
                     {cat.label}
                   </th>
                 ))}
-                <th className="p-2 text-center font-display text-xs border-l border-primary/50 text-primary">CRI</th>
+                <th className="p-3 text-center font-display text-sm border-l border-primary/50 text-primary">CRI</th>
               </tr>
             </thead>
             <tbody>
@@ -445,18 +446,18 @@ Only data below "Scoreboard" will be parsed.`}
                       row.isFirstInMatchup && idx > 0 && "border-t-2 border-t-border"
                     )}
                   >
-                    <td className="p-2 font-bold text-primary">{idx + 1}</td>
-                    <td className="p-2">
+                    <td className="p-3 font-bold text-primary text-base">{idx + 1}</td>
+                    <td className="p-3">
                       <div>
-                        <div className="font-semibold text-sm">{row.team.name}</div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="font-semibold text-base">{row.team.name}</div>
+                        <div className="text-sm text-muted-foreground">
                           vs {row.opponent.abbr}
                         </div>
                       </div>
                     </td>
-                    <td className="p-2 text-center">
+                    <td className="p-3 text-center">
                       <span className={cn(
-                        "font-bold",
+                        "font-bold text-base",
                         row.weekWins > row.weekLosses ? "text-stat-positive" : 
                         row.weekWins < row.weekLosses ? "text-stat-negative" : "text-muted-foreground"
                       )}>
@@ -468,12 +469,12 @@ Only data below "Scoreboard" will be parsed.`}
                       const colorClass = getCategoryRankColor(value, cat.key, categoryValues[cat.key]);
                       
                       return (
-                        <td key={cat.key} className={cn("p-2 text-center font-mono text-xs", colorClass)}>
+                        <td key={cat.key} className={cn("p-3 text-center font-mono text-sm", colorClass)}>
                           {formatValue(value, cat.format)}
                         </td>
                       );
                     })}
-                    <td className="p-2 text-center font-bold text-primary border-l border-primary/50">
+                    <td className="p-3 text-center font-bold text-primary text-base border-l border-primary/50">
                       {row.cri.toFixed(0)}
                     </td>
                   </tr>

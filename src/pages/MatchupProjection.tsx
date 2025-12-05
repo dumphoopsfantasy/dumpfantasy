@@ -20,6 +20,7 @@ interface TeamStats {
 
 interface TeamInfo {
   name: string;
+  abbr?: string;
   record: string;
   standing: string;
   owner?: string;
@@ -60,6 +61,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       /^(hsb\.|ESPN|NFL|NBA|MLB|NCAAF|NHL|Soccer|WNBA|More Sports|Watch|Fantasy|Where to Watch|Fantasy Basketball Home|My Team|League|Settings|Members|Rosters|Schedule|Message Board|Transaction Counter|History|Draft Recap|Email League|Recent Activity|Players|Add Players|Watch List|Daily Leaders|Live Draft Trends|Added \/ Dropped|Player Rater|Player News|Projections|Waiver Order|Waiver Report|Undroppables|FantasyCast|Scoreboard|Standings|Opposing Teams|ESPN BET|Copyright|ESPN\.com|Member Services|Interest-Based|Privacy|Terms|NBPA)$/i;
 
     let teamName = "";
+    let teamAbbr = "";
     let record = "";
     let standing = "";
     let owner = "";
@@ -106,6 +108,22 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
         if (score1?.match(/^\d+-\d+-\d+$/) && score2?.match(/^\d+-\d+-\d+$/)) {
           lastMatchup = `${team1} ${score1} vs ${team2} ${score2}`;
         }
+      }
+    }
+
+    // Try to extract team abbreviation from "Opposing Teams" section or team name pattern
+    // Common pattern: "Team Name (ABBR)" in league listing
+    const abbrMatch = teamName.match(/^(.+?)\s*\(([A-Z]{2,6})\)$/i);
+    if (abbrMatch) {
+      teamName = abbrMatch[1].trim();
+      teamAbbr = abbrMatch[2].toUpperCase();
+    } else {
+      // Generate abbreviation from first letters of team name words
+      const words = teamName.split(/\s+/).filter(w => w.length > 0);
+      if (words.length >= 2) {
+        teamAbbr = words.map(w => w[0]).join('').toUpperCase().slice(0, 4);
+      } else if (words.length === 1 && words[0].length >= 3) {
+        teamAbbr = words[0].slice(0, 4).toUpperCase();
       }
     }
 
@@ -157,7 +175,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
 
       if (validCount > 0) {
         return {
-          info: { name: teamName || "Team", record, standing, owner, lastMatchup },
+          info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
           stats: {
             fgPct: totals.fgPct / validCount,
             ftPct: totals.ftPct / validCount,
@@ -182,7 +200,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
 
     if (simpleNumbers.length >= 9) {
       return {
-        info: { name: teamName || "Team", record, standing, owner, lastMatchup },
+        info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
         stats: {
           fgPct: simpleNumbers[0] < 1 ? simpleNumbers[0] : simpleNumbers[0] / 100,
           ftPct: simpleNumbers[1] < 1 ? simpleNumbers[1] : simpleNumbers[1] / 100,
@@ -342,7 +360,12 @@ Navigate to their team page and copy the whole page.`}
         <div className="flex items-center justify-center gap-4 md:gap-8">
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">Your Team</p>
-            <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.myTeam.name}</p>
+            <p className="font-display font-bold text-xl md:text-2xl">
+              {persistedMatchup.myTeam.name}
+              {persistedMatchup.myTeam.abbr && (
+                <span className="text-muted-foreground font-normal text-base ml-1">({persistedMatchup.myTeam.abbr})</span>
+              )}
+            </p>
             {persistedMatchup.myTeam.owner && (
               <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.owner}</p>
             )}
@@ -367,7 +390,12 @@ Navigate to their team page and copy the whole page.`}
           
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">Opponent</p>
-            <p className="font-display font-bold text-xl md:text-2xl">{persistedMatchup.opponent.name}</p>
+            <p className="font-display font-bold text-xl md:text-2xl">
+              {persistedMatchup.opponent.name}
+              {persistedMatchup.opponent.abbr && (
+                <span className="text-muted-foreground font-normal text-base ml-1">({persistedMatchup.opponent.abbr})</span>
+              )}
+            </p>
             {persistedMatchup.opponent.owner && (
               <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.owner}</p>
             )}
