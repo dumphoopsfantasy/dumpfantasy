@@ -3,6 +3,7 @@ import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getStatusColor } from "@/lib/playerUtils";
 import { formatPct } from "@/lib/crisUtils";
 import { cn } from "@/lib/utils";
@@ -87,32 +88,73 @@ export const RosterTable = ({
     return value % 1 === 0 ? value.toString() : value.toFixed(1);
   };
 
-  // Get heatmap color based on player's rank in category
+  // Get heatmap color and tooltip info based on player's rank in category
   // Top 33% = green, Bottom 22% = red, otherwise neutral
-  const getHeatmapColor = (playerId: string, categoryKey: string, isIR: boolean, hasStats: boolean) => {
-    if (isIR || !hasStats || activePlayerCount === 0) return "";
+  const getHeatmapInfo = (playerId: string, categoryKey: string, isIR: boolean, hasStats: boolean): { color: string; tooltip: string | null } => {
+    if (isIR || !hasStats || activePlayerCount === 0) return { color: "", tooltip: null };
     
     const catKey = STAT_TO_CATEGORY[categoryKey];
-    if (!catKey || !categoryRanks[catKey]) return "";
+    if (!catKey || !categoryRanks[catKey]) return { color: "", tooltip: null };
     
     const rank = categoryRanks[catKey][playerId];
-    if (!rank) return "";
+    if (!rank) return { color: "", tooltip: null };
     
     const N = activePlayerCount;
     const topThreshold = Math.ceil(0.33 * N);
     const bottomThreshold = Math.ceil(0.78 * N);
     
     if (rank <= topThreshold) {
-      return "bg-stat-positive/15 text-stat-positive";
+      return { 
+        color: "bg-stat-positive/15 text-stat-positive", 
+        tooltip: `Top 33% of team (Rank #${rank} of ${N})` 
+      };
     } else if (rank >= bottomThreshold) {
-      return "bg-stat-negative/15 text-stat-negative";
+      return { 
+        color: "bg-stat-negative/15 text-stat-negative", 
+        tooltip: `Bottom 22% of team (Rank #${rank} of ${N})` 
+      };
     }
-    return "";
+    return { color: "", tooltip: `Rank #${rank} of ${N}` };
+  };
+
+  // Helper to wrap stat cell with tooltip if needed
+  const StatCell = ({ playerId, categoryKey, isIR, hasStats, value, format = "num" }: {
+    playerId: string;
+    categoryKey: string;
+    isIR: boolean;
+    hasStats: boolean;
+    value: number | undefined;
+    format?: "pct" | "num";
+  }) => {
+    const { color, tooltip } = getHeatmapInfo(playerId, categoryKey, isIR, hasStats);
+    const displayValue = hasStats ? formatStat(value, format) : "--";
+    
+    if (tooltip) {
+      return (
+        <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", color)}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help">{displayValue}</span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {tooltip}
+            </TooltipContent>
+          </Tooltip>
+        </TableCell>
+      );
+    }
+    
+    return (
+      <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", color)}>
+        {displayValue}
+      </TableCell>
+    );
   };
 
   return (
-    <div className="overflow-x-auto bg-card/30 rounded-lg border border-border">
-      <Table className="w-full">
+    <TooltipProvider>
+      <div className="overflow-x-auto bg-card/30 rounded-lg border border-border">
+        <Table className="w-full">
         <TableHeader>
           <TableRow className="hover:bg-transparent border-border">
             {columns.map((col) => (
@@ -215,34 +257,16 @@ export const RosterTable = ({
                   {hasStats ? formatStat(player.minutes) : "--"}
                 </TableCell>
 
-                {/* Stats with heatmap colors */}
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "fgPct", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.fgPct, "pct") : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "ftPct", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.ftPct, "pct") : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "threepm", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.threepm) : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "rebounds", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.rebounds) : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "assists", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.assists) : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "steals", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.steals) : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "blocks", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.blocks) : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "turnovers", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.turnovers) : "--"}
-                </TableCell>
-                <TableCell className={cn("px-2 py-1.5 text-sm text-center font-mono", getHeatmapColor(player.id, "points", isIR, hasStats))}>
-                  {hasStats ? formatStat(player.points) : "--"}
-                </TableCell>
+                {/* Stats with heatmap colors and tooltips */}
+                <StatCell playerId={player.id} categoryKey="fgPct" isIR={isIR} hasStats={hasStats} value={player.fgPct} format="pct" />
+                <StatCell playerId={player.id} categoryKey="ftPct" isIR={isIR} hasStats={hasStats} value={player.ftPct} format="pct" />
+                <StatCell playerId={player.id} categoryKey="threepm" isIR={isIR} hasStats={hasStats} value={player.threepm} />
+                <StatCell playerId={player.id} categoryKey="rebounds" isIR={isIR} hasStats={hasStats} value={player.rebounds} />
+                <StatCell playerId={player.id} categoryKey="assists" isIR={isIR} hasStats={hasStats} value={player.assists} />
+                <StatCell playerId={player.id} categoryKey="steals" isIR={isIR} hasStats={hasStats} value={player.steals} />
+                <StatCell playerId={player.id} categoryKey="blocks" isIR={isIR} hasStats={hasStats} value={player.blocks} />
+                <StatCell playerId={player.id} categoryKey="turnovers" isIR={isIR} hasStats={hasStats} value={player.turnovers} />
+                <StatCell playerId={player.id} categoryKey="points" isIR={isIR} hasStats={hasStats} value={player.points} />
 
                 {/* CRI or wCRI (only the selected metric) */}
                 <TableCell className="px-2 py-1.5 text-center border-l border-border">
@@ -272,7 +296,8 @@ export const RosterTable = ({
             );
           })}
         </TableBody>
-      </Table>
-    </div>
+        </Table>
+      </div>
+    </TooltipProvider>
   );
 };
