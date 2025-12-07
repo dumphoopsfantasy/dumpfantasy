@@ -549,13 +549,13 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       }));
     }
 
-    // Determine actual sort key
+    // Determine actual sort key - respect the toggle for CRI/wCRI
     let activeSortKey = sortKey;
-    if (sortKey === 'cri' || sortKey === 'wCri') {
-      activeSortKey = useCris ? 'cri' : 'wCri';
-    }
-    if (sortKey === 'customCri') {
-      activeSortKey = 'customCri';
+    // Only switch cri<->wCri when the sortKey is one of them
+    if (sortKey === 'cri' && !useCris) {
+      activeSortKey = 'wCri';
+    } else if (sortKey === 'wCri' && useCris) {
+      activeSortKey = 'cri';
     }
     
     const sorted = [...result].sort((a, b) => {
