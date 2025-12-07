@@ -63,6 +63,9 @@ const Index = () => {
   // Roster filter
   const [rosterFilter, setRosterFilter] = useState<"all" | "starters" | "bench" | "ir">("all");
   
+  // Pin IR to bottom toggle
+  const [pinIRToBottom, setPinIRToBottom] = useState(true);
+  
   // Free agents state (persisted)
   const [freeAgents, setFreeAgents] = useState<Player[]>([]);
   
@@ -89,8 +92,13 @@ const Index = () => {
     // First, convert all players to RosterSlot format
     const allSlots: (RosterSlot & { player: Player & { cri?: number; wCri?: number; criRank?: number; wCriRank?: number } })[] = players.map((p) => {
       const slot = p.slot || "Bench";
-      const isIR = slot.toLowerCase().includes("ir") || slot.toLowerCase().includes("il");
-      const isStarter = !isIR && !slot.toLowerCase().includes("bench");
+      const slotLower = slot.toLowerCase();
+      // IR slots explicitly contain "ir" or "il"
+      const isIR = slotLower.includes("ir") || slotLower === "il";
+      // Bench is only when slot is exactly "bench"
+      const isBench = slotLower === "bench";
+      // Everything else (PG, SG, SF, PF, C, G, F/C, UTIL) is a starter
+      const isStarter = !isIR && !isBench;
       
       return {
         slot,
@@ -228,8 +236,14 @@ const Index = () => {
       filtered = rosterWithCRI.filter((s) => s.slotType === "ir");
     }
 
-    // Sort
-    return [...filtered].sort((a, b) => {
+    // Sort with optional IR pinning
+    const sorted = [...filtered].sort((a, b) => {
+      // If pinIRToBottom is enabled and we're not filtering to IR only, pin IR players to bottom
+      if (pinIRToBottom && rosterFilter !== "ir") {
+        if (a.slotType === "ir" && b.slotType !== "ir") return 1;
+        if (a.slotType !== "ir" && b.slotType === "ir") return -1;
+      }
+      
       const aPlayer = a.player;
       const bPlayer = b.player;
       let aVal: number | string = 0;
@@ -298,7 +312,9 @@ const Index = () => {
       }
       return sortDirection === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
-  }, [rosterWithCRI, rosterFilter, sortColumn, sortDirection]);
+    
+    return sorted;
+  }, [rosterWithCRI, rosterFilter, sortColumn, sortDirection, pinIRToBottom]);
 
   const handleSort = (column: string) => {
     if (sortColumn === column) {
@@ -427,6 +443,18 @@ const Index = () => {
                     </Button>
                   </div>
 
+                  {/* Pin IR Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={pinIRToBottom ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setPinIRToBottom(!pinIRToBottom)}
+                      className="font-display text-xs"
+                    >
+                      {pinIRToBottom ? "IR Pinned ↓" : "IR Unpinned"}
+                    </Button>
+                  </div>
+                  
                   {/* CRI/wCRI Toggle */}
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground font-display">Ranking metric:</span>

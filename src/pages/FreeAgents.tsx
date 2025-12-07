@@ -49,6 +49,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState<string>("all");
   const [scheduleFilter, setScheduleFilter] = useState<string>("all");
+  const [healthFilter, setHealthFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("cri");
   const [sortAsc, setSortAsc] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgent | null>(null);
@@ -530,6 +531,13 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     } else if (scheduleFilter === "not-playing") {
       result = result.filter(p => !p.opponent);
     }
+    
+    // Health filter
+    if (healthFilter === "healthy") {
+      result = result.filter(p => !p.status || p.status === "healthy");
+    } else if (healthFilter === "injured") {
+      result = result.filter(p => p.status && p.status !== "healthy");
+    }
 
     // Calculate custom CRI for Advanced view
     if (customCategories.length > 0) {
@@ -570,7 +578,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     });
     
     return sorted;
-  }, [playersWithRanks, search, positionFilter, scheduleFilter, sortKey, sortAsc, useCris, customCategories]);
+  }, [playersWithRanks, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -799,6 +807,16 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectItem value="all">All Games</SelectItem>
               <SelectItem value="playing">Playing Today</SelectItem>
               <SelectItem value="not-playing">Not Playing</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={healthFilter} onValueChange={setHealthFilter}>
+            <SelectTrigger className="w-full md:w-[140px]">
+              <SelectValue placeholder="Health" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Players</SelectItem>
+              <SelectItem value="healthy">Healthy Only</SelectItem>
+              <SelectItem value="injured">Injured Only</SelectItem>
             </SelectContent>
           </Select>
           <Button variant="outline" size="icon" onClick={handleReset}>
