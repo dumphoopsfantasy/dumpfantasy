@@ -61,19 +61,25 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
   const [detectedStatWindow, setDetectedStatWindow] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Detect stat window from pasted data
+  // Detect stat window from pasted data - look for the specific ESPN stat selector pattern
   const detectStatWindow = (data: string): string | null => {
-    const lowerData = data.toLowerCase();
-    // Check in order of specificity
-    if (lowerData.includes('2026 projections') || lowerData.includes('projections')) return '2026 Projections';
-    if (lowerData.includes('last 7')) return 'Last 7';
-    if (lowerData.includes('last 15')) return 'Last 15';
-    if (lowerData.includes('last 30')) return 'Last 30';
-    if (lowerData.includes('2026 season') || (lowerData.includes('2026') && lowerData.includes('season'))) return '2026 Season';
-    if (lowerData.includes('2025 season') || (lowerData.includes('2025') && lowerData.includes('season'))) return '2025 Season';
-    // Check for just the year with context clues
-    if (lowerData.includes('show stats') && lowerData.includes('2026')) return '2026 Season';
-    if (lowerData.includes('show stats') && lowerData.includes('2025')) return '2025 Season';
+    // Look for the pattern: "Stats\n[Window]\nTotalsAverages" or nearby
+    // The stat window appears right after "Stats" and before "TotalsAverages" in ESPN data
+    const lines = data.split('\n').map(l => l.trim());
+    
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === 'Stats' && i + 2 < lines.length) {
+        const nextLine = lines[i + 1];
+        // Check if next line is a valid stat window option
+        if (nextLine === 'Last 7') return 'Last 7';
+        if (nextLine === 'Last 15') return 'Last 15';
+        if (nextLine === 'Last 30') return 'Last 30';
+        if (nextLine === '2025') return '2025 Season';
+        if (nextLine === '2026') return '2026 Season';
+        if (nextLine === '2026 Projections' || nextLine === 'Projections') return '2026 Projections';
+      }
+    }
+    
     return null;
   };
 
