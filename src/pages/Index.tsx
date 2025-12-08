@@ -7,6 +7,7 @@ import { FreeAgents } from "@/pages/FreeAgents";
 import { WeeklyPerformance } from "@/pages/WeeklyPerformance";
 import { MatchupProjection } from "@/pages/MatchupProjection";
 import { RosterTable } from "@/components/roster/RosterTable";
+import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
@@ -337,6 +338,9 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* NBA Scores Sidebar */}
+      <NBAScoresSidebar />
+      
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-3">
