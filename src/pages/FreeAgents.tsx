@@ -58,7 +58,24 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
   const [viewMode, setViewMode] = useState<ViewMode>('stats');
   const [customCategories, setCustomCategories] = useState<string[]>(CATEGORY_PRESETS.all.categories);
   const [activePreset, setActivePreset] = useState<string>('all');
+  const [detectedStatWindow, setDetectedStatWindow] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Detect stat window from pasted data
+  const detectStatWindow = (data: string): string | null => {
+    const lowerData = data.toLowerCase();
+    // Check in order of specificity
+    if (lowerData.includes('2026 projections') || lowerData.includes('projections')) return '2026 Projections';
+    if (lowerData.includes('last 7')) return 'Last 7';
+    if (lowerData.includes('last 15')) return 'Last 15';
+    if (lowerData.includes('last 30')) return 'Last 30';
+    if (lowerData.includes('2026 season') || (lowerData.includes('2026') && lowerData.includes('season'))) return '2026 Season';
+    if (lowerData.includes('2025 season') || (lowerData.includes('2025') && lowerData.includes('season'))) return '2025 Season';
+    // Check for just the year with context clues
+    if (lowerData.includes('show stats') && lowerData.includes('2026')) return '2026 Season';
+    if (lowerData.includes('show stats') && lowerData.includes('2025')) return '2025 Season';
+    return null;
+  };
 
   // Sync with persisted data
   useEffect(() => {
@@ -450,13 +467,17 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
       return;
     }
     
+    // Detect stat window from pasted data
+    const window = detectStatWindow(rawData);
+    setDetectedStatWindow(window);
+    
     const { players, bonus } = parseESPNFreeAgents(rawData);
     if (players.length > 0) {
       setRawPlayers(players);
       setBonusStats(bonus);
       toast({
         title: "Success!",
-        description: `Loaded ${players.length} free agents`,
+        description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''}`,
       });
     } else {
       toast({
@@ -618,6 +639,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgent
     setRawPlayers([]);
     setBonusStats(new Map());
     setRawData("");
+    setDetectedStatWindow(null);
     if (onPlayersChange) onPlayersChange([]);
   };
 
@@ -663,7 +685,14 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       {/* Header with View Toggle */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-display font-bold">Free Agents ({filteredPlayers.length} players)</h2>
+          <h2 className="text-xl font-display font-bold">
+            Free Agents ({filteredPlayers.length} players)
+            {detectedStatWindow && (
+              <Badge variant="outline" className="ml-2 text-xs font-normal">
+                {detectedStatWindow}
+              </Badge>
+            )}
+          </h2>
           <CrisExplanation />
         </div>
         <div className="flex items-center gap-3">
