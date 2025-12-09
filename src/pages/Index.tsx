@@ -8,6 +8,7 @@ import { WeeklyPerformance } from "@/pages/WeeklyPerformance";
 import { MatchupProjection } from "@/pages/MatchupProjection";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
+import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
@@ -79,6 +80,15 @@ const Index = () => {
   
   // Matchup projection state (persisted)
   const [matchupData, setMatchupData] = useState<MatchupProjectionData | null>(null);
+
+  // Player detail sheet state
+  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [playerSheetOpen, setPlayerSheetOpen] = useState(false);
+
+  const handlePlayerClick = (player: Player) => {
+    setSelectedPlayer(player);
+    setPlayerSheetOpen(true);
+  };
 
   const handleDataParsed = (data: PlayerStats[]) => {
     setPlayers(data);
@@ -377,17 +387,17 @@ const Index = () => {
               <TrendingUp className="w-4 h-4 mr-1 hidden md:inline" />
               Free Agents
             </TabsTrigger>
-            <TabsTrigger value="weekly" className="font-display font-semibold text-xs md:text-sm">
-              <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
-              Weekly
+            <TabsTrigger value="league" className="font-display font-semibold text-xs md:text-sm">
+              <Trophy className="w-4 h-4 mr-1 hidden md:inline" />
+              Standings
             </TabsTrigger>
             <TabsTrigger value="matchup" className="font-display font-semibold text-xs md:text-sm">
               <Swords className="w-4 h-4 mr-1 hidden md:inline" />
               Matchup
             </TabsTrigger>
-            <TabsTrigger value="league" className="font-display font-semibold text-xs md:text-sm">
-              <Trophy className="w-4 h-4 mr-1 hidden md:inline" />
-              Standings
+            <TabsTrigger value="weekly" className="font-display font-semibold text-xs md:text-sm">
+              <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
+              Weekly
             </TabsTrigger>
           </TabsList>
 
@@ -447,21 +457,9 @@ const Index = () => {
                     </Button>
                   </div>
 
-                  {/* Pin IR Toggle */}
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant={pinIRToBottom ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setPinIRToBottom(!pinIRToBottom)}
-                      className="font-display text-xs"
-                    >
-                      {pinIRToBottom ? "IR Pinned ↓" : "IR Unpinned"}
-                    </Button>
-                  </div>
-                  
                   {/* CRI/wCRI Toggle */}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground font-display">Ranking metric:</span>
+                    <span className="text-xs text-muted-foreground font-display">Ranking:</span>
                     <div className="flex">
                       <Button
                         variant={useCris ? "default" : "outline"}
@@ -480,7 +478,18 @@ const Index = () => {
                         wCRI
                       </Button>
                     </div>
+                    {/* Pin IR Toggle - subtle */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPinIRToBottom(!pinIRToBottom)}
+                      className="font-display text-xs text-muted-foreground ml-2"
+                      title={pinIRToBottom ? "IR players pinned to bottom" : "IR players sorted normally"}
+                    >
+                      {pinIRToBottom ? "IR↓" : "IR"}
+                    </Button>
                   </div>
+                  
                 </div>
 
                 {/* Roster Table */}
@@ -490,34 +499,25 @@ const Index = () => {
                   sortColumn={sortColumn}
                   sortDirection={sortDirection}
                   onSort={handleSort}
-                  onPlayerClick={() => {}}
+                  onPlayerClick={handlePlayerClick}
                   categoryRanks={categoryRanks}
                   activePlayerCount={activePlayerCount}
                 />
               </div>
             )}
+            
+            {/* Player Detail Sheet */}
+            <PlayerDetailSheet
+              player={selectedPlayer}
+              open={playerSheetOpen}
+              onOpenChange={setPlayerSheetOpen}
+            />
           </TabsContent>
 
           <TabsContent value="freeagents">
             <FreeAgents 
               persistedPlayers={freeAgents} 
               onPlayersChange={setFreeAgents} 
-            />
-          </TabsContent>
-
-          <TabsContent value="weekly">
-            <WeeklyPerformance 
-              persistedMatchups={weeklyMatchups}
-              persistedTitle={weeklyTitle}
-              onMatchupsChange={setWeeklyMatchups}
-              onTitleChange={setWeeklyTitle}
-            />
-          </TabsContent>
-
-          <TabsContent value="matchup">
-            <MatchupProjection 
-              persistedMatchup={matchupData}
-              onMatchupChange={setMatchupData}
             />
           </TabsContent>
 
@@ -528,6 +528,22 @@ const Index = () => {
                 onTeamsChange={setLeagueTeams}
               />
             </div>
+          </TabsContent>
+
+          <TabsContent value="matchup">
+            <MatchupProjection 
+              persistedMatchup={matchupData}
+              onMatchupChange={setMatchupData}
+            />
+          </TabsContent>
+
+          <TabsContent value="weekly">
+            <WeeklyPerformance 
+              persistedMatchups={weeklyMatchups}
+              persistedTitle={weeklyTitle}
+              onMatchupsChange={setWeeklyMatchups}
+              onTitleChange={setWeeklyTitle}
+            />
           </TabsContent>
         </Tabs>
       </main>
