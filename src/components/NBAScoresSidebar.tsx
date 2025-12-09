@@ -1,39 +1,36 @@
-import { useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
-
-interface GameScore {
-  homeTeam: string;
-  awayTeam: string;
-  homeScore: number;
-  awayScore: number;
-  status: string;
-}
-
-interface UpcomingGame {
-  homeTeam: string;
-  awayTeam: string;
-  time: string;
-}
-
-// Mock data - in production this would come from an API
-const yesterdayScores: GameScore[] = [
-  { homeTeam: "LAL", awayTeam: "BOS", homeScore: 108, awayScore: 117, status: "Final" },
-  { homeTeam: "MIA", awayTeam: "PHI", homeScore: 102, awayScore: 98, status: "Final" },
-  { homeTeam: "GSW", awayTeam: "PHX", homeScore: 121, awayScore: 116, status: "Final" },
-  { homeTeam: "NYK", awayTeam: "BKN", homeScore: 112, awayScore: 104, status: "Final" },
-];
-
-const tonightGames: UpcomingGame[] = [
-  { homeTeam: "DAL", awayTeam: "HOU", time: "7:30 PM" },
-  { homeTeam: "MIN", awayTeam: "LAC", time: "8:00 PM" },
-  { homeTeam: "DEN", awayTeam: "MEM", time: "9:00 PM" },
-  { homeTeam: "SAC", awayTeam: "POR", time: "10:00 PM" },
-];
+import { 
+  NBAGame, 
+  NBAScheduleGame, 
+  getSampleYesterdayScores, 
+  getSampleTodayGames 
+} from "@/lib/nbaApi";
 
 export function NBAScoresSidebar() {
   const [isOpen, setIsOpen] = useState(false);
+  const [yesterdayScores, setYesterdayScores] = useState<NBAGame[]>([]);
+  const [tonightGames, setTonightGames] = useState<NBAScheduleGame[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      // For now, use sample data (NBA APIs require authentication)
+      setYesterdayScores(getSampleYesterdayScores());
+      setTonightGames(getSampleTodayGames());
+    } catch (error) {
+      console.error("Error fetching NBA data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   return (
     <>
@@ -55,37 +52,55 @@ export function NBAScoresSidebar() {
         style={{ width: "280px" }}
       >
         <div className="h-full overflow-y-auto pt-16 pb-6 px-4">
+          {/* Refresh Button */}
+          <div className="flex justify-end mb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadData}
+              disabled={isLoading}
+              className="text-xs text-muted-foreground"
+            >
+              <RefreshCw className={`w-3 h-3 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+
           {/* Yesterday's Scores */}
           <div className="mb-6">
             <h3 className="font-display font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3">
               Yesterday's Scores
             </h3>
             <div className="space-y-2">
-              {yesterdayScores.map((game, idx) => (
-                <div key={idx} className="bg-secondary/50 rounded-lg p-2.5">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <NBATeamLogo teamCode={game.awayTeam} size="xs" />
-                      <span className="text-sm font-medium">{game.awayTeam}</span>
+              {yesterdayScores.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No games yesterday</p>
+              ) : (
+                yesterdayScores.map((game) => (
+                  <div key={game.gameId} className="bg-secondary/50 rounded-lg p-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <NBATeamLogo teamCode={game.awayTeam} size="xs" />
+                        <span className="text-sm font-medium">{game.awayTeam}</span>
+                      </div>
+                      <span className={`text-sm font-bold ${game.awayScore > game.homeScore ? "text-foreground" : "text-muted-foreground"}`}>
+                        {game.awayScore}
+                      </span>
                     </div>
-                    <span className={`text-sm font-bold ${game.awayScore > game.homeScore ? "text-foreground" : "text-muted-foreground"}`}>
-                      {game.awayScore}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <NBATeamLogo teamCode={game.homeTeam} size="xs" />
-                      <span className="text-sm font-medium">{game.homeTeam}</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <NBATeamLogo teamCode={game.homeTeam} size="xs" />
+                        <span className="text-sm font-medium">{game.homeTeam}</span>
+                      </div>
+                      <span className={`text-sm font-bold ${game.homeScore > game.awayScore ? "text-foreground" : "text-muted-foreground"}`}>
+                        {game.homeScore}
+                      </span>
                     </div>
-                    <span className={`text-sm font-bold ${game.homeScore > game.awayScore ? "text-foreground" : "text-muted-foreground"}`}>
-                      {game.homeScore}
-                    </span>
+                    <div className="text-xs text-muted-foreground text-center mt-1.5 pt-1.5 border-t border-border">
+                      {game.isLive ? <span className="text-stat-positive animate-pulse">● LIVE</span> : game.status}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground text-center mt-1.5 pt-1.5 border-t border-border">
-                    {game.status}
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -95,32 +110,36 @@ export function NBAScoresSidebar() {
               Tonight's Games
             </h3>
             <div className="space-y-2">
-              {tonightGames.map((game, idx) => (
-                <div key={idx} className="bg-secondary/50 rounded-lg p-2.5">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <NBATeamLogo teamCode={game.awayTeam} size="xs" />
-                      <span className="text-sm font-medium">{game.awayTeam}</span>
+              {tonightGames.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No games tonight</p>
+              ) : (
+                tonightGames.map((game) => (
+                  <div key={game.gameId} className="bg-secondary/50 rounded-lg p-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <NBATeamLogo teamCode={game.awayTeam} size="xs" />
+                        <span className="text-sm font-medium">{game.awayTeam}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">@</span>
                     </div>
-                    <span className="text-xs text-muted-foreground">@</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <NBATeamLogo teamCode={game.homeTeam} size="xs" />
-                      <span className="text-sm font-medium">{game.homeTeam}</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <NBATeamLogo teamCode={game.homeTeam} size="xs" />
+                        <span className="text-sm font-medium">{game.homeTeam}</span>
+                      </div>
+                    </div>
+                    <div className="text-xs text-primary text-center mt-1.5 pt-1.5 border-t border-border font-medium">
+                      {game.gameTime}
                     </div>
                   </div>
-                  <div className="text-xs text-primary text-center mt-1.5 pt-1.5 border-t border-border font-medium">
-                    {game.time}
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
           {/* Note about data */}
           <p className="text-xs text-muted-foreground text-center mt-6 px-2">
-            Scores update daily. Check ESPN for live updates.
+            Sample data shown. Live scores require API integration.
           </p>
         </div>
       </div>
