@@ -8,9 +8,11 @@ interface TeamAveragesProps {
 const WEEKLY_MULTIPLIER = 40;
 
 export const TeamAverages = ({ players }: TeamAveragesProps) => {
+  // Only include active players (with minutes > 0)
   const activePlayers = players.filter(p => p.minutes > 0);
   const count = activePlayers.length || 1;
 
+  // Calculate TEAM AVERAGES (sum of all player stats / player count)
   const averages = {
     fgPct: activePlayers.reduce((sum, p) => sum + p.fgPct, 0) / count,
     ftPct: activePlayers.reduce((sum, p) => sum + p.ftPct, 0) / count,
@@ -23,7 +25,7 @@ export const TeamAverages = ({ players }: TeamAveragesProps) => {
     pts: activePlayers.reduce((sum, p) => sum + p.points, 0) / count,
   };
 
-  // Weekly projections (averages × 40 games for counting stats)
+  // Weekly projections: team average × 40
   const projections = {
     threepm: Math.round(averages.threepm * WEEKLY_MULTIPLIER),
     reb: Math.round(averages.reb * WEEKLY_MULTIPLIER),

@@ -142,13 +142,13 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       }
     }
 
-    // Calculate averages from all player rows
+    // Calculate AVERAGES from all active player rows
     // Each player has 15 stats: MIN, FGM/FGA (skip), FG%, FTM/FTA (skip), FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
     const COLS = 15;
     const numPlayers = Math.floor(statNumbers.length / COLS);
 
     if (numPlayers > 0) {
-      let totals = {
+      let sums = {
         fgPct: 0, ftPct: 0, threepm: 0, rebounds: 0,
         assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0,
       };
@@ -162,30 +162,32 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
         if (min === 0 || isNaN(min)) continue;
 
         validCount++;
-        totals.fgPct += statNumbers[base + 2] || 0;
-        totals.ftPct += statNumbers[base + 4] || 0;
-        totals.threepm += statNumbers[base + 5] || 0;
-        totals.rebounds += statNumbers[base + 6] || 0;
-        totals.assists += statNumbers[base + 7] || 0;
-        totals.steals += statNumbers[base + 8] || 0;
-        totals.blocks += statNumbers[base + 9] || 0;
-        totals.turnovers += statNumbers[base + 10] || 0;
-        totals.points += statNumbers[base + 11] || 0;
+        sums.fgPct += statNumbers[base + 2] || 0;
+        sums.ftPct += statNumbers[base + 4] || 0;
+        sums.threepm += statNumbers[base + 5] || 0;
+        sums.rebounds += statNumbers[base + 6] || 0;
+        sums.assists += statNumbers[base + 7] || 0;
+        sums.steals += statNumbers[base + 8] || 0;
+        sums.blocks += statNumbers[base + 9] || 0;
+        sums.turnovers += statNumbers[base + 10] || 0;
+        sums.points += statNumbers[base + 11] || 0;
       }
 
       if (validCount > 0) {
+        // Calculate TEAM AVERAGES (sum / player count)
+        // This represents the average per-player contribution
         return {
           info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
           stats: {
-            fgPct: totals.fgPct / validCount,
-            ftPct: totals.ftPct / validCount,
-            threepm: totals.threepm / validCount,
-            rebounds: totals.rebounds / validCount,
-            assists: totals.assists / validCount,
-            steals: totals.steals / validCount,
-            blocks: totals.blocks / validCount,
-            turnovers: totals.turnovers / validCount,
-            points: totals.points / validCount,
+            fgPct: sums.fgPct / validCount,
+            ftPct: sums.ftPct / validCount,
+            threepm: sums.threepm / validCount,
+            rebounds: sums.rebounds / validCount,
+            assists: sums.assists / validCount,
+            steals: sums.steals / validCount,
+            blocks: sums.blocks / validCount,
+            turnovers: sums.turnovers / validCount,
+            points: sums.points / validCount,
           },
         };
       }
@@ -258,9 +260,9 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
               <p className="font-semibold text-primary">How Projections Work</p>
               <ul className="text-sm text-muted-foreground space-y-1 mt-1">
                 <li>• Stats match the view you selected on ESPN (Last 7, Last 15, Last 30, or Season Stats)</li>
-                <li>• <strong>Counting stats</strong> (3PM, REB, AST, STL, BLK, TO, PTS) are multiplied by <strong>×{MULTIPLIER}</strong></li>
-                <li>• <strong>Percentages</strong> (FG%, FT%) are NOT multiplied</li>
-                <li>• The ×{MULTIPLIER} simulates a full matchup week (~40 player-games)</li>
+                <li>• <strong>Team Average</strong> = (Sum of all active player stats) ÷ (Number of active players)</li>
+                <li>• <strong>Weekly projection</strong> = Team Average × <strong>{MULTIPLIER}</strong></li>
+                <li>• <strong>Percentages</strong> (FG%, FT%) = Team average (NOT multiplied)</li>
                 <li>• <strong>TO (Turnovers)</strong>: Lower is better - fewer turnovers wins the category</li>
               </ul>
             </div>
@@ -349,8 +351,8 @@ Navigate to their team page and copy the whole page.`}
         <div className="flex items-center gap-2 text-xs">
           <Info className="w-4 h-4 text-amber-400" />
           <span className="text-muted-foreground">
-            Stats match your ESPN view. Counting stats × <strong className="text-amber-400">{MULTIPLIER}</strong> for
-            weekly projection. FG% and FT% are NOT multiplied. <strong className="text-amber-400">TO: Lower wins.</strong>
+            Team average × <strong className="text-amber-400">{MULTIPLIER}</strong> = weekly projection.
+            FG%/FT% = team average. <strong className="text-amber-400">TO: Lower wins.</strong>
           </span>
         </div>
       </Card>
@@ -437,7 +439,7 @@ Navigate to their team page and copy the whole page.`}
         <Card className="gradient-card border-border p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-display font-bold text-stat-positive">{persistedMatchup.myTeam.name}</h3>
-            <span className="text-xs text-muted-foreground">Weekly projection (×{MULTIPLIER})</span>
+            <span className="text-xs text-muted-foreground">Avg × {MULTIPLIER}</span>
           </div>
           <div className="grid grid-cols-5 gap-2 mb-3">
             <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} projected multiplier={MULTIPLIER} highlight />
@@ -454,11 +456,10 @@ Navigate to their team page and copy the whole page.`}
           </div>
         </Card>
 
-        {/* Opponent */}
         <Card className="gradient-card border-border p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-display font-bold text-stat-negative">{persistedMatchup.opponent.name}</h3>
-            <span className="text-xs text-muted-foreground">Weekly projection (×{MULTIPLIER})</span>
+            <span className="text-xs text-muted-foreground">Avg × {MULTIPLIER}</span>
           </div>
           <div className="grid grid-cols-5 gap-2 mb-3">
             <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} projected multiplier={MULTIPLIER} highlight />
