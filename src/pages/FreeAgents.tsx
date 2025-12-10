@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Player } from "@/types/fantasy";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
-import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
+import { FreeAgentImpactSheet } from "@/components/FreeAgentImpactSheet";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,7 @@ interface FreeAgent extends Player {
 interface FreeAgentsProps {
   persistedPlayers?: Player[];
   onPlayersChange?: (players: Player[]) => void;
+  currentRoster?: Player[];
 }
 
 // Known NBA team codes
@@ -42,7 +43,7 @@ const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN'
 type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus';
 type ViewMode = 'stats' | 'rankings' | 'advanced';
 
-export const FreeAgents = ({ persistedPlayers = [], onPlayersChange }: FreeAgentsProps) => {
+export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [] }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
@@ -1096,10 +1097,11 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       </Card>
 
       {selectedPlayer && (
-        <PlayerDetailSheet
+        <FreeAgentImpactSheet
           player={selectedPlayer}
           open={!!selectedPlayer}
           onOpenChange={() => setSelectedPlayer(null)}
+          currentRoster={currentRoster}
         />
       )}
     </div>

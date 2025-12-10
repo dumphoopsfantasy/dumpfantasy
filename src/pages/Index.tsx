@@ -517,7 +517,8 @@ const Index = () => {
           <TabsContent value="freeagents">
             <FreeAgents 
               persistedPlayers={freeAgents} 
-              onPlayersChange={setFreeAgents} 
+              onPlayersChange={setFreeAgents}
+              currentRoster={rosterWithCRI.map(slot => slot.player)}
             />
           </TabsContent>
 
