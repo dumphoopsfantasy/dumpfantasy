@@ -1102,6 +1102,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           open={!!selectedPlayer}
           onOpenChange={() => setSelectedPlayer(null)}
           currentRoster={currentRoster}
+          allFreeAgents={rawPlayers}
         />
       )}
     </div>

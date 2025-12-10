@@ -9,7 +9,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ArrowUp, ArrowDown, Minus, TrendingUp, Users } from "lucide-react";
+import { ArrowUp, ArrowDown, Minus, TrendingUp, Users, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMemo } from "react";
 
@@ -18,6 +18,7 @@ interface FreeAgentImpactSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentRoster: Player[];
+  allFreeAgents?: Player[];
 }
 
 const WEEKLY_MULTIPLIER = 40;
@@ -27,7 +28,42 @@ export const FreeAgentImpactSheet = ({
   open,
   onOpenChange,
   currentRoster,
+  allFreeAgents = [],
 }: FreeAgentImpactSheetProps) => {
+  // Calculate player's rank among free agents for each category
+  const playerRanks = useMemo(() => {
+    if (!player || allFreeAgents.length === 0) return null;
+    
+    const categories = [
+      { key: "fgPct", lowerBetter: false },
+      { key: "ftPct", lowerBetter: false },
+      { key: "threepm", lowerBetter: false },
+      { key: "rebounds", lowerBetter: false },
+      { key: "assists", lowerBetter: false },
+      { key: "steals", lowerBetter: false },
+      { key: "blocks", lowerBetter: false },
+      { key: "turnovers", lowerBetter: true },
+      { key: "points", lowerBetter: false },
+    ];
+    
+    const ranks: Record<string, { rank: number; total: number; percentile: number }> = {};
+    
+    categories.forEach((cat) => {
+      const sorted = [...allFreeAgents].sort((a, b) => {
+        const aVal = a[cat.key as keyof Player] as number;
+        const bVal = b[cat.key as keyof Player] as number;
+        return cat.lowerBetter ? aVal - bVal : bVal - aVal;
+      });
+      
+      const rank = sorted.findIndex((p) => p.id === player.id) + 1;
+      const total = allFreeAgents.length;
+      const percentile = rank / total;
+      
+      ranks[cat.key] = { rank, total, percentile };
+    });
+    
+    return ranks;
+  }, [player, allFreeAgents]);
   // Calculate current team stats and projected stats with the free agent
   const impactData = useMemo(() => {
     if (!player) return null;
@@ -132,6 +168,24 @@ export const FreeAgentImpactSheet = ({
     return `${sign}${diff.toFixed(2)}`;
   };
 
+  const getStatColor = (key: string) => {
+    if (!playerRanks || !playerRanks[key]) return "";
+    const { percentile } = playerRanks[key];
+    if (percentile <= 0.25) return "text-stat-positive";
+    if (percentile <= 0.5) return "text-emerald-400";
+    if (percentile <= 0.75) return "text-yellow-400";
+    return "text-stat-negative";
+  };
+
+  const getStatBgColor = (key: string) => {
+    if (!playerRanks || !playerRanks[key]) return "bg-secondary/30";
+    const { percentile } = playerRanks[key];
+    if (percentile <= 0.25) return "bg-stat-positive/20 border border-stat-positive/30";
+    if (percentile <= 0.5) return "bg-emerald-500/10 border border-emerald-500/20";
+    if (percentile <= 0.75) return "bg-yellow-500/10 border border-yellow-500/20";
+    return "bg-stat-negative/20 border border-stat-negative/30";
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto bg-background border-border">
@@ -168,30 +222,36 @@ export const FreeAgentImpactSheet = ({
         <div className="py-4 space-y-4">
           <div>
             <h4 className="font-display font-bold text-sm text-muted-foreground mb-2 flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              PLAYER'S STATS (PER GAME)
+              <BarChart3 className="w-4 h-4" />
+              PLAYER'S STATS VS FREE AGENT POOL
             </h4>
             <div className="grid grid-cols-5 gap-2">
               {impactData.comparisons.slice(2).map((cat) => (
-                <div key={cat.key} className="text-center bg-secondary/30 rounded-lg p-2">
+                <div key={cat.key} className={cn("text-center rounded-lg p-2", getStatBgColor(cat.key))}>
                   <p className="text-[10px] text-muted-foreground">{cat.label}</p>
-                  <p className={cn(
-                    "font-display font-bold text-sm",
-                    cat.label === "PTS" && "text-primary",
-                    cat.label === "TO" && "text-stat-negative"
-                  )}>
+                  <p className={cn("font-display font-bold text-sm", getStatColor(cat.key))}>
                     {formatValue(cat.playerVal, cat.isPct)}
                   </p>
+                  {playerRanks && playerRanks[cat.key] && (
+                    <p className="text-[9px] text-muted-foreground">
+                      #{playerRanks[cat.key].rank}/{playerRanks[cat.key].total}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
             <div className="grid grid-cols-2 gap-2 mt-2">
               {impactData.comparisons.slice(0, 2).map((cat) => (
-                <div key={cat.key} className="text-center bg-secondary/30 rounded-lg p-2">
+                <div key={cat.key} className={cn("text-center rounded-lg p-2", getStatBgColor(cat.key))}>
                   <p className="text-[10px] text-muted-foreground">{cat.label}</p>
-                  <p className="font-display font-bold text-sm">
+                  <p className={cn("font-display font-bold text-sm", getStatColor(cat.key))}>
                     {formatValue(cat.playerVal, cat.isPct)}
                   </p>
+                  {playerRanks && playerRanks[cat.key] && (
+                    <p className="text-[9px] text-muted-foreground">
+                      #{playerRanks[cat.key].rank}/{playerRanks[cat.key].total}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
