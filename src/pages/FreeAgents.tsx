@@ -585,14 +585,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       }));
     }
 
-    // Determine actual sort key - respect the toggle for CRI/wCRI
+    // Determine actual sort key
+    // When clicking CRI# or wCRI# columns directly, use exactly what was clicked
+    // The toggle only affects which column is the "default" when using rankings view
     let activeSortKey = sortKey;
-    // Only switch cri<->wCri when the sortKey is one of them
-    if (sortKey === 'cri' && !useCris) {
-      activeSortKey = 'wCri';
-    } else if (sortKey === 'wCri' && useCris) {
-      activeSortKey = 'cri';
-    }
     
     const sorted = [...result].sort((a, b) => {
       let aVal = (a[activeSortKey as keyof FreeAgent] as number) || 0;
