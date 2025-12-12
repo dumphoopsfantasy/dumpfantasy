@@ -151,7 +151,7 @@ export function NBAScoresSidebar({ rosterTeams = [] }: NBAScoresSidebarProps) {
           </div>
 
           {/* Status Badge */}
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-2">
             <Badge 
               variant={usingLiveData ? "default" : "secondary"} 
               className={`text-xs flex items-center gap-1 ${usingLiveData ? 'bg-stat-positive text-white' : ''}`}
@@ -291,6 +291,16 @@ export function NBAScoresSidebar({ rosterTeams = [] }: NBAScoresSidebarProps) {
             </div>
           </div>
 
+          {/* Your Players Legend - At Top */}
+          {rosterTeams.length > 0 && (
+            <div className="mb-4 p-2 bg-primary/10 rounded-lg border border-primary/30">
+              <p className="text-xs text-primary text-center flex items-center justify-center gap-1 font-semibold">
+                <Users className="w-3 h-3" />
+                = Your players in this game
+              </p>
+            </div>
+          )}
+
           {/* Footer Note */}
           <div className="mt-6 p-3 bg-muted/30 rounded-lg">
             <p className="text-xs text-muted-foreground text-center">
@@ -300,12 +310,6 @@ export function NBAScoresSidebar({ rosterTeams = [] }: NBAScoresSidebarProps) {
                 <>Sample data shown. Refresh to try live data.</>
               )}
             </p>
-            {rosterTeams.length > 0 && (
-              <p className="text-[10px] text-primary text-center mt-1 flex items-center justify-center gap-1">
-                <Users className="w-3 h-3" />
-                = Your players in this game
-              </p>
-            )}
           </div>
         </div>
       </div>

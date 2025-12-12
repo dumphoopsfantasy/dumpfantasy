@@ -1,16 +1,62 @@
 import { PlayerStats } from "@/types/player";
+import { LeagueTeam } from "@/types/league";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 interface TeamAveragesProps {
   players: PlayerStats[];
+  leagueTeams?: LeagueTeam[];
 }
 
 const WEEKLY_MULTIPLIER = 40;
 
-export const TeamAverages = ({ players }: TeamAveragesProps) => {
+// Map category keys to league stat keys
+const CATEGORY_TO_LEAGUE_KEY: Record<string, keyof LeagueTeam> = {
+  pts: 'points',
+  reb: 'rebounds',
+  ast: 'assists',
+  threepm: 'threepm',
+  stl: 'steals',
+  blk: 'blocks',
+  fgPct: 'fgPct',
+  ftPct: 'ftPct',
+  to: 'turnovers',
+};
+
+export const TeamAverages = ({ players, leagueTeams = [] }: TeamAveragesProps) => {
   // Only include active players (with minutes > 0)
   const activePlayers = players.filter(p => p.minutes > 0);
   const count = activePlayers.length || 1;
+
+  // Find user's team in standings (Mr. Bane)
+  const userTeam = leagueTeams.find(t => t.name.toLowerCase().includes('bane'));
+  const hasStandings = leagueTeams.length > 0 && userTeam;
+
+  // Get category rank color based on standings
+  const getCategoryRankColor = (category: string): string => {
+    if (!hasStandings || !userTeam) return '';
+    
+    const leagueKey = CATEGORY_TO_LEAGUE_KEY[category];
+    if (!leagueKey) return '';
+    
+    const categoryStats = leagueTeams.map(t => ({
+      team: t.name,
+      value: t[leagueKey] as number ?? 0
+    }));
+    
+    // Sort by value (higher is better, except TO where lower is better)
+    const isLowerBetter = category === 'to';
+    const sorted = [...categoryStats].sort((a, b) => 
+      isLowerBetter ? a.value - b.value : b.value - a.value
+    );
+    
+    const rank = sorted.findIndex(s => s.team === userTeam.name) + 1;
+    
+    // Top 3 = green, Bottom 3 = red
+    if (rank <= 3) return 'text-stat-positive';
+    if (rank >= leagueTeams.length - 2) return 'text-stat-negative';
+    return '';
+  };
 
   // Calculate TEAM AVERAGES (sum of all player stats / player count)
   const averages = {
@@ -43,15 +89,15 @@ export const TeamAverages = ({ players }: TeamAveragesProps) => {
         <span className="text-xs text-muted-foreground">Weekly projection (×{WEEKLY_MULTIPLIER})</span>
       </div>
       <div className="grid grid-cols-5 md:grid-cols-9 gap-2">
-        <StatBox label="PTS" value={averages.pts.toFixed(1)} projection={projections.pts} highlight />
-        <StatBox label="REB" value={averages.reb.toFixed(1)} projection={projections.reb} />
-        <StatBox label="AST" value={averages.ast.toFixed(1)} projection={projections.ast} />
-        <StatBox label="3PM" value={averages.threepm.toFixed(1)} projection={projections.threepm} />
-        <StatBox label="STL" value={averages.stl.toFixed(1)} projection={projections.stl} />
-        <StatBox label="BLK" value={averages.blk.toFixed(1)} projection={projections.blk} />
-        <StatBox label="TO" value={averages.to.toFixed(1)} projection={projections.to} negative />
-        <StatBox label="FG%" value={`${(averages.fgPct * 100).toFixed(1)}%`} />
-        <StatBox label="FT%" value={`${(averages.ftPct * 100).toFixed(1)}%`} />
+        <StatBox label="PTS" value={averages.pts.toFixed(1)} projection={projections.pts} highlight colorClass={getCategoryRankColor('pts')} />
+        <StatBox label="REB" value={averages.reb.toFixed(1)} projection={projections.reb} colorClass={getCategoryRankColor('reb')} />
+        <StatBox label="AST" value={averages.ast.toFixed(1)} projection={projections.ast} colorClass={getCategoryRankColor('ast')} />
+        <StatBox label="3PM" value={averages.threepm.toFixed(1)} projection={projections.threepm} colorClass={getCategoryRankColor('threepm')} />
+        <StatBox label="STL" value={averages.stl.toFixed(1)} projection={projections.stl} colorClass={getCategoryRankColor('stl')} />
+        <StatBox label="BLK" value={averages.blk.toFixed(1)} projection={projections.blk} colorClass={getCategoryRankColor('blk')} />
+        <StatBox label="TO" value={averages.to.toFixed(1)} projection={projections.to} negative colorClass={getCategoryRankColor('to')} />
+        <StatBox label="FG%" value={`${(averages.fgPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('fgPct')} />
+        <StatBox label="FT%" value={`${(averages.ftPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('ftPct')} />
       </div>
     </Card>
   );
@@ -63,16 +109,20 @@ interface StatBoxProps {
   projection?: number;
   highlight?: boolean;
   negative?: boolean;
+  colorClass?: string;
 }
 
-const StatBox = ({ label, value, projection, highlight, negative }: StatBoxProps) => (
+const StatBox = ({ label, value, projection, highlight, negative, colorClass }: StatBoxProps) => (
   <div className="text-center">
-    <p className="text-xs text-muted-foreground">{label}</p>
-    <p className={`text-sm font-bold ${highlight ? 'text-primary' : negative ? 'text-stat-negative' : 'text-foreground'}`}>
+    <p className={cn("text-xs text-muted-foreground", colorClass)}>{label}</p>
+    <p className={cn(
+      "text-sm font-bold",
+      colorClass || (highlight ? 'text-primary' : negative ? 'text-stat-negative' : 'text-foreground')
+    )}>
       {value}
     </p>
     {projection !== undefined && (
-      <p className="text-xs text-muted-foreground font-semibold">{projection}</p>
+      <p className={cn("text-xs text-muted-foreground font-semibold", colorClass)}>{projection}</p>
     )}
   </div>
 );

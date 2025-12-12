@@ -111,7 +111,7 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange, allPlayers = [] 
             )}
 
             {/* Fantasy Score */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-2 gap-4 mb-6">
               <div className="bg-primary/10 rounded-lg p-4 text-center relative group">
                 <Trophy className="w-5 h-5 mx-auto mb-1 text-primary" />
                 <p className="text-xs text-muted-foreground">Fantasy Value</p>
@@ -131,11 +131,6 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange, allPlayers = [] 
                 <TrendingUp className="w-5 h-5 mx-auto mb-1 text-stat-positive" />
                 <p className="text-xs text-muted-foreground">CRI</p>
                 <p className="font-display font-bold text-xl">{player.cri?.toFixed(1) ?? "--"}</p>
-              </div>
-              <div className="bg-secondary/30 rounded-lg p-4 text-center">
-                <Target className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Rost %</p>
-                <p className="font-display font-bold text-xl">{player.rostPct?.toFixed(1) ?? "--"}%</p>
               </div>
             </div>
 
@@ -193,19 +188,11 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange, allPlayers = [] 
                 </div>
               </div>
 
-              {/* Row 4: TO, FGM/FGA, FTM/FTA */}
+              {/* Row 4: TO */}
               <div className="grid grid-cols-3 gap-3">
                 <div className={cn("rounded-lg p-3 text-center", getColorForStat('turnovers', player.turnovers, true))}>
                   <p className="text-[10px] text-muted-foreground uppercase">TO</p>
                   <p className="font-display font-bold text-lg">{formatStat(player.turnovers, "decimal")}</p>
-                </div>
-                <div className="bg-secondary/20 rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase">FGM/A</p>
-                  <p className="font-display font-bold text-sm">{formatStat(player.fgm, "decimal")}/{formatStat(player.fga, "decimal")}</p>
-                </div>
-                <div className="bg-secondary/20 rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase">FTM/A</p>
-                  <p className="font-display font-bold text-sm">{formatStat(player.ftm, "decimal")}/{formatStat(player.fta, "decimal")}</p>
                 </div>
               </div>
 
