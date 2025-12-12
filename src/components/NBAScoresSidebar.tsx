@@ -1,22 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight, RefreshCw, Calendar, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, Calendar, TrendingUp, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { 
   NBAGame, 
   NBAScheduleGame, 
-  fetchYesterdayScores,
-  fetchTodaySchedule,
+  fetchNBAGamesFromAPI,
   getSampleYesterdayScores, 
   getSampleTodayGames,
-  getYesterdayDate,
-  getTodayDate
+  formatDisplayDate
 } from "@/lib/nbaApi";
-
-const formatDisplayDate = (date: Date): string => {
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-};
 
 export function NBAScoresSidebar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -25,24 +19,32 @@ export function NBAScoresSidebar() {
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [usingLiveData, setUsingLiveData] = useState(false);
+  const [yesterdayDate, setYesterdayDate] = useState<string>("");
+  const [todayDate, setTodayDate] = useState<string>("");
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Try to fetch live data first
-      const [liveYesterday, liveToday] = await Promise.all([
-        fetchYesterdayScores(),
-        fetchTodaySchedule()
-      ]);
+      // Try to fetch live data from edge function
+      const apiData = await fetchNBAGamesFromAPI();
       
-      if (liveYesterday.length > 0 || liveToday.length > 0) {
-        setYesterdayScores(liveYesterday.length > 0 ? liveYesterday : getSampleYesterdayScores());
-        setTonightGames(liveToday.length > 0 ? liveToday : getSampleTodayGames());
-        setUsingLiveData(liveYesterday.length > 0 || liveToday.length > 0);
+      if (apiData) {
+        setYesterdayScores(apiData.yesterday.games.length > 0 ? apiData.yesterday.games : getSampleYesterdayScores());
+        setTonightGames(apiData.today.games.map(g => ({
+          gameId: g.gameId,
+          homeTeam: g.homeTeam,
+          awayTeam: g.awayTeam,
+          gameTime: g.status === 'Final' ? 'Final' : g.status || g.gameTime || 'TBD',
+        })));
+        setYesterdayDate(apiData.yesterday.date);
+        setTodayDate(apiData.today.date);
+        setUsingLiveData(true);
       } else {
         // Fall back to sample data
         setYesterdayScores(getSampleYesterdayScores());
         setTonightGames(getSampleTodayGames());
+        setYesterdayDate(new Date(Date.now() - 86400000).toISOString().split('T')[0]);
+        setTodayDate(new Date().toISOString().split('T')[0]);
         setUsingLiveData(false);
       }
       
@@ -62,12 +64,12 @@ export function NBAScoresSidebar() {
   useEffect(() => {
     loadData();
     
-    // Auto-refresh every 5 minutes when sidebar is open
+    // Auto-refresh every 2 minutes when sidebar is open
     const interval = setInterval(() => {
       if (isOpen) {
         loadData();
       }
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
     
     return () => clearInterval(interval);
   }, [loadData, isOpen]);
@@ -79,13 +81,16 @@ export function NBAScoresSidebar() {
       if (lastUpdated && now.getDate() !== lastUpdated.getDate()) {
         loadData();
       }
-    }, 60 * 1000); // Check every minute
+    }, 60 * 1000);
     
     return () => clearInterval(checkDayChange);
   }, [lastUpdated, loadData]);
 
-  const yesterdayDate = getYesterdayDate();
-  const todayDate = getTodayDate();
+  const formatDateForDisplay = (dateStr: string) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr + 'T12:00:00');
+    return formatDisplayDate(date);
+  };
 
   return (
     <>
@@ -127,12 +132,16 @@ export function NBAScoresSidebar() {
 
           {/* Status Badge */}
           <div className="flex items-center gap-2 mb-4">
-            <Badge variant={usingLiveData ? "default" : "secondary"} className="text-xs">
-              {usingLiveData ? "Live Data" : "Sample Data"}
+            <Badge 
+              variant={usingLiveData ? "default" : "secondary"} 
+              className={`text-xs flex items-center gap-1 ${usingLiveData ? 'bg-stat-positive text-white' : ''}`}
+            >
+              {usingLiveData ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+              {usingLiveData ? "Live from ESPN" : "Sample Data"}
             </Badge>
             {lastUpdated && (
               <span className="text-xs text-muted-foreground">
-                Updated {lastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                {lastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
               </span>
             )}
           </div>
@@ -142,7 +151,7 @@ export function NBAScoresSidebar() {
             <div className="flex items-center gap-2 mb-3">
               <Calendar className="w-4 h-4 text-muted-foreground" />
               <h3 className="font-display font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-                {formatDisplayDate(yesterdayDate)}
+                Yesterday {yesterdayDate && `• ${formatDateForDisplay(yesterdayDate)}`}
               </h3>
             </div>
             <div className="space-y-2">
@@ -173,7 +182,7 @@ export function NBAScoresSidebar() {
                     </div>
                     <div className="text-xs text-muted-foreground text-center mt-1.5 pt-1.5 border-t border-border">
                       {game.isLive ? (
-                        <span className="text-stat-positive animate-pulse font-medium">● LIVE</span>
+                        <span className="text-stat-positive animate-pulse font-medium">● LIVE - {game.status}</span>
                       ) : (
                         <span className="font-medium">{game.status}</span>
                       )}
@@ -184,12 +193,12 @@ export function NBAScoresSidebar() {
             </div>
           </div>
 
-          {/* Tonight's Matchups */}
+          {/* Today's Matchups */}
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Calendar className="w-4 h-4 text-primary" />
               <h3 className="font-display font-semibold text-sm text-primary uppercase tracking-wide">
-                Today - {formatDisplayDate(todayDate)}
+                Today {todayDate && `• ${formatDateForDisplay(todayDate)}`}
               </h3>
             </div>
             <div className="space-y-2">
@@ -213,8 +222,14 @@ export function NBAScoresSidebar() {
                         <span className="text-sm font-medium">{game.homeTeam}</span>
                       </div>
                     </div>
-                    <div className="text-xs text-primary text-center mt-1.5 pt-1.5 border-t border-border font-semibold">
-                      {game.gameTime}
+                    <div className="text-xs text-center mt-1.5 pt-1.5 border-t border-border font-semibold">
+                      {game.gameTime === 'Final' ? (
+                        <span className="text-muted-foreground">Final</span>
+                      ) : game.gameTime.includes('Qtr') || game.gameTime === 'Halftime' ? (
+                        <span className="text-stat-positive animate-pulse">● {game.gameTime}</span>
+                      ) : (
+                        <span className="text-primary">{game.gameTime}</span>
+                      )}
                     </div>
                   </div>
                 ))
@@ -226,9 +241,9 @@ export function NBAScoresSidebar() {
           <div className="mt-6 p-3 bg-muted/30 rounded-lg">
             <p className="text-xs text-muted-foreground text-center">
               {usingLiveData ? (
-                <>Scores update automatically. <span className="text-primary">Live data active.</span></>
+                <>Data from ESPN. Auto-refreshes every 2 min.</>
               ) : (
-                <>Sample data shown. Connect to NBA API for live scores.</>
+                <>Sample data shown. Refresh to try live data.</>
               )}
             </p>
           </div>

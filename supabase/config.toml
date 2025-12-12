@@ -1,0 +1,4 @@
+project_id = "tmgvvqvadqymlzmlbumi"
+
+[functions.nba-games]
+verify_jwt = false

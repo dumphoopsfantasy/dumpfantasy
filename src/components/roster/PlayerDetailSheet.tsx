@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Player } from "@/types/fantasy";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
-import { StatBadge } from "@/components/StatBadge";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -10,16 +9,32 @@ import { Separator } from "@/components/ui/separator";
 import { formatStat, getStatusColor, calculatePlayerScore } from "@/lib/playerUtils";
 import { fetchPlayerNews, PlayerNews } from "@/lib/nbaApi";
 import { cn } from "@/lib/utils";
-import { Trophy, TrendingUp, Target, Calendar, Newspaper, ExternalLink, RefreshCw } from "lucide-react";
+import { Trophy, TrendingUp, Target, Calendar, Newspaper, ExternalLink, RefreshCw, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface PlayerDetailSheetProps {
   player: Player | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  allPlayers?: Player[];
 }
 
-export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSheetProps) => {
+// Get percentile-based color for stats
+const getStatPercentileColor = (value: number, allValues: number[], lowerIsBetter = false): string => {
+  if (allValues.length === 0) return "";
+  
+  const sorted = [...allValues].sort((a, b) => lowerIsBetter ? b - a : a - b);
+  const rank = sorted.indexOf(value) + 1;
+  const percentile = rank / sorted.length;
+  
+  if (percentile <= 0.15) return "text-stat-positive bg-stat-positive/20"; // Top 15%
+  if (percentile <= 0.33) return "text-emerald-400 bg-emerald-400/10"; // Top 33%
+  if (percentile >= 0.85) return "text-stat-negative bg-stat-negative/20"; // Bottom 15%
+  if (percentile >= 0.67) return "text-orange-400 bg-orange-400/10"; // Bottom 33%
+  return "bg-secondary/30"; // Middle
+};
+
+export const PlayerDetailSheet = ({ player, open, onOpenChange, allPlayers = [] }: PlayerDetailSheetProps) => {
   const [news, setNews] = useState<PlayerNews[]>([]);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
 
@@ -46,6 +61,14 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSh
 
   const statusColor = getStatusColor(player.status);
   const fantasyScore = calculatePlayerScore(player);
+
+  // Calculate percentile colors for each stat
+  const getColorForStat = (statKey: string, value: number, lowerIsBetter = false) => {
+    if (allPlayers.length === 0) return "bg-secondary/30";
+    const validPlayers = allPlayers.filter(p => p.minutes > 0);
+    const allValues = validPlayers.map(p => (p as any)[statKey] as number).filter(v => v !== undefined);
+    return getStatPercentileColor(value, allValues, lowerIsBetter);
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -105,58 +128,90 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSh
               </div>
             </div>
 
-            {/* Full Stats */}
+            {/* Full Stats with Color Coding */}
             <div className="space-y-4 mb-6">
               <h4 className="font-display font-bold text-sm text-muted-foreground uppercase tracking-wider">
                 Season Averages
               </h4>
               
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="MIN" value={formatStat(player.minutes, "decimal")} />
+              {/* Row 1: MIN, PTS, REB */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('minutes', player.minutes))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">MIN</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.minutes, "decimal")}</p>
                 </div>
-                <div className="bg-primary/10 rounded-lg p-3">
-                  <StatBadge label="PTS" value={formatStat(player.points, "decimal")} highlight />
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('points', player.points))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">PTS</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.points, "decimal")}</p>
                 </div>
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="REB" value={formatStat(player.rebounds, "decimal")} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="AST" value={formatStat(player.assists, "decimal")} />
-                </div>
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="STL" value={formatStat(player.steals, "decimal")} />
-                </div>
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="BLK" value={formatStat(player.blocks, "decimal")} />
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('rebounds', player.rebounds))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">REB</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.rebounds, "decimal")}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="3PM" value={formatStat(player.threepm, "decimal")} />
+              {/* Row 2: AST, STL, BLK */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('assists', player.assists))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">AST</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.assists, "decimal")}</p>
                 </div>
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="FG%" value={formatStat(player.fgPct, "pct")} />
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('steals', player.steals))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">STL</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.steals, "decimal")}</p>
                 </div>
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="FT%" value={formatStat(player.ftPct, "pct")} />
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('blocks', player.blocks))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">BLK</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.blocks, "decimal")}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-stat-negative/10 rounded-lg p-3">
-                  <StatBadge label="TO" value={formatStat(player.turnovers, "decimal")} negative />
+              {/* Row 3: 3PM, FG%, FT% */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('threepm', player.threepm))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">3PM</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.threepm, "decimal")}</p>
                 </div>
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="FGM" value={`${formatStat(player.fgm, "decimal")}/${formatStat(player.fga, "decimal")}`} />
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('fgPct', player.fgPct))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">FG%</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.fgPct, "pct")}</p>
                 </div>
-                <div className="bg-secondary/20 rounded-lg p-3">
-                  <StatBadge label="FTM" value={`${formatStat(player.ftm, "decimal")}/${formatStat(player.fta, "decimal")}`} />
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('ftPct', player.ftPct))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">FT%</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.ftPct, "pct")}</p>
                 </div>
+              </div>
+
+              {/* Row 4: TO, FGM/FGA, FTM/FTA */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className={cn("rounded-lg p-3 text-center", getColorForStat('turnovers', player.turnovers, true))}>
+                  <p className="text-[10px] text-muted-foreground uppercase">TO</p>
+                  <p className="font-display font-bold text-lg">{formatStat(player.turnovers, "decimal")}</p>
+                </div>
+                <div className="bg-secondary/20 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase">FGM/A</p>
+                  <p className="font-display font-bold text-sm">{formatStat(player.fgm, "decimal")}/{formatStat(player.fga, "decimal")}</p>
+                </div>
+                <div className="bg-secondary/20 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase">FTM/A</p>
+                  <p className="font-display font-bold text-sm">{formatStat(player.ftm, "decimal")}/{formatStat(player.fta, "decimal")}</p>
+                </div>
+              </div>
+
+              {/* Color Legend */}
+              <div className="flex items-center justify-center gap-4 text-[10px] text-muted-foreground mt-2">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-stat-positive"></span> Top 15%
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Top 33%
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-orange-400"></span> Bottom 33%
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-stat-negative"></span> Bottom 15%
+                </span>
               </div>
             </div>
 
@@ -168,7 +223,7 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSh
                 <div className="flex items-center gap-2">
                   <Newspaper className="w-4 h-4 text-muted-foreground" />
                   <h4 className="font-display font-bold text-sm text-muted-foreground uppercase tracking-wider">
-                    {player.name.split(' ').slice(-1)[0]} News
+                    {player.name.split(' ').slice(-1)[0]} Resources
                   </h4>
                 </div>
                 <Button
@@ -193,40 +248,39 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSh
                 </div>
               ) : news.length === 0 ? (
                 <div className="bg-secondary/20 rounded-lg p-4 text-center">
-                  <p className="text-sm text-muted-foreground">No recent news available</p>
+                  <p className="text-sm text-muted-foreground">No resources available</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {news.map((item, idx) => (
                     <a 
                       key={idx} 
-                      href={item.url || `https://www.google.com/search?q=${encodeURIComponent(player.name)}+NBA+news`}
+                      href={item.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block bg-secondary/20 rounded-lg p-3 hover:bg-secondary/40 transition-colors cursor-pointer group"
+                      className="block bg-secondary/20 rounded-lg p-3 hover:bg-primary/20 hover:border-primary/50 border border-transparent transition-all cursor-pointer group"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium leading-tight group-hover:text-primary transition-colors">{item.headline}</p>
-                        <ExternalLink className="w-3 h-3 text-muted-foreground group-hover:text-primary shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium leading-tight group-hover:text-primary transition-colors">
+                            {item.headline}
+                          </p>
+                          {item.description && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
+                          )}
+                        </div>
+                        <ArrowUpRight className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0 mt-0.5 transition-colors" />
                       </div>
-                      {item.description && (
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
-                      )}
                       <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs text-primary font-medium">{item.source}</span>
-                        <span className="text-xs text-muted-foreground">• {item.date}</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                          {item.source}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">{item.date}</span>
                       </div>
                     </a>
                   ))}
                 </div>
               )}
-              
-              <div className="bg-muted/30 rounded-lg p-3 mt-4">
-                <p className="text-xs text-muted-foreground text-center">
-                  News is personalized for <span className="text-primary font-medium">{player.name}</span>. 
-                  For live updates, connect a sports news API.
-                </p>
-              </div>
             </div>
           </div>
         </ScrollArea>
