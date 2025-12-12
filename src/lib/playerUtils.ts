@@ -381,7 +381,10 @@ export function formatStat(value: number | undefined, format: 'pct' | 'num' | 'd
   
   switch (format) {
     case 'pct':
-      return value < 1 ? `.${Math.round(value * 1000).toString().padStart(3, '0')}` : `${value.toFixed(1)}%`;
+      // Handle percentages: values <= 1 are decimals (e.g., 0.485 = 48.5%)
+      // 1.0 means 100%, display as "1.000" (perfect percentage)
+      if (value >= 1) return "1.000";
+      return `.${Math.round(value * 1000).toString().padStart(3, '0')}`;
     case 'decimal':
       return value.toFixed(1);
     default:
