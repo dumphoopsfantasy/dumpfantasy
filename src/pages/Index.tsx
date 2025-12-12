@@ -511,6 +511,31 @@ const Index = () => {
               player={selectedPlayer}
               open={playerSheetOpen}
               onOpenChange={setPlayerSheetOpen}
+              allPlayers={players.map(p => ({
+                id: p.player,
+                name: p.player,
+                nbaTeam: p.team,
+                positions: [p.position],
+                slot: (p.slot || 'bench') as "PG" | "SG" | "SF" | "PF" | "C" | "G" | "F" | "UTIL" | "Bench" | "IR",
+                status: (p.status || 'healthy') as "healthy" | "DTD" | "IR" | "O" | "SUSP",
+                statusNote: '',
+                opponent: p.opponent,
+                gameTime: '',
+                minutes: p.minutes,
+                fgm: 0,
+                fga: 0,
+                fgPct: p.fgPct,
+                ftm: 0,
+                fta: 0,
+                ftPct: p.ftPct,
+                threepm: p.threepm,
+                rebounds: p.rebounds,
+                assists: p.assists,
+                steals: p.steals,
+                blocks: p.blocks,
+                turnovers: p.turnovers,
+                points: p.points,
+              }))}
             />
           </TabsContent>
 

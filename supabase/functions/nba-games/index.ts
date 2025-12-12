@@ -90,6 +90,24 @@ async function fetchESPNGames(dateStr: string): Promise<NBAGame[]> {
       const status = event.status?.type?.description || 'Scheduled';
       const isLive = status === 'In Progress' || status.includes('Qtr') || status === 'Halftime';
       
+      // Extract scheduled start time for upcoming games
+      let gameTime = event.status?.type?.shortDetail || '';
+      
+      // If game hasn't started, try to get the scheduled time
+      if (status === 'Scheduled' && event.date) {
+        try {
+          const gameDate = new Date(event.date);
+          gameTime = gameDate.toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit', 
+            hour12: true,
+            timeZone: 'America/New_York'
+          }) + ' ET';
+        } catch (e) {
+          console.log('Error parsing game date:', e);
+        }
+      }
+      
       return {
         gameId: event.id,
         homeTeam: TEAM_ABBR[homeTeam?.team?.displayName] || homeTeam?.team?.abbreviation || 'UNK',
@@ -97,7 +115,7 @@ async function fetchESPNGames(dateStr: string): Promise<NBAGame[]> {
         homeScore: parseInt(homeTeam?.score || '0'),
         awayScore: parseInt(awayTeam?.score || '0'),
         status: status === 'Final' ? 'Final' : status,
-        gameTime: event.status?.type?.shortDetail || '',
+        gameTime,
         isLive,
         arena: competition?.venue?.fullName,
       };

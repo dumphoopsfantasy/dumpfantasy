@@ -111,10 +111,20 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange, allPlayers = [] 
 
             {/* Fantasy Score */}
             <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="bg-primary/10 rounded-lg p-4 text-center">
+              <div className="bg-primary/10 rounded-lg p-4 text-center relative group">
                 <Trophy className="w-5 h-5 mx-auto mb-1 text-primary" />
                 <p className="text-xs text-muted-foreground">Fantasy Value</p>
                 <p className="font-display font-bold text-xl text-primary">{fantasyScore.toFixed(1)}</p>
+                {/* Tooltip explanation */}
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-popover border border-border rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                  <p className="text-xs font-semibold mb-1">Fantasy Value Formula:</p>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    PTS×1 + REB×1.2 + AST×1.5 + STL×3 + BLK×3 + 3PM×1.2 - TO×1 + FG% impact + FT% impact
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Higher = more valuable in 9-cat leagues
+                  </p>
+                </div>
               </div>
               <div className="bg-secondary/30 rounded-lg p-4 text-center">
                 <TrendingUp className="w-5 h-5 mx-auto mb-1 text-stat-positive" />
