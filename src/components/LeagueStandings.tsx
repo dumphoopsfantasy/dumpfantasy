@@ -113,25 +113,100 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueSt
       }
     }
 
-    // Second pass: parse true W-L-T records from top Standings table
+    // Second pass: parse true W-L-T records from Standings table ONLY
+    // The Standings table has format: RK | Team Name | W | L | T | ...
+    // We need to find the table header with "W" "L" "T" columns and extract records from there
     const recordsByTeam: Record<string, string> = {};
     const teamNames = teamEntries.map((t) => t.name);
 
+    // Find the Standings table by looking for the pattern: "Season" followed by year, then W L T headers
+    // The table starts with "Standings" and contains team rows with W L T values
+    let inStandingsTable = false;
+    let foundWLTHeaders = false;
+    
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      // If this line matches a team name from the standings table
-      if (teamNames.includes(line)) {
+      
+      // Detect start of Standings section (before Season Stats)
+      if (line === "Standings") {
+        inStandingsTable = true;
+        continue;
+      }
+      
+      // Detect the W L T header pattern in Standings table
+      if (inStandingsTable && line === "W" && i + 2 < lines.length) {
+        if (lines[i + 1] === "L" && lines[i + 2] === "T") {
+          foundWLTHeaders = true;
+          continue;
+        }
+      }
+      
+      // Stop parsing records when we hit "Season Stats" section (that's category totals, not records)
+      if (line === "Season Stats" || line.toLowerCase() === "season stats") {
+        inStandingsTable = false;
+        foundWLTHeaders = false;
+        break;
+      }
+      
+      // Stop if we hit other sections that shouldn't have standings records
+      if (line === "LAST MOVES" || line === "Last Moves" || line.includes("LAST MOVES")) {
+        break;
+      }
+      
+      // Extract W-L-T for teams in the Standings table section only
+      if (inStandingsTable && foundWLTHeaders && teamNames.includes(line)) {
         const name = line;
         const nums: string[] = [];
-        // Collect next three integer tokens (W, L, T) within a small window
-        for (let j = i + 1; j < Math.min(i + 10, lines.length) && nums.length < 3; j++) {
+        
+        // Look for exactly 3 consecutive integers (W, L, T) immediately after team name
+        for (let j = i + 1; j < Math.min(i + 8, lines.length) && nums.length < 3; j++) {
           const candidate = lines[j];
+          // Skip manager names in parentheses
+          if (candidate.startsWith("(") && candidate.endsWith(")")) continue;
+          // Skip other team names
+          if (teamNames.includes(candidate)) break;
+          // Collect integer values
           if (/^\d+$/.test(candidate)) {
             nums.push(candidate);
           }
         }
+        
         if (nums.length === 3) {
           recordsByTeam[name] = `${nums[0]}-${nums[1]}-${nums[2]}`;
+        }
+      }
+    }
+    
+    // Fallback: If we didn't find records via structured approach, try alternative parsing
+    // Look for pattern: Team Name followed by three single-digit/low integers before any stat-like numbers
+    if (Object.keys(recordsByTeam).length === 0) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Skip if past "Season Stats" section
+        if (line === "Season Stats" || line.toLowerCase() === "season stats") break;
+        if (line === "LAST MOVES" || line.includes("LAST MOVES")) break;
+        
+        if (teamNames.includes(line)) {
+          const name = line;
+          const nums: string[] = [];
+          
+          // Collect next integers that look like W-L-T (typically single digits or low two-digit)
+          for (let j = i + 1; j < Math.min(i + 10, lines.length) && nums.length < 3; j++) {
+            const candidate = lines[j];
+            if (candidate.startsWith("(") && candidate.endsWith(")")) continue;
+            if (teamNames.includes(candidate)) break;
+            // Only accept integers that are reasonable for W-L-T (0-30 range)
+            if (/^\d+$/.test(candidate) && parseInt(candidate) <= 30) {
+              nums.push(candidate);
+            }
+            // Stop if we hit a decimal (likely a stat like FG%)
+            if (/^\d*\.\d+$/.test(candidate)) break;
+          }
+          
+          if (nums.length === 3) {
+            recordsByTeam[name] = `${nums[0]}-${nums[1]}-${nums[2]}`;
+          }
         }
       }
     }
