@@ -435,8 +435,8 @@ const Index = () => {
                   </p>
                 </div>
                 
-                <TeamAverages players={players} />
-                <PlayerRankings players={players} />
+                <TeamAverages players={players} leagueTeams={leagueTeams} />
+                <PlayerRankings players={players} onPlayerClick={handlePlayerClick} leagueTeams={leagueTeams} />
 
                 {/* Roster Controls */}
                 <div className="flex flex-wrap items-center justify-between gap-4 bg-card/50 rounded-lg p-3 border border-border">
