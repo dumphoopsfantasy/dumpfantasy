@@ -23,7 +23,8 @@ interface PlayerDetailSheetProps {
 const getStatPercentileColor = (value: number, allValues: number[], lowerIsBetter = false): string => {
   if (allValues.length === 0) return "";
   
-  const sorted = [...allValues].sort((a, b) => lowerIsBetter ? b - a : a - b);
+  // Sort descending for "higher is better", ascending for "lower is better"
+  const sorted = [...allValues].sort((a, b) => lowerIsBetter ? a - b : b - a);
   const rank = sorted.indexOf(value) + 1;
   const percentile = rank / sorted.length;
   
