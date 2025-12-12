@@ -708,8 +708,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       .slice(0, 5)
       .map((s) => s.player);
 
+    // For bestForStrong: include players even if strongScore is 0 or negative, 
+    // just pick top scorers since any FA that excels in your strong categories helps
     const bestForStrong = scored
-      .filter((s) => s.strongScore > 0)
       .sort((a, b) => b.strongScore - a.strongScore)
       .slice(0, 5)
       .map((s) => s.player);
@@ -1028,21 +1029,27 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             <div>
               <h4 className="font-display font-semibold text-xs text-stat-positive mb-2">
                 Help Your Weakest Categories
+                <span className="ml-2 font-normal text-muted-foreground">
+                  ({bestPickupRecommendations.weakestCategories.join(", ")})
+                </span>
               </h4>
               <div className="space-y-1">
                 {bestPickupRecommendations.bestForWeak.map((p, index) => (
                   <button
                     key={p.id}
                     type="button"
-                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1 rounded-md hover:bg-muted/40"
+                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded-md hover:bg-stat-positive/10 border border-transparent hover:border-stat-positive/30 transition-colors"
                     onClick={() => setSelectedPlayer(p)}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">#{index + 1}</span>
+                      <span className="text-stat-positive font-bold">#{index + 1}</span>
                       <span className="font-semibold">{p.name}</span>
-                      <span className="text-muted-foreground">{p.nbaTeam}</span>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">{p.positions.join("/")}</Badge>
+                      <span className="text-muted-foreground text-[10px]">{p.nbaTeam}</span>
                     </div>
-                    <span className="text-muted-foreground text-[10px]">FG% · FT% · 3PM · REB · AST · STL · BLK · TO · PTS</span>
+                    <span className="text-muted-foreground text-[10px]">
+                      CRI# {p.criRank}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1050,21 +1057,27 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             <div>
               <h4 className="font-display font-semibold text-xs text-primary mb-2">
                 Supercharge Your Strengths
+                <span className="ml-2 font-normal text-muted-foreground">
+                  ({bestPickupRecommendations.strongestCategories.slice(0, 3).join(", ")})
+                </span>
               </h4>
               <div className="space-y-1">
                 {bestPickupRecommendations.bestForStrong.map((p, index) => (
                   <button
                     key={p.id}
                     type="button"
-                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1 rounded-md hover:bg-muted/40"
+                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded-md hover:bg-primary/10 border border-transparent hover:border-primary/30 transition-colors"
                     onClick={() => setSelectedPlayer(p)}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">#{index + 1}</span>
+                      <span className="text-primary font-bold">#{index + 1}</span>
                       <span className="font-semibold">{p.name}</span>
-                      <span className="text-muted-foreground">{p.nbaTeam}</span>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">{p.positions.join("/")}</Badge>
+                      <span className="text-muted-foreground text-[10px]">{p.nbaTeam}</span>
                     </div>
-                    <span className="text-muted-foreground text-[10px]">FG% · FT% · 3PM · REB · AST · STL · BLK · TO · PTS</span>
+                    <span className="text-muted-foreground text-[10px]">
+                      CRI# {p.criRank}
+                    </span>
                   </button>
                 ))}
               </div>
