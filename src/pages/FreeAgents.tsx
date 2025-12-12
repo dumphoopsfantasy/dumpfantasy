@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2 } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -1145,6 +1145,22 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       )}
 
       {/* Best Pickups Recommendations */}
+      {!bestPickupRecommendations.hasStandingsData && leagueTeams.length === 0 && (
+        <Card className="gradient-card border-border p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Trophy className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="font-display font-bold text-sm">Best Pickup Recommendations</h3>
+              <p className="text-xs text-muted-foreground">
+                Upload your league standings in the <span className="text-primary font-medium">Standings</span> tab to get personalized pickup suggestions based on your team's category rankings.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {(bestPickupRecommendations.bestForWeak.length > 0 || bestPickupRecommendations.hasStandingsData) && (
         <Card className="gradient-card border-border p-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">

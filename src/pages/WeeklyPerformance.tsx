@@ -46,6 +46,7 @@ export const WeeklyPerformance = ({
   const [rawData, setRawData] = useState("");
   const [matchups, setMatchups] = useState<Matchup[]>(persistedMatchups);
   const [weekTitle, setWeekTitle] = useState(persistedTitle);
+  const [useCris, setUseCris] = useState(true);
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -365,7 +366,10 @@ Only data below "Scoreboard" will be parsed.`}
     );
   }
 
-  // Flatten and sort teams by CRIS for league-wide view
+  // Flatten and sort teams by CRI/wCRI for league-wide view
+  const scoreKey = useCris ? 'cri' : 'wCri';
+  const scoreLabel = useCris ? 'CRI' : 'wCRI';
+  
   const allTeamRows = matchups.flatMap((matchup, matchupIdx) => {
     const team1CRIS = getTeamCRIS(matchup.team1.abbr);
     const team2CRIS = getTeamCRIS(matchup.team2.abbr);
@@ -384,7 +388,8 @@ Only data below "Scoreboard" will be parsed.`}
         matchupIdx, 
         team: matchup.team1, 
         opponent: matchup.team2,
-        cri: team1CRIS.cri, 
+        cri: team1CRIS.cri,
+        wCri: team1CRIS.wCri,
         weekWins: team1Wins,
         weekLosses: team2Wins,
         isFirstInMatchup: true 
@@ -393,25 +398,47 @@ Only data below "Scoreboard" will be parsed.`}
         matchupIdx, 
         team: matchup.team2, 
         opponent: matchup.team1,
-        cri: team2CRIS.cri, 
+        cri: team2CRIS.cri,
+        wCri: team2CRIS.wCri,
         weekWins: team2Wins,
         weekLosses: team1Wins,
         isFirstInMatchup: false 
       },
     ];
-  }).sort((a, b) => b.cri - a.cri);
+  }).sort((a, b) => b[scoreKey] - a[scoreKey]);
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="font-display font-bold text-2xl">Weekly Performance</h2>
           {weekTitle && <p className="text-muted-foreground">{weekTitle}</p>}
         </div>
-        <Button variant="outline" size="sm" onClick={handleReset}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          New Import
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* CRI/wCRI Toggle */}
+          <div className="flex">
+            <Button
+              variant={useCris ? "default" : "outline"}
+              size="sm"
+              onClick={() => setUseCris(true)}
+              className="rounded-r-none font-display text-xs"
+            >
+              CRI
+            </Button>
+            <Button
+              variant={!useCris ? "default" : "outline"}
+              size="sm"
+              onClick={() => setUseCris(false)}
+              className="rounded-l-none font-display text-xs"
+            >
+              wCRI
+            </Button>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleReset}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            New Import
+          </Button>
+        </div>
       </div>
 
       {/* League-wide Stats Table */}
@@ -428,7 +455,7 @@ Only data below "Scoreboard" will be parsed.`}
                     {cat.label}
                   </th>
                 ))}
-                <th className="p-3 text-center font-display text-sm border-l border-primary/50 text-primary">CRI</th>
+                <th className="p-3 text-center font-display text-sm border-l border-primary/50 text-primary">{scoreLabel}</th>
               </tr>
             </thead>
             <tbody>
@@ -475,7 +502,7 @@ Only data below "Scoreboard" will be parsed.`}
                       );
                     })}
                     <td className="p-3 text-center font-bold text-primary text-base border-l border-primary/50">
-                      {row.cri.toFixed(0)}
+                      {row[scoreKey].toFixed(0)}
                     </td>
                   </tr>
                 );

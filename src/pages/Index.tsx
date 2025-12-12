@@ -9,11 +9,12 @@ import { MatchupProjection } from "@/pages/MatchupProjection";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
+import { WeightSettings, CustomWeights, DEFAULT_WEIGHTS } from "@/components/WeightSettings";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
-import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info } from "lucide-react";
+import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 
@@ -80,6 +81,9 @@ const Index = () => {
   
   // Matchup projection state (persisted)
   const [matchupData, setMatchupData] = useState<MatchupProjectionData | null>(null);
+
+  // Custom wCRI weights
+  const [customWeights, setCustomWeights] = useState<CustomWeights>(DEFAULT_WEIGHTS);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -389,7 +393,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue="roster" className="w-full">
-          <TabsList className="grid w-full max-w-3xl mx-auto grid-cols-5 bg-card mb-6">
+          <TabsList className="grid w-full max-w-4xl mx-auto grid-cols-6 bg-card mb-6">
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
@@ -409,6 +413,10 @@ const Index = () => {
             <TabsTrigger value="weekly" className="font-display font-semibold text-xs md:text-sm">
               <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
               Weekly
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="font-display font-semibold text-xs md:text-sm">
+              <Settings className="w-4 h-4 mr-1 hidden md:inline" />
+              Settings
             </TabsTrigger>
           </TabsList>
 
@@ -582,6 +590,16 @@ const Index = () => {
               onMatchupsChange={setWeeklyMatchups}
               onTitleChange={setWeeklyTitle}
             />
+          </TabsContent>
+
+          <TabsContent value="settings">
+            <div className="max-w-4xl mx-auto space-y-6">
+              <h2 className="font-display font-bold text-2xl">Settings</h2>
+              <WeightSettings 
+                weights={customWeights}
+                onWeightsChange={setCustomWeights}
+              />
+            </div>
           </TabsContent>
         </Tabs>
       </main>
