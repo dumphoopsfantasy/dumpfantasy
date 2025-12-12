@@ -2,9 +2,41 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info } from "lucide-react";
+import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
+
+// Detect stat window from ESPN paste
+const detectStatWindow = (data: string): string | null => {
+  // Look for stat window patterns in the Stats section specifically
+  const statsPattern = /Stats\s+(Last\s+\d+|2024|2025|2026|Season|Projections)/i;
+  const match = data.match(statsPattern);
+  if (match) {
+    return match[1].replace(/\s+/g, ' ').trim();
+  }
+  
+  // Fallback patterns
+  const patterns = [
+    /Last\s+7/i,
+    /Last\s+15/i,
+    /Last\s+30/i,
+    /2024\s+Season/i,
+    /2025\s+Season/i,
+    /2026\s+Season/i,
+    /Season\s+Averages/i,
+    /Projections/i,
+  ];
+  
+  for (const pattern of patterns) {
+    if (pattern.test(data)) {
+      const m = data.match(pattern);
+      return m ? m[0].replace(/\s+/g, ' ').trim() : null;
+    }
+  }
+  
+  return null;
+};
 
 interface TeamStats {
   fgPct: number;
@@ -47,6 +79,7 @@ const MULTIPLIER = 40;
 export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: MatchupProjectionProps) => {
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
+  const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
 
   // Parse ESPN full page paste - extract team info and calculate averages from active players
   const parseESPNTeamPage = (data: string): { info: TeamInfo; stats: TeamStats } | null => {
@@ -282,10 +315,48 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     const myParsed = parseESPNTeamPage(myTeamData);
     const oppParsed = parseESPNTeamPage(opponentData);
 
+    // Detect stat windows
+    const myWindow = detectStatWindow(myTeamData);
+    const oppWindow = detectStatWindow(opponentData);
+    
+    // Check for mismatch
+    if (myWindow && oppWindow && myWindow.toLowerCase() !== oppWindow.toLowerCase()) {
+      setStatWindowMismatch({ myWindow, oppWindow });
+    } else {
+      setStatWindowMismatch(null);
+    }
+
     if (myParsed && oppParsed) {
+      // Ensure opponent has a different name if both parsed the same
+      const finalOppInfo = { ...oppParsed.info };
+      if (finalOppInfo.name === myParsed.info.name || !finalOppInfo.name || finalOppInfo.name === "Team") {
+        // Try to find a different team name in opponent data
+        const oppLines = opponentData.trim().split("\n").map(l => l.trim()).filter(l => l);
+        for (let i = 0; i < oppLines.length; i++) {
+          const line = oppLines[i];
+          // Look for record pattern and get preceding line
+          if (/^\d+-\d+-\d+$/.test(line) && i > 0) {
+            const prevLine = oppLines[i - 1];
+            if (prevLine !== myParsed.info.name && 
+                prevLine.length >= 2 && 
+                prevLine.length <= 50 && 
+                !/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN)/i.test(prevLine)) {
+              finalOppInfo.name = prevLine;
+              finalOppInfo.record = line;
+              break;
+            }
+          }
+        }
+        
+        // If still same name, append "(Opponent)" to distinguish
+        if (finalOppInfo.name === myParsed.info.name) {
+          finalOppInfo.name = `${finalOppInfo.name} (Opponent)`;
+        }
+      }
+      
       onMatchupChange({
         myTeam: { ...myParsed.info, stats: myParsed.stats },
-        opponent: { ...oppParsed.info, stats: oppParsed.stats },
+        opponent: { ...finalOppInfo, stats: oppParsed.stats },
       });
     }
   };
@@ -326,6 +397,18 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
             </div>
           </div>
         </Card>
+
+        {/* Stat Window Mismatch Alert */}
+        {statWindowMismatch && (
+          <Alert variant="destructive" className="border-stat-negative/50 bg-stat-negative/10">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="ml-2">
+              <span className="font-semibold">Stat window mismatch detected!</span> Your team is using <span className="font-bold text-primary">{statWindowMismatch.myWindow}</span> stats, 
+              but your opponent is using <span className="font-bold text-primary">{statWindowMismatch.oppWindow}</span> stats. 
+              For accurate comparison, ensure both teams use the same stat window on ESPN before pasting.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid md:grid-cols-2 gap-4">
           <Card className="gradient-card shadow-card p-4 border-border">
