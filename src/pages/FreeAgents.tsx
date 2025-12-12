@@ -1279,7 +1279,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
 
           <div className="grid md:grid-cols-2 gap-4">
             <div>
-              <h4 className="font-display font-semibold text-xs text-stat-positive mb-2">
+              <h4 className="font-display font-semibold text-xs text-stat-negative mb-2">
                 Help Your Weakest Categories
                 <span className="ml-2 font-normal text-muted-foreground">
                   ({bestPickupRecommendations.weakestCategories.map(c => 
@@ -1313,7 +1313,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </div>
             </div>
             <div>
-              <h4 className="font-display font-semibold text-xs text-primary mb-2">
+              <h4 className="font-display font-semibold text-xs text-stat-positive mb-2">
                 Supercharge Your Strengths
                 <span className="ml-2 font-normal text-muted-foreground">
                   ({bestPickupRecommendations.strongestCategories.slice(0, 3).map(c => 

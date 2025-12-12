@@ -94,8 +94,12 @@ export const getSampleTodayGames = (): NBAScheduleGame[] => {
 // Generate player news with real, clickable URLs
 export const fetchPlayerNews = async (playerName: string): Promise<PlayerNews[]> => {
   const encodedName = encodeURIComponent(playerName);
-  const searchName = playerName.toLowerCase().replace(/\s+/g, '-');
   const googleSearchName = playerName.replace(/\s+/g, '+');
+  
+  // ESPN uses a specific URL format for player profiles
+  // Format: /nba/player/_/id/{PLAYER_ID}/{first-last}
+  // Since we don't have player IDs, we'll use the search functionality
+  const espnSearchName = playerName.toLowerCase().replace(/\s+/g, '%20');
   
   // Generate news with real, working URLs
   return [
@@ -104,7 +108,14 @@ export const fetchPlayerNews = async (playerName: string): Promise<PlayerNews[]>
       description: `View complete stats, game logs, news and fantasy info for ${playerName} on ESPN.`,
       source: "ESPN",
       date: "Profile",
-      url: `https://www.espn.com/nba/player/_/name/${searchName}`,
+      url: `https://www.espn.com/nba/player/stats/_/name/${playerName.toLowerCase().replace(/\s+/g, '/')}`,
+    },
+    {
+      headline: `Search ESPN for ${playerName}`,
+      description: `Find player page, stats, and news directly on ESPN.`,
+      source: "ESPN Search",
+      date: "Search",
+      url: `https://www.espn.com/search/_/q/${espnSearchName}/section/nba`,
     },
     {
       headline: `Latest ${playerName} News`,
@@ -112,13 +123,6 @@ export const fetchPlayerNews = async (playerName: string): Promise<PlayerNews[]>
       source: "Google News",
       date: "Search",
       url: `https://www.google.com/search?q=${googleSearchName}+NBA+news&tbm=nws`,
-    },
-    {
-      headline: `${playerName} Fantasy Analysis`,
-      description: `Expert fantasy rankings, trade values, and projections.`,
-      source: "Yahoo Sports",
-      date: "Fantasy",
-      url: `https://sports.yahoo.com/nba/players/${searchName}/`,
     },
     {
       headline: `${playerName} Highlights`,

@@ -427,7 +427,17 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
 
 Navigate to your team page and copy the whole page.`}
               value={myTeamData}
-              onChange={(e) => setMyTeamData(e.target.value)}
+              onChange={(e) => {
+                setMyTeamData(e.target.value);
+                // Real-time stat window mismatch detection
+                const myWindow = detectStatWindow(e.target.value);
+                const oppWindow = opponentData ? detectStatWindow(opponentData) : null;
+                if (myWindow && oppWindow && myWindow !== oppWindow) {
+                  setStatWindowMismatch({ myWindow, oppWindow });
+                } else if (!myWindow || !oppWindow || myWindow === oppWindow) {
+                  setStatWindowMismatch(null);
+                }
+              }}
               className="min-h-[200px] font-mono text-sm bg-muted/50"
             />
           </Card>
@@ -439,7 +449,17 @@ Navigate to your team page and copy the whole page.`}
 
 Navigate to their team page and copy the whole page.`}
               value={opponentData}
-              onChange={(e) => setOpponentData(e.target.value)}
+              onChange={(e) => {
+                setOpponentData(e.target.value);
+                // Real-time stat window mismatch detection
+                const myWindow = myTeamData ? detectStatWindow(myTeamData) : null;
+                const oppWindow = detectStatWindow(e.target.value);
+                if (myWindow && oppWindow && myWindow !== oppWindow) {
+                  setStatWindowMismatch({ myWindow, oppWindow });
+                } else if (!myWindow || !oppWindow || myWindow === oppWindow) {
+                  setStatWindowMismatch(null);
+                }
+              }}
               className="min-h-[200px] font-mono text-sm bg-muted/50"
             />
           </Card>
