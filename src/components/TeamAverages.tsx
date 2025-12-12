@@ -89,15 +89,15 @@ export const TeamAverages = ({ players, leagueTeams = [] }: TeamAveragesProps) =
         <span className="text-xs text-muted-foreground">Weekly projection (×{WEEKLY_MULTIPLIER})</span>
       </div>
       <div className="grid grid-cols-5 md:grid-cols-9 gap-2">
-        <StatBox label="PTS" value={averages.pts.toFixed(1)} projection={projections.pts} highlight colorClass={getCategoryRankColor('pts')} />
+        <StatBox label="FG%" value={`${(averages.fgPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('fgPct')} />
+        <StatBox label="FT%" value={`${(averages.ftPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('ftPct')} />
+        <StatBox label="3PM" value={averages.threepm.toFixed(1)} projection={projections.threepm} colorClass={getCategoryRankColor('threepm')} />
         <StatBox label="REB" value={averages.reb.toFixed(1)} projection={projections.reb} colorClass={getCategoryRankColor('reb')} />
         <StatBox label="AST" value={averages.ast.toFixed(1)} projection={projections.ast} colorClass={getCategoryRankColor('ast')} />
-        <StatBox label="3PM" value={averages.threepm.toFixed(1)} projection={projections.threepm} colorClass={getCategoryRankColor('threepm')} />
         <StatBox label="STL" value={averages.stl.toFixed(1)} projection={projections.stl} colorClass={getCategoryRankColor('stl')} />
         <StatBox label="BLK" value={averages.blk.toFixed(1)} projection={projections.blk} colorClass={getCategoryRankColor('blk')} />
         <StatBox label="TO" value={averages.to.toFixed(1)} projection={projections.to} negative colorClass={getCategoryRankColor('to')} />
-        <StatBox label="FG%" value={`${(averages.fgPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('fgPct')} />
-        <StatBox label="FT%" value={`${(averages.ftPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('ftPct')} />
+        <StatBox label="PTS" value={averages.pts.toFixed(1)} projection={projections.pts} highlight colorClass={getCategoryRankColor('pts')} />
       </div>
     </Card>
   );
