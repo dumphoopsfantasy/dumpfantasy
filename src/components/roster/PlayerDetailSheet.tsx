@@ -198,23 +198,25 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSh
               ) : (
                 <div className="space-y-3">
                   {news.map((item, idx) => (
-                    <div key={idx} className="bg-secondary/20 rounded-lg p-3 hover:bg-secondary/30 transition-colors">
-                      <p className="text-sm font-medium leading-tight">{item.headline}</p>
+                    <a 
+                      key={idx} 
+                      href={item.url || `https://www.google.com/search?q=${encodeURIComponent(player.name)}+NBA+news`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block bg-secondary/20 rounded-lg p-3 hover:bg-secondary/40 transition-colors cursor-pointer group"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium leading-tight group-hover:text-primary transition-colors">{item.headline}</p>
+                        <ExternalLink className="w-3 h-3 text-muted-foreground group-hover:text-primary shrink-0 mt-0.5" />
+                      </div>
                       {item.description && (
                         <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
                       )}
-                      <div className="flex items-center justify-between mt-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-primary font-medium">{item.source}</span>
-                          <span className="text-xs text-muted-foreground">• {item.date}</span>
-                        </div>
-                        {item.url && (
-                          <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-xs text-primary font-medium">{item.source}</span>
+                        <span className="text-xs text-muted-foreground">• {item.date}</span>
                       </div>
-                    </div>
+                    </a>
                   ))}
                 </div>
               )}
