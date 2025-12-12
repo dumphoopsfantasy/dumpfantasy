@@ -46,86 +46,111 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueSt
   }, [rawTeams, onTeamsChange]);
 
   const parseLeagueData = (data: string): LeagueTeam[] => {
-    const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
+    const lines = data.trim().split("\n").map((l) => l.trim()).filter((l) => l);
     const result: LeagueTeam[] = [];
-    
-    // Look for stat values (9 stats per team)
+
+    // Core parsed pieces
     const statValues: number[] = [];
-    const records: string[] = [];
     const teamEntries: { name: string; manager: string }[] = [];
-    
+
     let inTeamSection = false;
     let inStatsSection = false;
-    let inRecordsSection = false;
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      
+
       // Skip footers
-      if (line.toLowerCase().includes('fantasy basketball support') ||
-          line.toLowerCase().includes('copyright')) break;
-      
-      // Detect sections
-      if (line.toLowerCase() === 'season stats') {
+      if (
+        line.toLowerCase().includes("fantasy basketball support") ||
+        line.toLowerCase().includes("copyright")
+      )
+        break;
+
+      // Detect sections for Season Stats block
+      if (line.toLowerCase() === "season stats") {
         inTeamSection = true;
         continue;
       }
-      if (line.toLowerCase() === 'all') {
+      if (line.toLowerCase() === "all") {
         inTeamSection = false;
         inStatsSection = true;
         continue;
       }
-      if (line.toLowerCase() === 'last') {
-        inStatsSection = false;
-        inRecordsSection = true;
-        continue;
-      }
-      if (line.toLowerCase() === 'moves') continue;
-      
+
       // Parse team entries (between "Season Stats" and "All")
       if (inTeamSection) {
         // Skip rank numbers
         if (line.match(/^\d+$/) && parseInt(line) <= 20) continue;
-        
+
         // Manager in parentheses
-        if (line.startsWith('(') && line.endsWith(')')) {
+        if (line.startsWith("(") && line.endsWith(")")) {
           if (teamEntries.length > 0 && !teamEntries[teamEntries.length - 1].manager) {
             teamEntries[teamEntries.length - 1].manager = line.slice(1, -1).trim();
           }
           continue;
         }
-        
+
         // Team name - not a number, not a header
-        if (!line.match(/^[\d.]+$/) && 
-            !['rk', 'team', 'fg%', 'ft%'].includes(line.toLowerCase()) &&
-            line.length > 2) {
-          teamEntries.push({ name: line, manager: '' });
+        if (
+          !line.match(/^[\d.]+$/) &&
+          !["rk", "team", "fg%", "ft%"].includes(line.toLowerCase()) &&
+          line.length > 2
+        ) {
+          teamEntries.push({ name: line, manager: "" });
         }
       }
-      
-      // Parse stats
+
+      // Parse stats from Season Stats numeric block
       if (inStatsSection) {
-        if (line.match(/^[.\d]+$/) && !['fg%', 'ft%', '3pm', 'reb', 'ast', 'stl', 'blk', 'to', 'pts'].includes(line.toLowerCase())) {
+        if (
+          line.match(/^[.\d]+$/) &&
+          !["fg%", "ft%", "3pm", "reb", "ast", "stl", "blk", "to", "pts"].includes(
+            line.toLowerCase()
+          )
+        ) {
           statValues.push(parseFloat(line));
         }
       }
-      
-      // Parse records
-      if (inRecordsSection) {
-        if (line.match(/^\d+-\d+-\d+$/)) {
-          records.push(line);
+    }
+
+    // Second pass: parse true W-L-T records from top Standings table
+    // Structure is: RK / Team header, then rows like: "1", "Wooden Nickelers", "7", "0", "0", "1.000", "--"
+    const recordsByTeam: Record<string, string> = {};
+    for (let i = 0; i < lines.length - 7; i++) {
+      if (lines[i] === "RK" && lines[i + 1] === "Team") {
+        let idx = i + 2;
+        while (idx + 6 <= lines.length) {
+          const rankLine = lines[idx];
+          if (!rankLine || !rankLine.match(/^\d+$/)) break;
+
+          const teamNameLine = lines[idx + 1];
+          const w = lines[idx + 2];
+          const l = lines[idx + 3];
+          const t = lines[idx + 4];
+
+          if (!(w?.match(/^\d+$/) && l?.match(/^\d+$/) && t?.match(/^\d+$/))) {
+            break;
+          }
+
+          const record = `${w}-${l}-${t}`;
+          recordsByTeam[teamNameLine] = record;
+
+          // Advance to next row (rank, team, W, L, T, PCT, GB)
+          idx += 7;
         }
+        break;
       }
     }
-    
-    // Match stats to teams (9 stats per team)
+
+    // Match stats to teams (9 stats per team) using Season Stats order
     const numTeams = teamEntries.length;
     if (numTeams > 0 && statValues.length >= numTeams * 9) {
       for (let t = 0; t < numTeams; t++) {
         const s = t * 9;
+        const team = teamEntries[t];
         result.push({
-          name: teamEntries[t].name,
-          manager: teamEntries[t].manager,
+          name: team.name,
+          manager: team.manager,
           fgPct: statValues[s] || 0,
           ftPct: statValues[s + 1] || 0,
           threepm: statValues[s + 2] || 0,
@@ -135,7 +160,7 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueSt
           blocks: statValues[s + 6] || 0,
           turnovers: statValues[s + 7] || 0,
           points: statValues[s + 8] || 0,
-          record: records[t] || '',
+          record: recordsByTeam[team.name] || "",
         });
       }
     }
