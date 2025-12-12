@@ -9,9 +9,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowUp, ArrowDown, Minus, TrendingUp, Users, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 interface FreeAgentImpactSheetProps {
   player: Player | null;
@@ -30,6 +31,7 @@ export const FreeAgentImpactSheet = ({
   currentRoster,
   allFreeAgents = [],
 }: FreeAgentImpactSheetProps) => {
+  const [dropPlayerId, setDropPlayerId] = useState<string | "none">("none");
   // Calculate player's rank among free agents for each category
   const playerRanks = useMemo(() => {
     if (!player || allFreeAgents.length === 0) return null;
@@ -72,33 +74,41 @@ export const FreeAgentImpactSheet = ({
     const activePlayers = currentRoster.filter(
       (p) => p.minutes > 0 && p.status !== "IR" && p.status !== "O"
     );
-    const count = activePlayers.length || 1;
 
-    // Current team averages
+    const dropPlayer = dropPlayerId === "none" ? null : activePlayers.find(p => p.id === dropPlayerId);
+
+    const basePlayers = activePlayers;
+    const swappedPlayers = dropPlayer
+      ? activePlayers.filter(p => p.id !== dropPlayer.id)
+      : activePlayers;
+
+    const baseCount = basePlayers.length || 1;
+    const newCount = swappedPlayers.length + 1 || 1;
+
+    // Current team averages (before any move)
     const currentAvg = {
-      fgPct: activePlayers.reduce((sum, p) => sum + p.fgPct, 0) / count,
-      ftPct: activePlayers.reduce((sum, p) => sum + p.ftPct, 0) / count,
-      threepm: activePlayers.reduce((sum, p) => sum + p.threepm, 0) / count,
-      rebounds: activePlayers.reduce((sum, p) => sum + p.rebounds, 0) / count,
-      assists: activePlayers.reduce((sum, p) => sum + p.assists, 0) / count,
-      steals: activePlayers.reduce((sum, p) => sum + p.steals, 0) / count,
-      blocks: activePlayers.reduce((sum, p) => sum + p.blocks, 0) / count,
-      turnovers: activePlayers.reduce((sum, p) => sum + p.turnovers, 0) / count,
-      points: activePlayers.reduce((sum, p) => sum + p.points, 0) / count,
+      fgPct: basePlayers.reduce((sum, p) => sum + p.fgPct, 0) / baseCount,
+      ftPct: basePlayers.reduce((sum, p) => sum + p.ftPct, 0) / baseCount,
+      threepm: basePlayers.reduce((sum, p) => sum + p.threepm, 0) / baseCount,
+      rebounds: basePlayers.reduce((sum, p) => sum + p.rebounds, 0) / baseCount,
+      assists: basePlayers.reduce((sum, p) => sum + p.assists, 0) / baseCount,
+      steals: basePlayers.reduce((sum, p) => sum + p.steals, 0) / baseCount,
+      blocks: basePlayers.reduce((sum, p) => sum + p.blocks, 0) / baseCount,
+      turnovers: basePlayers.reduce((sum, p) => sum + p.turnovers, 0) / baseCount,
+      points: basePlayers.reduce((sum, p) => sum + p.points, 0) / baseCount,
     };
 
-    // New team averages with the free agent added
-    const newCount = count + 1;
+    // New team averages with the free agent added (and optional dropped player removed)
     const newAvg = {
-      fgPct: (currentAvg.fgPct * count + player.fgPct) / newCount,
-      ftPct: (currentAvg.ftPct * count + player.ftPct) / newCount,
-      threepm: (currentAvg.threepm * count + player.threepm) / newCount,
-      rebounds: (currentAvg.rebounds * count + player.rebounds) / newCount,
-      assists: (currentAvg.assists * count + player.assists) / newCount,
-      steals: (currentAvg.steals * count + player.steals) / newCount,
-      blocks: (currentAvg.blocks * count + player.blocks) / newCount,
-      turnovers: (currentAvg.turnovers * count + player.turnovers) / newCount,
-      points: (currentAvg.points * count + player.points) / newCount,
+      fgPct: (swappedPlayers.reduce((sum, p) => sum + p.fgPct, 0) + player.fgPct) / newCount,
+      ftPct: (swappedPlayers.reduce((sum, p) => sum + p.ftPct, 0) + player.ftPct) / newCount,
+      threepm: (swappedPlayers.reduce((sum, p) => sum + p.threepm, 0) + player.threepm) / newCount,
+      rebounds: (swappedPlayers.reduce((sum, p) => sum + p.rebounds, 0) + player.rebounds) / newCount,
+      assists: (swappedPlayers.reduce((sum, p) => sum + p.assists, 0) + player.assists) / newCount,
+      steals: (swappedPlayers.reduce((sum, p) => sum + p.steals, 0) + player.steals) / newCount,
+      blocks: (swappedPlayers.reduce((sum, p) => sum + p.blocks, 0) + player.blocks) / newCount,
+      turnovers: (swappedPlayers.reduce((sum, p) => sum + p.turnovers, 0) + player.turnovers) / newCount,
+      points: (swappedPlayers.reduce((sum, p) => sum + p.points, 0) + player.points) / newCount,
     };
 
     // Calculate differences and weekly projections
@@ -144,11 +154,12 @@ export const FreeAgentImpactSheet = ({
     });
 
     return {
-      currentCount: count,
+      currentCount: basePlayers.length,
       newCount,
       comparisons,
+      dropPlayerName: dropPlayer?.name ?? null,
     };
-  }, [player, currentRoster]);
+  }, [player, currentRoster, dropPlayerId]);
 
   if (!player || !impactData) return null;
 
@@ -206,15 +217,38 @@ export const FreeAgentImpactSheet = ({
           </div>
 
           {/* Impact Summary */}
-          <Card className="gradient-card border-primary/30 p-3">
-            <div className="flex items-center gap-2 mb-2">
+          <Card className="gradient-card border-primary/30 p-3 space-y-3">
+            <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-primary" />
               <span className="font-display font-bold text-sm">Team Impact Preview</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Showing how your team's stats would change if you added this player.
+              Showing how your team's stats would change if you added this player
+              {impactData.dropPlayerName ? ` and dropped ${impactData.dropPlayerName}` : ""}.
               Current roster: {impactData.currentCount} active players → {impactData.newCount} players
             </p>
+            <div className="flex items-center gap-2 text-xs">
+              <Users className="w-3 h-3 text-muted-foreground" />
+              <span className="text-muted-foreground">Compare as:</span>
+              <Select
+                value={dropPlayerId}
+                onValueChange={(value) => setDropPlayerId(value as string)}
+              >
+                <SelectTrigger className="h-7 px-2 py-1 text-xs w-full max-w-[220px]">
+                  <SelectValue placeholder="Add without dropping" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Add without dropping anyone</SelectItem>
+                  {currentRoster
+                    .filter(p => p.minutes > 0 && p.status !== "IR" && p.status !== "O")
+                    .map(p => (
+                      <SelectItem key={p.id} value={p.id}>
+                        Drop {p.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
           </Card>
         </SheetHeader>
 

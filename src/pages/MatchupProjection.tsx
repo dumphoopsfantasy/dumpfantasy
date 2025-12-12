@@ -127,70 +127,128 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
       }
     }
 
-    // Parse stats - look for the stats table
-    const statsStartIdx = lines.findIndex((l) => l === "STATS" || l === "Research");
-    const statNumbers: number[] = [];
+    // Parse stats - align with Free Agents / Roster table structure
+    const statTokens: string[] = [];
 
-    if (statsStartIdx > -1) {
-      for (let i = statsStartIdx + 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (/^(MIN|FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|STATS)$/i.test(line)) continue;
-        if (line.includes("ESPN.com") || line.includes("Copyright")) break;
-        if (/^[.\d]+$/.test(line) || line === "--") {
-          statNumbers.push(line === "--" ? 0 : parseFloat(line));
+    // Find the stats section - look for "MIN" followed by stat headers
+    let statsStartIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === 'MIN' && i + 1 < lines.length) {
+        const nextFew = lines.slice(i, i + 5).join(' ');
+        if (nextFew.includes('FG') || nextFew.includes('3PM') || nextFew.includes('REB')) {
+          statsStartIdx = i;
+          break;
         }
       }
     }
 
-    // Calculate AVERAGES from all active player rows
-    // Each player has 15 stats: MIN, FGM/FGA (skip), FG%, FTM/FTA (skip), FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
-    const COLS = 15;
-    const numPlayers = Math.floor(statNumbers.length / COLS);
+    if (statsStartIdx === -1) {
+      for (let i = 0; i < lines.length; i++) {
+        if (/^STATS$/i.test(lines[i]) || /^Research$/i.test(lines[i])) {
+          for (let j = i; j < Math.min(i + 20, lines.length); j++) {
+            if (lines[j] === 'MIN') {
+              statsStartIdx = j;
+              break;
+            }
+          }
+          if (statsStartIdx > -1) break;
+        }
+      }
+    }
 
-    if (numPlayers > 0) {
-      let sums = {
-        fgPct: 0, ftPct: 0, threepm: 0, rebounds: 0,
-        assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0,
-      };
-      let validCount = 0;
+    const COLS = 17;
+    let validCount = 0;
+    let sums = {
+      fgPct: 0,
+      ftPct: 0,
+      threepm: 0,
+      rebounds: 0,
+      assists: 0,
+      steals: 0,
+      blocks: 0,
+      turnovers: 0,
+      points: 0,
+    };
 
-      for (let p = 0; p < numPlayers; p++) {
-        const base = p * COLS;
-        const min = statNumbers[base];
-        
-        // Only include active players with stats (minutes > 0)
-        if (min === 0 || isNaN(min)) continue;
-
-        validCount++;
-        sums.fgPct += statNumbers[base + 2] || 0;
-        sums.ftPct += statNumbers[base + 4] || 0;
-        sums.threepm += statNumbers[base + 5] || 0;
-        sums.rebounds += statNumbers[base + 6] || 0;
-        sums.assists += statNumbers[base + 7] || 0;
-        sums.steals += statNumbers[base + 8] || 0;
-        sums.blocks += statNumbers[base + 9] || 0;
-        sums.turnovers += statNumbers[base + 10] || 0;
-        sums.points += statNumbers[base + 11] || 0;
+    if (statsStartIdx > -1) {
+      let dataStartIdx = statsStartIdx + 1;
+      while (
+        dataStartIdx < lines.length &&
+        /^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|MIN)$/i.test(
+          lines[dataStartIdx]
+        )
+      ) {
+        dataStartIdx++;
       }
 
-      if (validCount > 0) {
-        // Calculate TEAM AVERAGES (sum / player count)
-        // This represents the average per-player contribution
-        return {
-          info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
-          stats: {
-            fgPct: sums.fgPct / validCount,
-            ftPct: sums.ftPct / validCount,
-            threepm: sums.threepm / validCount,
-            rebounds: sums.rebounds / validCount,
-            assists: sums.assists / validCount,
-            steals: sums.steals / validCount,
-            blocks: sums.blocks / validCount,
-            turnovers: sums.turnovers / validCount,
-            points: sums.points / validCount,
-          },
+      for (let i = dataStartIdx; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy|Fantasy Basketball Support)/i.test(line)) {
+          break;
+        }
+
+        if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results|\d+\s+of\s+\d+)$/i.test(line)) continue;
+
+        if (/^(\d+\s+)+\.\.\.\s*\d+$/.test(line)) continue;
+
+        if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
+          const parts = line.split('/');
+          statTokens.push(parts[0], parts[1]);
+          continue;
+        }
+
+        if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
+          statTokens.push(line);
+        }
+      }
+
+      const numStatRows = Math.floor(statTokens.length / COLS);
+      for (let i = 0; i < numStatRows; i++) {
+        const base = i * COLS;
+        const parseVal = (idx: number): number => {
+          const val = statTokens[base + idx];
+          if (!val || val === '--') return 0;
+          return parseFloat(val);
         };
+
+        const min = parseVal(0);
+        if (!min || isNaN(min) || min === 0) continue;
+
+        let fgPct = parseVal(3);
+        if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
+
+        let ftPct = parseVal(6);
+        if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
+
+        sums.fgPct += fgPct;
+        sums.ftPct += ftPct;
+        sums.threepm += parseVal(7);
+        sums.rebounds += parseVal(8);
+        sums.assists += parseVal(9);
+        sums.steals += parseVal(10);
+        sums.blocks += parseVal(11);
+        sums.turnovers += parseVal(12);
+        sums.points += parseVal(13);
+        validCount++;
       }
+    }
+
+    if (validCount > 0) {
+      return {
+        info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
+        stats: {
+          fgPct: sums.fgPct / validCount,
+          ftPct: sums.ftPct / validCount,
+          threepm: sums.threepm / validCount,
+          rebounds: sums.rebounds / validCount,
+          assists: sums.assists / validCount,
+          steals: sums.steals / validCount,
+          blocks: sums.blocks / validCount,
+          turnovers: sums.turnovers / validCount,
+          points: sums.points / validCount,
+        },
+      };
     }
 
     // Fallback: simple number extraction

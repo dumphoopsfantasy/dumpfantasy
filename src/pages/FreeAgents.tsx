@@ -588,7 +588,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     // Determine actual sort key
     // When clicking CRI# or wCRI# columns directly, use exactly what was clicked
     // The toggle only affects which column is the "default" when using rankings view
-    let activeSortKey = sortKey;
+    const activeSortKey = sortKey;
     
     const sorted = [...result].sort((a, b) => {
       let aVal = (a[activeSortKey as keyof FreeAgent] as number) || 0;
@@ -613,6 +613,114 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       setSortAsc(key === 'turnovers');
     }
   };
+
+  const bestPickupRecommendations = useMemo(() => {
+    if (!currentRoster.length || !filteredPlayers.length) {
+      return {
+        weakestCategories: [] as string[],
+        strongestCategories: [] as string[],
+        bestForWeak: [] as FreeAgent[],
+        bestForStrong: [] as FreeAgent[],
+      };
+    }
+
+    const activeRoster = currentRoster.filter(
+      (p) => p.minutes > 0 && p.status !== "IR" && p.status !== "O"
+    );
+    const rosterCount = activeRoster.length || 1;
+
+    const cats = [
+      { key: "fgPct", label: "FG%", isPct: true, lowerBetter: false },
+      { key: "ftPct", label: "FT%", isPct: true, lowerBetter: false },
+      { key: "threepm", label: "3PM", isPct: false, lowerBetter: false },
+      { key: "rebounds", label: "REB", isPct: false, lowerBetter: false },
+      { key: "assists", label: "AST", isPct: false, lowerBetter: false },
+      { key: "steals", label: "STL", isPct: false, lowerBetter: false },
+      { key: "blocks", label: "BLK", isPct: false, lowerBetter: false },
+      { key: "turnovers", label: "TO", isPct: false, lowerBetter: true },
+      { key: "points", label: "PTS", isPct: false, lowerBetter: false },
+    ] as const;
+
+    const teamAvg: Record<string, number> = {};
+    cats.forEach((cat) => {
+      teamAvg[cat.key] =
+        activeRoster.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) /
+        rosterCount;
+    });
+
+    const faCount = filteredPlayers.length || 1;
+    const faAvg: Record<string, number> = {};
+    cats.forEach((cat) => {
+      faAvg[cat.key] =
+        filteredPlayers.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) /
+        faCount;
+    });
+
+    const catScores = cats.map((cat) => {
+      const teamVal = teamAvg[cat.key];
+      const poolVal = faAvg[cat.key];
+      const delta = cat.lowerBetter ? poolVal - teamVal : teamVal - poolVal;
+      return { key: cat.key, label: cat.label, delta };
+    });
+
+    const weakest = [...catScores]
+      .sort((a, b) => a.delta - b.delta)
+      .slice(0, 3);
+    const strongest = [...catScores]
+      .sort((a, b) => b.delta - a.delta)
+      .slice(0, 5);
+
+    type Scored = { player: FreeAgent; weakScore: number; strongScore: number };
+    const scored: Scored[] = filteredPlayers
+      .filter((p) => p.minutes > 0)
+      .map((player) => {
+        const newCount = rosterCount + 1;
+
+        let weakScore = 0;
+        let strongScore = 0;
+
+        cats.forEach((cat) => {
+          const current = teamAvg[cat.key];
+          const playerVal = (player as any)[cat.key] as number;
+          const projected = (current * rosterCount + playerVal) / newCount;
+
+          const currentWeekly = cat.isPct ? current : current * 40;
+          const projectedWeekly = cat.isPct ? projected : projected * 40;
+          const weeklyDiff = projectedWeekly - currentWeekly;
+
+          const improvement = cat.lowerBetter ? -weeklyDiff : weeklyDiff;
+
+          if (weakest.some((w) => w.key === cat.key)) {
+            weakScore += improvement;
+          }
+
+          if (strongest.some((s) => s.key === cat.key)) {
+            strongScore += improvement;
+          }
+        });
+
+        return { player, weakScore, strongScore };
+      });
+
+    const bestForWeak = scored
+      .filter((s) => s.weakScore > 0)
+      .sort((a, b) => b.weakScore - a.weakScore)
+      .slice(0, 5)
+      .map((s) => s.player);
+
+    const bestForStrong = scored
+      .filter((s) => s.strongScore > 0)
+      .sort((a, b) => b.strongScore - a.strongScore)
+      .slice(0, 5)
+      .map((s) => s.player);
+
+    return {
+      weakestCategories: weakest.map((w) => w.label),
+      strongestCategories: strongest.map((s) => s.label),
+      bestForWeak,
+      bestForStrong,
+    };
+  }, [currentRoster, filteredPlayers]);
 
   const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => (
     <th 
@@ -905,7 +1013,67 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {/* Stats Table */}
+      {/* Best Pickups Recommendations */}
+      {bestPickupRecommendations.bestForWeak.length > 0 && (
+        <Card className="gradient-card border-border p-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+            <div>
+              <h3 className="font-display font-bold text-sm">Best Pickups</h3>
+              <p className="text-xs text-muted-foreground">
+                Based on your current roster averages. Weakest categories: {bestPickupRecommendations.weakestCategories.join(", ")}. Best categories: {bestPickupRecommendations.strongestCategories.join(", ")}.
+              </p>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-display font-semibold text-xs text-stat-positive mb-2">
+                Help Your Weakest Categories
+              </h4>
+              <div className="space-y-1">
+                {bestPickupRecommendations.bestForWeak.map((p, index) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1 rounded-md hover:bg-muted/40"
+                    onClick={() => setSelectedPlayer(p)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">#{index + 1}</span>
+                      <span className="font-semibold">{p.name}</span>
+                      <span className="text-muted-foreground">{p.nbaTeam}</span>
+                    </div>
+                    <span className="text-muted-foreground text-[10px]">FG% · FT% · 3PM · REB · AST · STL · BLK · TO · PTS</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="font-display font-semibold text-xs text-primary mb-2">
+                Supercharge Your Strengths
+              </h4>
+              <div className="space-y-1">
+                {bestPickupRecommendations.bestForStrong.map((p, index) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1 rounded-md hover:bg-muted/40"
+                    onClick={() => setSelectedPlayer(p)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">#{index + 1}</span>
+                      <span className="font-semibold">{p.name}</span>
+                      <span className="text-muted-foreground">{p.nbaTeam}</span>
+                    </div>
+                    <span className="text-muted-foreground text-[10px]">FG% · FT% · 3PM · REB · AST · STL · BLK · TO · PTS</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+       {/* Stats Table */}
       <Card className="gradient-card border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
