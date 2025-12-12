@@ -114,9 +114,14 @@ export function NBAScoresSidebar({ rosterTeams = [] }: NBAScoresSidebarProps) {
         variant="outline"
         size="sm"
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed left-0 top-1/2 -translate-y-1/2 z-20 rounded-l-none border-l-0 bg-card hover:bg-secondary px-1.5 py-6"
+        className="fixed left-0 top-1/2 -translate-y-1/2 z-20 rounded-l-none border-l-0 bg-primary/90 hover:bg-primary text-primary-foreground px-2 py-8 shadow-lg"
       >
-        {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <div className="flex flex-col items-center gap-1">
+          {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          <span className="text-[10px] font-semibold writing-mode-vertical" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
+            NBA
+          </span>
+        </div>
       </Button>
 
       {/* Sidebar Panel */}
