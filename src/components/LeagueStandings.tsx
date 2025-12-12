@@ -114,31 +114,25 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueSt
     }
 
     // Second pass: parse true W-L-T records from top Standings table
-    // Structure is: RK / Team header, then rows like: "1", "Wooden Nickelers", "7", "0", "0", "1.000", "--"
     const recordsByTeam: Record<string, string> = {};
-    for (let i = 0; i < lines.length - 7; i++) {
-      if (lines[i] === "RK" && lines[i + 1] === "Team") {
-        let idx = i + 2;
-        while (idx + 6 <= lines.length) {
-          const rankLine = lines[idx];
-          if (!rankLine || !rankLine.match(/^\d+$/)) break;
+    const teamNames = teamEntries.map((t) => t.name);
 
-          const teamNameLine = lines[idx + 1];
-          const w = lines[idx + 2];
-          const l = lines[idx + 3];
-          const t = lines[idx + 4];
-
-          if (!(w?.match(/^\d+$/) && l?.match(/^\d+$/) && t?.match(/^\d+$/))) {
-            break;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // If this line matches a team name from the standings table
+      if (teamNames.includes(line)) {
+        const name = line;
+        const nums: string[] = [];
+        // Collect next three integer tokens (W, L, T) within a small window
+        for (let j = i + 1; j < Math.min(i + 10, lines.length) && nums.length < 3; j++) {
+          const candidate = lines[j];
+          if (/^\d+$/.test(candidate)) {
+            nums.push(candidate);
           }
-
-          const record = `${w}-${l}-${t}`;
-          recordsByTeam[teamNameLine] = record;
-
-          // Advance to next row (rank, team, W, L, T, PCT, GB)
-          idx += 7;
         }
-        break;
+        if (nums.length === 3) {
+          recordsByTeam[name] = `${nums[0]}-${nums[1]}-${nums[2]}`;
+        }
       }
     }
 
@@ -326,7 +320,7 @@ The page should include the "Season Stats" section with team names, managers, an
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="w-full">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
