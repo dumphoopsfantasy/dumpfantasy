@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { getStatusColor } from "@/lib/playerUtils";
 import { formatPct } from "@/lib/crisUtils";
 import { cn } from "@/lib/utils";
-import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Lock } from "lucide-react";
 
 interface PlayerWithCRI extends Player {
   cri?: number;
@@ -206,7 +206,10 @@ export const RosterTable = ({
                       #{rank}
                     </span>
                   ) : isIR ? (
-                    <span className="text-muted-foreground text-xs font-display">IR</span>
+                    <span className="text-muted-foreground text-xs font-display flex items-center gap-0.5">
+                      <Lock className="h-3 w-3" />
+                      IR
+                    </span>
                   ) : (
                     <span className="text-muted-foreground text-sm">--</span>
                   )}
