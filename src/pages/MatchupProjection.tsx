@@ -100,40 +100,41 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     let owner = "";
     let lastMatchup = "";
 
-    // Find team info block pattern
+    // Find team info block pattern - look for "Team Name" followed by record and standing
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (skipPatterns.test(line)) continue;
-      if (line.length < 2 || line.length > 50) continue;
-
-      // Look for record pattern (e.g., "4-2-0")
-      const recordMatch = line.match(/^(\d+-\d+-\d+)$/);
-      if (recordMatch) {
-        if (i > 0 && !skipPatterns.test(lines[i - 1])) {
-          const prevLine = lines[i - 1];
-          if (!prevLine.match(/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS)/i)) {
-            teamName = prevLine;
-            record = recordMatch[1];
-
-            if (i + 1 < lines.length) {
-              const standingMatch = lines[i + 1].match(/\((\d+)(st|nd|rd|th) of (\d+)\)/i);
-              if (standingMatch) {
-                standing = `${standingMatch[1]}${standingMatch[2]} of ${standingMatch[3]}`;
-                if (i + 2 < lines.length) {
-                  const ownerLine = lines[i + 2];
-                  const ownerMatch = ownerLine.match(/([A-Z][a-z]+\s+[A-Z][a-z]+)$/);
-                  if (ownerMatch) {
-                    owner = ownerMatch[1];
-                  }
-                }
-              }
+      
+      // Look for standing pattern like "(5th of 10)" which uniquely identifies the team header block
+      const standingMatch = line.match(/^\((\d+)(st|nd|rd|th)\s+of\s+(\d+)\)$/i);
+      if (standingMatch && i >= 2) {
+        // Standing found - look backwards for record and team name
+        const recordLine = lines[i - 1];
+        const teamLine = lines[i - 2];
+        
+        const recordMatch = recordLine.match(/^(\d+-\d+-\d+)$/);
+        if (recordMatch && teamLine && !skipPatterns.test(teamLine) && 
+            !teamLine.match(/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS|LM Tools|Get Another Team)/i)) {
+          teamName = teamLine;
+          record = recordMatch[1];
+          standing = `${standingMatch[1]}${standingMatch[2]} of ${standingMatch[3]}`;
+          
+          // Look for owner name after standing (usually next line with two capitalized words)
+          if (i + 1 < lines.length) {
+            const ownerLine = lines[i + 1];
+            const ownerMatch = ownerLine.match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)$/);
+            if (ownerMatch) {
+              owner = ownerMatch[1];
             }
           }
+          break; // Found the main team info block
         }
       }
+    }
 
-      // Look for "Last Matchup" section
-      if (line === "Last Matchup" && i + 4 < lines.length) {
+    // Look for "Last Matchup" section
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === "Last Matchup" && i + 4 < lines.length) {
         const team1 = lines[i + 1];
         const score1 = lines[i + 2];
         const team2 = lines[i + 3];
@@ -141,6 +142,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
         if (score1?.match(/^\d+-\d+-\d+$/) && score2?.match(/^\d+-\d+-\d+$/)) {
           lastMatchup = `${team1} ${score1} vs ${team2} ${score2}`;
         }
+        break;
       }
     }
 
@@ -583,15 +585,15 @@ Navigate to their team page and copy the whole page.`}
             <span className="text-xs text-muted-foreground">Avg × {MULTIPLIER}</span>
           </div>
           <div className="grid grid-cols-5 gap-2 mb-3">
-            <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} projected multiplier={MULTIPLIER} highlight />
-            <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} projected multiplier={MULTIPLIER} />
-            <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} projected multiplier={MULTIPLIER} />
-            <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} projected multiplier={MULTIPLIER} />
-            <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} projected multiplier={MULTIPLIER} />
+            <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} multiplier={MULTIPLIER} />
+            <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} multiplier={MULTIPLIER} />
+            <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} multiplier={MULTIPLIER} />
+            <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} multiplier={MULTIPLIER} />
+            <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} multiplier={MULTIPLIER} />
           </div>
           <div className="grid grid-cols-4 gap-2">
-            <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} projected multiplier={MULTIPLIER} />
-            <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} projected multiplier={MULTIPLIER} negative />
+            <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} multiplier={MULTIPLIER} />
+            <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} multiplier={MULTIPLIER} />
             <StatBox label="FG%" avg={persistedMatchup.myTeam.stats.fgPct} isPct />
             <StatBox label="FT%" avg={persistedMatchup.myTeam.stats.ftPct} isPct />
           </div>
@@ -603,15 +605,15 @@ Navigate to their team page and copy the whole page.`}
             <span className="text-xs text-muted-foreground">Avg × {MULTIPLIER}</span>
           </div>
           <div className="grid grid-cols-5 gap-2 mb-3">
-            <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} projected multiplier={MULTIPLIER} highlight />
-            <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} projected multiplier={MULTIPLIER} />
-            <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} projected multiplier={MULTIPLIER} />
-            <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} projected multiplier={MULTIPLIER} />
-            <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} projected multiplier={MULTIPLIER} />
+            <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} multiplier={MULTIPLIER} />
+            <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} multiplier={MULTIPLIER} />
+            <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} multiplier={MULTIPLIER} />
+            <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} multiplier={MULTIPLIER} />
+            <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} multiplier={MULTIPLIER} />
           </div>
           <div className="grid grid-cols-4 gap-2">
-            <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} projected multiplier={MULTIPLIER} />
-            <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} projected multiplier={MULTIPLIER} negative />
+            <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} multiplier={MULTIPLIER} />
+            <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} multiplier={MULTIPLIER} />
             <StatBox label="FG%" avg={persistedMatchup.opponent.stats.fgPct} isPct />
             <StatBox label="FT%" avg={persistedMatchup.opponent.stats.ftPct} isPct />
           </div>
@@ -687,17 +689,18 @@ Navigate to their team page and copy the whole page.`}
 };
 
 // StatBox component for team averages display
+// Colors explained:
+// - No special colors by default - just neutral display of team's projected stats
+// - The category comparison cards (below) show green/red based on who WINS each category
 interface StatBoxProps {
   label: string;
   avg: number;
   projected?: boolean;
   multiplier?: number;
   isPct?: boolean;
-  highlight?: boolean;
-  negative?: boolean;
 }
 
-const StatBox = ({ label, avg, projected, multiplier = 40, isPct, highlight, negative }: StatBoxProps) => (
+const StatBox = ({ label, avg, multiplier = 40, isPct }: StatBoxProps) => (
   <div className="text-center">
     <p className="text-[10px] text-muted-foreground uppercase">{label}</p>
     {isPct ? (
@@ -705,11 +708,7 @@ const StatBox = ({ label, avg, projected, multiplier = 40, isPct, highlight, neg
     ) : (
       <>
         <p className="text-xs text-muted-foreground">{avg.toFixed(1)}</p>
-        <p className={cn(
-          "font-display font-bold text-lg",
-          highlight && "text-primary",
-          negative && "text-stat-negative"
-        )}>
+        <p className="font-display font-bold text-lg">
           {Math.round(avg * multiplier)}
         </p>
       </>
