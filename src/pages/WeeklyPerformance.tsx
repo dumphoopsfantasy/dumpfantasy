@@ -105,7 +105,56 @@ export const WeeklyPerformance = ({
     const weekMatch = relevantLines.find(l => l.toLowerCase().includes('matchup') && l.includes('('));
     if (weekMatch) week = weekMatch;
     
-    // Look for team stat blocks
+    // NEW PARSING APPROACH: Look for team header + current matchup W-L-T blocks
+    // Pattern: "Team Name (W-L-T, Nth)" followed by current matchup "W-L-T" on next line
+    interface ParsedTeamData {
+      name: string;
+      seasonRecord: string;
+      standing: string;
+      currentMatchupRecord: string; // W-L-T for this week's matchup
+    }
+    
+    const teamDataBlocks: ParsedTeamData[] = [];
+    
+    // Team header pattern: "Team Name (5-2-0, 2nd)" or "Team Name (4-3-0, 5th)"
+    const teamHeaderPattern = /^(.+?)\s*\((\d+-\d+-\d+),\s*(\d+)(st|nd|rd|th)\)$/i;
+    // Current matchup record pattern: strict W-L-T format
+    const currentMatchupPattern = /^(\d+)-(\d+)-(\d+)$/;
+    
+    for (let i = 0; i < relevantLines.length; i++) {
+      const line = relevantLines[i];
+      const headerMatch = line.match(teamHeaderPattern);
+      
+      if (headerMatch) {
+        const teamName = headerMatch[1].trim();
+        const seasonRecord = headerMatch[2];
+        const standing = `${headerMatch[3]}${headerMatch[4]}`;
+        
+        // Look for the current matchup W-L-T on the next non-empty line
+        let currentMatchupRecord = "—";
+        for (let j = i + 1; j < Math.min(i + 5, relevantLines.length); j++) {
+          const nextLine = relevantLines[j];
+          // Skip stat headers
+          if (/^(FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS)$/i.test(nextLine)) continue;
+          
+          const matchupMatch = nextLine.match(currentMatchupPattern);
+          if (matchupMatch) {
+            // Format as W-L-T, always include ties
+            currentMatchupRecord = `${matchupMatch[1]}-${matchupMatch[2]}-${matchupMatch[3]}`;
+            break;
+          }
+        }
+        
+        teamDataBlocks.push({
+          name: teamName,
+          seasonRecord,
+          standing,
+          currentMatchupRecord
+        });
+      }
+    }
+    
+    // Look for team stat blocks (for category values)
     interface TeamBlock {
       abbr: string;
       name: string;
@@ -192,42 +241,32 @@ export const WeeklyPerformance = ({
       }
     }
     
-    // Find team names and records
-    const recordPattern = /^\((\d+-\d+-\d+),\s*\d+\w*\)$/;
-    const teamRecords: { name: string; record: string }[] = [];
-    for (let i = 0; i < relevantLines.length; i++) {
-      const line = relevantLines[i];
-      const recMatch = line.match(recordPattern);
-      if (recMatch && i > 0) {
-        const prevLine = relevantLines[i - 1];
-        if (prevLine && !skipPatterns.test(prevLine) && prevLine.length > 2) {
-          teamRecords.push({ name: prevLine, record: recMatch[1] });
-        }
-      }
-    }
-    
-    // Week records
-    const weekRecords: string[] = [];
-    for (const line of relevantLines) {
-      if (/^\d-\d-\d$/.test(line)) {
-        weekRecords.push(line);
-      }
-    }
-    
-    // Build matchups
+    // Build matchups by pairing consecutive team data blocks
+    // Use teamDataBlocks for name/record/matchupRecord, and teamBlocks for stats
     for (let i = 0; i + 1 < teamBlocks.length; i += 2) {
       const block1 = teamBlocks[i];
       const block2 = teamBlocks[i + 1];
       
-      const tr1 = teamRecords[i] || { name: block1.abbr, record: '' };
-      const tr2 = teamRecords[i + 1] || { name: block2.abbr, record: '' };
+      // Match with teamDataBlocks based on index
+      const teamData1 = teamDataBlocks[i] || { 
+        name: block1.abbr, 
+        seasonRecord: '', 
+        standing: '', 
+        currentMatchupRecord: '—' 
+      };
+      const teamData2 = teamDataBlocks[i + 1] || { 
+        name: block2.abbr, 
+        seasonRecord: '', 
+        standing: '', 
+        currentMatchupRecord: '—' 
+      };
       
       result.push({
         team1: {
           abbr: block1.abbr,
-          name: tr1.name,
-          record: tr1.record,
-          weekRecord: weekRecords[i * 2] || '',
+          name: teamData1.name,
+          record: teamData1.seasonRecord,
+          weekRecord: teamData1.currentMatchupRecord,
           stats: {
             fgPct: block1.stats[0],
             ftPct: block1.stats[1],
@@ -242,9 +281,9 @@ export const WeeklyPerformance = ({
         },
         team2: {
           abbr: block2.abbr,
-          name: tr2.name,
-          record: tr2.record,
-          weekRecord: weekRecords[i * 2 + 1] || '',
+          name: teamData2.name,
+          record: teamData2.seasonRecord,
+          weekRecord: teamData2.currentMatchupRecord,
           stats: {
             fgPct: block2.stats[0],
             ftPct: block2.stats[1],
@@ -488,7 +527,9 @@ Only data below "Scoreboard" will be parsed.`}
                         row.weekWins > row.weekLosses ? "text-stat-positive" : 
                         row.weekWins < row.weekLosses ? "text-stat-negative" : "text-muted-foreground"
                       )}>
-                        {row.weekWins}-{row.weekLosses}
+                        {row.team.weekRecord && row.team.weekRecord !== '—' 
+                          ? row.team.weekRecord 
+                          : `${row.weekWins}-${row.weekLosses}-0`}
                       </span>
                     </td>
                     {CATEGORIES.map(cat => {
