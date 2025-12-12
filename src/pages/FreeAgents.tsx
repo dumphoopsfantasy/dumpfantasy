@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { Player } from "@/types/fantasy";
+import { LeagueTeam } from "@/types/league";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { FreeAgentImpactSheet } from "@/components/FreeAgentImpactSheet";
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -35,6 +36,7 @@ interface FreeAgentsProps {
   persistedPlayers?: Player[];
   onPlayersChange?: (players: Player[]) => void;
   currentRoster?: Player[];
+  leagueTeams?: LeagueTeam[];
 }
 
 // Known NBA team codes
@@ -43,7 +45,7 @@ const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN'
 type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus';
 type ViewMode = 'stats' | 'rankings' | 'advanced';
 
-export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [] }: FreeAgentsProps) => {
+export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [] }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
@@ -60,6 +62,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [customCategories, setCustomCategories] = useState<string[]>(CATEGORY_PRESETS.all.categories);
   const [activePreset, setActivePreset] = useState<string>('all');
   const [detectedStatWindow, setDetectedStatWindow] = useState<string | null>(null);
+  const [customSuggestionCategories, setCustomSuggestionCategories] = useState<string[]>([]);
+  const [showCustomSuggestions, setShowCustomSuggestions] = useState(false);
   const { toast } = useToast();
 
   // Detect stat window from pasted data - look for the specific ESPN stat selector pattern
@@ -614,20 +618,36 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     }
   };
 
+  // Try to identify user's team from standings by matching roster player names or team name patterns
+  const userTeamFromStandings = useMemo(() => {
+    if (!leagueTeams.length) return null;
+    
+    // Look for "Mr. Bane" or similar known team names from roster context
+    // For now, use the team with owner "Demitri Voyiatzis" as Mr. Bane
+    // Or find teams that might match based on roster composition
+    const mrBane = leagueTeams.find(t => 
+      t.name.toLowerCase().includes('mr. bane') || 
+      t.name.toLowerCase().includes('mr bane') ||
+      t.manager?.toLowerCase().includes('demitri')
+    );
+    
+    if (mrBane) return mrBane;
+    
+    // Default to finding the first team that seems to match (could be expanded)
+    return leagueTeams[0] || null;
+  }, [leagueTeams]);
+
   const bestPickupRecommendations = useMemo(() => {
-    if (!currentRoster.length || !filteredPlayers.length) {
+    if (!filteredPlayers.length) {
       return {
-        weakestCategories: [] as string[],
-        strongestCategories: [] as string[],
+        weakestCategories: [] as { key: string; label: string; rank: number }[],
+        strongestCategories: [] as { key: string; label: string; rank: number }[],
         bestForWeak: [] as FreeAgent[],
         bestForStrong: [] as FreeAgent[],
+        userTeamName: null as string | null,
+        hasStandingsData: false,
       };
     }
-
-    const activeRoster = currentRoster.filter(
-      (p) => p.minutes > 0 && p.status !== "IR" && p.status !== "O"
-    );
-    const rosterCount = activeRoster.length || 1;
 
     const cats = [
       { key: "fgPct", label: "FG%", isPct: true, lowerBetter: false },
@@ -641,34 +661,83 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       { key: "points", label: "PTS", isPct: false, lowerBetter: false },
     ] as const;
 
+    let weakest: { key: string; label: string; rank: number }[] = [];
+    let strongest: { key: string; label: string; rank: number }[] = [];
+    let userTeamName: string | null = null;
+    let hasStandingsData = false;
+
+    // If we have standings data, use category rankings from there
+    if (userTeamFromStandings && leagueTeams.length > 1) {
+      hasStandingsData = true;
+      userTeamName = userTeamFromStandings.name;
+      
+      // Calculate rankings for each category based on all teams
+      const categoryRankings: { key: string; label: string; rank: number; value: number }[] = cats.map(cat => {
+        const teamStatKey = cat.key as keyof LeagueTeam;
+        const userValue = userTeamFromStandings[teamStatKey] as number;
+        
+        // Rank teams for this category
+        const sortedTeams = [...leagueTeams].sort((a, b) => {
+          const aVal = a[teamStatKey] as number;
+          const bVal = b[teamStatKey] as number;
+          // TO is lower-better, all others higher-better
+          return cat.lowerBetter ? aVal - bVal : bVal - aVal;
+        });
+        
+        const rank = sortedTeams.findIndex(t => t.name === userTeamFromStandings.name) + 1;
+        
+        return { key: cat.key, label: cat.label, rank, value: userValue };
+      });
+
+      // Weakest = highest rank numbers (worst), strongest = lowest rank numbers (best)
+      const sorted = [...categoryRankings].sort((a, b) => b.rank - a.rank);
+      weakest = sorted.slice(0, 3).map(c => ({ key: c.key, label: c.label, rank: c.rank }));
+      strongest = sorted.slice(-5).reverse().map(c => ({ key: c.key, label: c.label, rank: c.rank }));
+    } else if (currentRoster.length) {
+      // Fallback to roster-based calculation if no standings
+      const activeRoster = currentRoster.filter(
+        (p) => p.minutes > 0 && p.status !== "IR" && p.status !== "O"
+      );
+      const rosterCount = activeRoster.length || 1;
+
+      const teamAvg: Record<string, number> = {};
+      cats.forEach((cat) => {
+        teamAvg[cat.key] =
+          activeRoster.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) /
+          rosterCount;
+      });
+
+      const faCount = filteredPlayers.length || 1;
+      const faAvg: Record<string, number> = {};
+      cats.forEach((cat) => {
+        faAvg[cat.key] =
+          filteredPlayers.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) /
+          faCount;
+      });
+
+      const catScores = cats.map((cat) => {
+        const teamVal = teamAvg[cat.key];
+        const poolVal = faAvg[cat.key];
+        const delta = cat.lowerBetter ? poolVal - teamVal : teamVal - poolVal;
+        return { key: cat.key, label: cat.label, delta, rank: 0 };
+      });
+
+      weakest = [...catScores].sort((a, b) => a.delta - b.delta).slice(0, 3);
+      strongest = [...catScores].sort((a, b) => b.delta - a.delta).slice(0, 5);
+    }
+
+    // Now score free agents based on how much they help in weak/strong categories
+    const activeRoster = currentRoster.filter(
+      (p) => p.minutes > 0 && p.status !== "IR" && p.status !== "O"
+    );
+    const rosterCount = activeRoster.length || 1;
+    
     const teamAvg: Record<string, number> = {};
     cats.forEach((cat) => {
-      teamAvg[cat.key] =
-        activeRoster.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) /
-        rosterCount;
+      teamAvg[cat.key] = rosterCount > 0 
+        ? activeRoster.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) / rosterCount
+        : 0;
     });
-
-    const faCount = filteredPlayers.length || 1;
-    const faAvg: Record<string, number> = {};
-    cats.forEach((cat) => {
-      faAvg[cat.key] =
-        filteredPlayers.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) /
-        faCount;
-    });
-
-    const catScores = cats.map((cat) => {
-      const teamVal = teamAvg[cat.key];
-      const poolVal = faAvg[cat.key];
-      const delta = cat.lowerBetter ? poolVal - teamVal : teamVal - poolVal;
-      return { key: cat.key, label: cat.label, delta };
-    });
-
-    const weakest = [...catScores]
-      .sort((a, b) => a.delta - b.delta)
-      .slice(0, 3);
-    const strongest = [...catScores]
-      .sort((a, b) => b.delta - a.delta)
-      .slice(0, 5);
 
     type Scored = { player: FreeAgent; weakScore: number; strongScore: number };
     const scored: Scored[] = filteredPlayers
@@ -682,7 +751,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         cats.forEach((cat) => {
           const current = teamAvg[cat.key];
           const playerVal = (player as any)[cat.key] as number;
-          const projected = (current * rosterCount + playerVal) / newCount;
+          const projected = rosterCount > 0 ? (current * rosterCount + playerVal) / newCount : playerVal;
 
           const currentWeekly = cat.isPct ? current : current * 40;
           const projectedWeekly = cat.isPct ? projected : projected * 40;
@@ -708,20 +777,81 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       .slice(0, 5)
       .map((s) => s.player);
 
-    // For bestForStrong: include players even if strongScore is 0 or negative, 
-    // just pick top scorers since any FA that excels in your strong categories helps
     const bestForStrong = scored
       .sort((a, b) => b.strongScore - a.strongScore)
       .slice(0, 5)
       .map((s) => s.player);
 
     return {
-      weakestCategories: weakest.map((w) => w.label),
-      strongestCategories: strongest.map((s) => s.label),
+      weakestCategories: weakest,
+      strongestCategories: strongest,
       bestForWeak,
       bestForStrong,
+      userTeamName,
+      hasStandingsData,
     };
-  }, [currentRoster, filteredPlayers]);
+  }, [currentRoster, filteredPlayers, userTeamFromStandings, leagueTeams]);
+
+  // Custom suggestions based on user-selected categories
+  const customSuggestions = useMemo(() => {
+    if (!customSuggestionCategories.length || !filteredPlayers.length) {
+      return [] as FreeAgent[];
+    }
+
+    const cats = [
+      { key: "fgPct", label: "FG%", isPct: true, lowerBetter: false },
+      { key: "ftPct", label: "FT%", isPct: true, lowerBetter: false },
+      { key: "threepm", label: "3PM", isPct: false, lowerBetter: false },
+      { key: "rebounds", label: "REB", isPct: false, lowerBetter: false },
+      { key: "assists", label: "AST", isPct: false, lowerBetter: false },
+      { key: "steals", label: "STL", isPct: false, lowerBetter: false },
+      { key: "blocks", label: "BLK", isPct: false, lowerBetter: false },
+      { key: "turnovers", label: "TO", isPct: false, lowerBetter: true },
+      { key: "points", label: "PTS", isPct: false, lowerBetter: false },
+    ] as const;
+
+    const activeRoster = currentRoster.filter(
+      (p) => p.minutes > 0 && p.status !== "IR" && p.status !== "O"
+    );
+    const rosterCount = activeRoster.length || 1;
+    
+    const teamAvg: Record<string, number> = {};
+    cats.forEach((cat) => {
+      teamAvg[cat.key] = rosterCount > 0 
+        ? activeRoster.reduce((sum, p) => sum + ((p as any)[cat.key] as number || 0), 0) / rosterCount
+        : 0;
+    });
+
+    const scored = filteredPlayers
+      .filter((p) => p.minutes > 0)
+      .map((player) => {
+        const newCount = rosterCount + 1;
+        let score = 0;
+
+        cats.forEach((cat) => {
+          if (!customSuggestionCategories.includes(cat.key)) return;
+          
+          const current = teamAvg[cat.key];
+          const playerVal = (player as any)[cat.key] as number;
+          const projected = rosterCount > 0 ? (current * rosterCount + playerVal) / newCount : playerVal;
+
+          const currentWeekly = cat.isPct ? current : current * 40;
+          const projectedWeekly = cat.isPct ? projected : projected * 40;
+          const weeklyDiff = projectedWeekly - currentWeekly;
+
+          const improvement = cat.lowerBetter ? -weeklyDiff : weeklyDiff;
+          score += improvement;
+        });
+
+        return { player, score };
+      });
+
+    return scored
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map((s) => s.player);
+  }, [customSuggestionCategories, filteredPlayers, currentRoster]);
 
   const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => (
     <th 
@@ -1015,71 +1145,187 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       )}
 
       {/* Best Pickups Recommendations */}
-      {bestPickupRecommendations.bestForWeak.length > 0 && (
+      {(bestPickupRecommendations.bestForWeak.length > 0 || bestPickupRecommendations.hasStandingsData) && (
         <Card className="gradient-card border-border p-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
             <div>
-              <h3 className="font-display font-bold text-sm">Best Pickups</h3>
-              <p className="text-xs text-muted-foreground">
-                Based on your current roster averages. Weakest categories: {bestPickupRecommendations.weakestCategories.join(", ")}. Best categories: {bestPickupRecommendations.strongestCategories.join(", ")}.
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-bold text-sm">Best Pickups</h3>
+                {bestPickupRecommendations.userTeamName && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    {bestPickupRecommendations.userTeamName}
+                  </Badge>
+                )}
+                {bestPickupRecommendations.hasStandingsData && (
+                  <Badge variant="outline" className="text-[10px] text-primary">
+                    Based on League Standings
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {bestPickupRecommendations.hasStandingsData 
+                  ? `Weakest: ${bestPickupRecommendations.weakestCategories.map(c => `${c.label} (#${c.rank})`).join(", ")}. Strongest: ${bestPickupRecommendations.strongestCategories.slice(0, 3).map(c => `${c.label} (#${c.rank})`).join(", ")}.`
+                  : `Based on roster averages. Weakest: ${bestPickupRecommendations.weakestCategories.map(c => c.label).join(", ")}.`
+                }
               </p>
             </div>
+            <Button
+              variant={showCustomSuggestions ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowCustomSuggestions(!showCustomSuggestions)}
+              className="text-xs"
+            >
+              <Settings2 className="w-3 h-3 mr-1" />
+              Custom
+            </Button>
           </div>
+          
+          {/* Custom Category Selector */}
+          {showCustomSuggestions && (
+            <div className="mb-4 p-3 bg-secondary/20 rounded-lg border border-border">
+              <p className="text-xs font-semibold mb-2">Select categories for custom suggestions:</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: "fgPct", label: "FG%" },
+                  { key: "ftPct", label: "FT%" },
+                  { key: "threepm", label: "3PM" },
+                  { key: "rebounds", label: "REB" },
+                  { key: "assists", label: "AST" },
+                  { key: "steals", label: "STL" },
+                  { key: "blocks", label: "BLK" },
+                  { key: "turnovers", label: "TO" },
+                  { key: "points", label: "PTS" },
+                ].map(cat => (
+                  <button
+                    key={cat.key}
+                    onClick={() => {
+                      if (customSuggestionCategories.includes(cat.key)) {
+                        setCustomSuggestionCategories(customSuggestionCategories.filter(c => c !== cat.key));
+                      } else {
+                        setCustomSuggestionCategories([...customSuggestionCategories, cat.key]);
+                      }
+                    }}
+                    className={cn(
+                      "px-2 py-1 rounded text-xs font-medium transition-colors",
+                      customSuggestionCategories.includes(cat.key)
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted hover:bg-muted/80"
+                    )}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+              {customSuggestions.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="font-display font-semibold text-xs text-accent mb-2">
+                    Best for: {customSuggestionCategories.map(k => {
+                      const cat = [
+                        { key: "fgPct", label: "FG%" },
+                        { key: "ftPct", label: "FT%" },
+                        { key: "threepm", label: "3PM" },
+                        { key: "rebounds", label: "REB" },
+                        { key: "assists", label: "AST" },
+                        { key: "steals", label: "STL" },
+                        { key: "blocks", label: "BLK" },
+                        { key: "turnovers", label: "TO" },
+                        { key: "points", label: "PTS" },
+                      ].find(c => c.key === k);
+                      return cat?.label || k;
+                    }).join(", ")}
+                  </h4>
+                  <div className="space-y-1">
+                    {customSuggestions.map((p, index) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded-md hover:bg-accent/10 border border-transparent hover:border-accent/30 transition-colors"
+                        onClick={() => setSelectedPlayer(p)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-accent font-bold">#{index + 1}</span>
+                          <span className="font-semibold">{p.name}</span>
+                          <Badge variant="outline" className="text-[10px] px-1 py-0">{p.positions.join("/")}</Badge>
+                          <span className="text-muted-foreground text-[10px]">{p.nbaTeam}</span>
+                        </div>
+                        <span className="text-muted-foreground text-[10px]">
+                          CRI# {p.criRank}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <h4 className="font-display font-semibold text-xs text-stat-positive mb-2">
                 Help Your Weakest Categories
                 <span className="ml-2 font-normal text-muted-foreground">
-                  ({bestPickupRecommendations.weakestCategories.join(", ")})
+                  ({bestPickupRecommendations.weakestCategories.map(c => 
+                    bestPickupRecommendations.hasStandingsData ? `${c.label} #${c.rank}` : c.label
+                  ).join(", ")})
                 </span>
               </h4>
               <div className="space-y-1">
-                {bestPickupRecommendations.bestForWeak.map((p, index) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded-md hover:bg-stat-positive/10 border border-transparent hover:border-stat-positive/30 transition-colors"
-                    onClick={() => setSelectedPlayer(p)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-stat-positive font-bold">#{index + 1}</span>
-                      <span className="font-semibold">{p.name}</span>
-                      <Badge variant="outline" className="text-[10px] px-1 py-0">{p.positions.join("/")}</Badge>
-                      <span className="text-muted-foreground text-[10px]">{p.nbaTeam}</span>
-                    </div>
-                    <span className="text-muted-foreground text-[10px]">
-                      CRI# {p.criRank}
-                    </span>
-                  </button>
-                ))}
+                {bestPickupRecommendations.bestForWeak.length > 0 ? (
+                  bestPickupRecommendations.bestForWeak.map((p, index) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded-md hover:bg-stat-positive/10 border border-transparent hover:border-stat-positive/30 transition-colors"
+                      onClick={() => setSelectedPlayer(p)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-stat-positive font-bold">#{index + 1}</span>
+                        <span className="font-semibold">{p.name}</span>
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">{p.positions.join("/")}</Badge>
+                        <span className="text-muted-foreground text-[10px]">{p.nbaTeam}</span>
+                      </div>
+                      <span className="text-muted-foreground text-[10px]">
+                        CRI# {p.criRank}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">No recommendations available. Import roster data first.</p>
+                )}
               </div>
             </div>
             <div>
               <h4 className="font-display font-semibold text-xs text-primary mb-2">
                 Supercharge Your Strengths
                 <span className="ml-2 font-normal text-muted-foreground">
-                  ({bestPickupRecommendations.strongestCategories.slice(0, 3).join(", ")})
+                  ({bestPickupRecommendations.strongestCategories.slice(0, 3).map(c => 
+                    bestPickupRecommendations.hasStandingsData ? `${c.label} #${c.rank}` : c.label
+                  ).join(", ")})
                 </span>
               </h4>
               <div className="space-y-1">
-                {bestPickupRecommendations.bestForStrong.map((p, index) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded-md hover:bg-primary/10 border border-transparent hover:border-primary/30 transition-colors"
-                    onClick={() => setSelectedPlayer(p)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-primary font-bold">#{index + 1}</span>
-                      <span className="font-semibold">{p.name}</span>
-                      <Badge variant="outline" className="text-[10px] px-1 py-0">{p.positions.join("/")}</Badge>
-                      <span className="text-muted-foreground text-[10px]">{p.nbaTeam}</span>
-                    </div>
-                    <span className="text-muted-foreground text-[10px]">
-                      CRI# {p.criRank}
-                    </span>
-                  </button>
-                ))}
+                {bestPickupRecommendations.bestForStrong.length > 0 ? (
+                  bestPickupRecommendations.bestForStrong.map((p, index) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded-md hover:bg-primary/10 border border-transparent hover:border-primary/30 transition-colors"
+                      onClick={() => setSelectedPlayer(p)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-primary font-bold">#{index + 1}</span>
+                        <span className="font-semibold">{p.name}</span>
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">{p.positions.join("/")}</Badge>
+                        <span className="text-muted-foreground text-[10px]">{p.nbaTeam}</span>
+                      </div>
+                      <span className="text-muted-foreground text-[10px]">
+                        CRI# {p.criRank}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">No recommendations available. Import roster data first.</p>
+                )}
               </div>
             </div>
           </div>

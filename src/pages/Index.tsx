@@ -544,6 +544,7 @@ const Index = () => {
               persistedPlayers={freeAgents} 
               onPlayersChange={setFreeAgents}
               currentRoster={rosterWithCRI.map(slot => slot.player)}
+              leagueTeams={leagueTeams}
             />
           </TabsContent>
 
