@@ -614,11 +614,15 @@ Navigate to their team page and copy the whole page.`}
             <p className="text-xs text-muted-foreground mb-0.5">Opponent</p>
             <p className="font-display font-bold text-base md:text-lg truncate">
               {persistedMatchup.opponent.name}
+              {persistedMatchup.opponent.record && persistedMatchup.opponent.record !== '—' && (
+                <span className="text-sm font-normal text-muted-foreground ml-1">
+                  ({persistedMatchup.opponent.record}{persistedMatchup.opponent.standing && `, ${persistedMatchup.opponent.standing}`})
+                </span>
+              )}
             </p>
             {persistedMatchup.opponent.owner && (
               <p className="text-[10px] text-muted-foreground">{persistedMatchup.opponent.owner}</p>
             )}
-            <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.record}</p>
           </div>
         </div>
 
@@ -651,17 +655,17 @@ Navigate to their team page and copy the whole page.`}
             <span className="text-[10px] text-muted-foreground">×{MULTIPLIER}</span>
           </div>
           <div className="grid grid-cols-5 gap-1.5 mb-2">
-            <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} multiplier={MULTIPLIER} />
-            <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} multiplier={MULTIPLIER} />
-            <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} multiplier={MULTIPLIER} />
-            <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} multiplier={MULTIPLIER} />
-            <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} multiplier={MULTIPLIER} />
-          </div>
-          <div className="grid grid-cols-4 gap-1.5">
-            <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} multiplier={MULTIPLIER} />
-            <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} multiplier={MULTIPLIER} />
             <StatBox label="FG%" avg={persistedMatchup.myTeam.stats.fgPct} isPct />
             <StatBox label="FT%" avg={persistedMatchup.myTeam.stats.ftPct} isPct />
+            <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} multiplier={MULTIPLIER} />
+            <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} multiplier={MULTIPLIER} />
+            <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} multiplier={MULTIPLIER} />
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} multiplier={MULTIPLIER} />
+            <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} multiplier={MULTIPLIER} />
+            <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} multiplier={MULTIPLIER} />
+            <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} multiplier={MULTIPLIER} />
           </div>
         </Card>
 
@@ -671,17 +675,17 @@ Navigate to their team page and copy the whole page.`}
             <span className="text-[10px] text-muted-foreground">×{MULTIPLIER}</span>
           </div>
           <div className="grid grid-cols-5 gap-1.5 mb-2">
-            <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} multiplier={MULTIPLIER} />
-            <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} multiplier={MULTIPLIER} />
-            <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} multiplier={MULTIPLIER} />
-            <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} multiplier={MULTIPLIER} />
-            <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} multiplier={MULTIPLIER} />
-          </div>
-          <div className="grid grid-cols-4 gap-1.5">
-            <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} multiplier={MULTIPLIER} />
-            <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} multiplier={MULTIPLIER} />
             <StatBox label="FG%" avg={persistedMatchup.opponent.stats.fgPct} isPct />
             <StatBox label="FT%" avg={persistedMatchup.opponent.stats.ftPct} isPct />
+            <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} multiplier={MULTIPLIER} />
+            <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} multiplier={MULTIPLIER} />
+            <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} multiplier={MULTIPLIER} />
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} multiplier={MULTIPLIER} />
+            <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} multiplier={MULTIPLIER} />
+            <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} multiplier={MULTIPLIER} />
+            <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} multiplier={MULTIPLIER} />
           </div>
         </Card>
       </div>

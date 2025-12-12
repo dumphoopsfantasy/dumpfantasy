@@ -5,7 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Settings2, Link2, RefreshCw, Database, Upload } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Settings2, Link2, RefreshCw, Database, Upload, MessageSquare, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 export const Settings = () => {
@@ -16,6 +17,8 @@ export const Settings = () => {
     swid: "",
     espnS2: "",
   });
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   const handleSave = () => {
     // TODO: Save settings to local storage or backend
@@ -150,6 +153,81 @@ export const Settings = () => {
               <span>Export Data</span>
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Feedback */}
+      <Card className="gradient-card border-border">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <MessageSquare className="w-5 h-5 text-primary" />
+            <div>
+              <CardTitle className="font-display">Questions / Comments</CardTitle>
+              <CardDescription>Send us your feedback or suggestions</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {feedbackSubmitted ? (
+            <div className="text-center py-4">
+              <p className="text-stat-positive font-semibold">Thank you for your feedback!</p>
+              <p className="text-sm text-muted-foreground mt-1">We appreciate you taking the time to reach out.</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-3"
+                onClick={() => {
+                  setFeedbackSubmitted(false);
+                  setFeedbackMessage("");
+                }}
+              >
+                Send Another
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="feedback">Your Message</Label>
+                <Textarea
+                  id="feedback"
+                  placeholder="Share your thoughts, report a bug, or suggest a feature..."
+                  value={feedbackMessage}
+                  onChange={(e) => setFeedbackMessage(e.target.value)}
+                  className="min-h-[100px]"
+                />
+              </div>
+              <Button 
+                onClick={() => {
+                  if (!feedbackMessage.trim()) {
+                    toast({
+                      title: "Message required",
+                      description: "Please enter a message before submitting.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  
+                  const timestamp = new Date().toISOString();
+                  const subject = encodeURIComponent("DumpHoops Feedback");
+                  const body = encodeURIComponent(
+                    `Message:\n${feedbackMessage}\n\n---\nTimestamp: ${timestamp}\nSent from: DumpHoops Analytics Settings`
+                  );
+                  
+                  window.open(`mailto:dumpyourproducer@gmail.com?subject=${subject}&body=${body}`, '_blank');
+                  setFeedbackSubmitted(true);
+                  
+                  toast({
+                    title: "Email client opened",
+                    description: "Complete sending in your email app to submit feedback.",
+                  });
+                }}
+                className="w-full flex items-center gap-2"
+              >
+                <Send className="w-4 h-4" />
+                Submit Feedback
+              </Button>
+            </>
+          )}
         </CardContent>
       </Card>
 

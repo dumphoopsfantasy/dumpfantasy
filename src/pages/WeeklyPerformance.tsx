@@ -522,15 +522,21 @@ Only data below "Scoreboard" will be parsed.`}
                       </div>
                     </td>
                     <td className="p-3 text-center">
-                      <span className={cn(
-                        "font-bold text-base",
-                        row.weekWins > row.weekLosses ? "text-stat-positive" : 
-                        row.weekWins < row.weekLosses ? "text-stat-negative" : "text-muted-foreground"
-                      )}>
-                        {row.team.weekRecord && row.team.weekRecord !== '—' 
+                      {(() => {
+                        // Parse W-L-T from weekRecord to determine color
+                        const record = row.team.weekRecord && row.team.weekRecord !== '—' 
                           ? row.team.weekRecord 
-                          : `${row.weekWins}-${row.weekLosses}-0`}
-                      </span>
+                          : `${row.weekWins}-${row.weekLosses}-0`;
+                        const parts = record.match(/^(\d+)-(\d+)-(\d+)$/);
+                        const w = parts ? parseInt(parts[1]) : row.weekWins;
+                        const l = parts ? parseInt(parts[2]) : row.weekLosses;
+                        const colorClass = w > l ? "text-stat-positive" : w < l ? "text-stat-negative" : "text-muted-foreground";
+                        return (
+                          <span className={cn("font-bold text-base", colorClass)}>
+                            {record}
+                          </span>
+                        );
+                      })()}
                     </td>
                     {CATEGORIES.map(cat => {
                       const value = row.team.stats[cat.key as keyof typeof row.team.stats];
