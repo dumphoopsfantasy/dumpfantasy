@@ -70,15 +70,15 @@ export const PlayerRankings = ({ players, onPlayerClick, leagueTeams = [] }: Pla
   };
 
   const rankings = [
-    { label: "Points Leader", icon: <Trophy className="w-4 h-4" />, player: getTopPlayer("points"), stat: "points", suffix: "PPG", format: "num" },
-    { label: "Rebounds Leader", icon: <Shield className="w-4 h-4" />, player: getTopPlayer("rebounds"), stat: "rebounds", suffix: "RPG", format: "num" },
-    { label: "Assists Leader", icon: <Target className="w-4 h-4" />, player: getTopPlayer("assists"), stat: "assists", suffix: "APG", format: "num" },
-    { label: "3PM Leader", icon: <Crosshair className="w-4 h-4" />, player: getTopPlayer("threepm"), stat: "threepm", suffix: "3PM", format: "num" },
-    { label: "Steals Leader", icon: <Hand className="w-4 h-4" />, player: getTopPlayer("steals"), stat: "steals", suffix: "SPG", format: "num" },
-    { label: "Blocks Leader", icon: <Zap className="w-4 h-4" />, player: getTopPlayer("blocks"), stat: "blocks", suffix: "BPG", format: "num" },
     { label: "FG% Leader", icon: <Percent className="w-4 h-4" />, player: getTopPlayer("fgPct"), stat: "fgPct", suffix: "FG%", format: "pct" },
     { label: "FT% Leader", icon: <Percent className="w-4 h-4" />, player: getTopPlayer("ftPct"), stat: "ftPct", suffix: "FT%", format: "pct" },
+    { label: "3PM Leader", icon: <Crosshair className="w-4 h-4" />, player: getTopPlayer("threepm"), stat: "threepm", suffix: "3PM", format: "num" },
+    { label: "Rebounds Leader", icon: <Shield className="w-4 h-4" />, player: getTopPlayer("rebounds"), stat: "rebounds", suffix: "RPG", format: "num" },
+    { label: "Assists Leader", icon: <Target className="w-4 h-4" />, player: getTopPlayer("assists"), stat: "assists", suffix: "APG", format: "num" },
+    { label: "Steals Leader", icon: <Hand className="w-4 h-4" />, player: getTopPlayer("steals"), stat: "steals", suffix: "SPG", format: "num" },
+    { label: "Blocks Leader", icon: <Zap className="w-4 h-4" />, player: getTopPlayer("blocks"), stat: "blocks", suffix: "BPG", format: "num" },
     { label: "Fewest TO", icon: <TrendingDown className="w-4 h-4" />, player: getTopPlayer("turnovers", true), stat: "turnovers", suffix: "TO", format: "num" },
+    { label: "Points Leader", icon: <Trophy className="w-4 h-4" />, player: getTopPlayer("points"), stat: "points", suffix: "PPG", format: "num" },
   ];
 
   const formatValue = (value: number, format: string) => {
