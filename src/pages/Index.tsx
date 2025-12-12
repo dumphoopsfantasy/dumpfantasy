@@ -346,10 +346,21 @@ const Index = () => {
   const bench = rosterWithCRI.filter((s) => s.slotType === "bench");
   const ir = rosterWithCRI.filter((s) => s.slotType === "ir");
 
+  // Extract unique NBA team codes from roster for sidebar
+  const rosterTeams = useMemo(() => {
+    const teams = new Set<string>();
+    rosterWithCRI.forEach(slot => {
+      if (slot.player.nbaTeam) {
+        teams.add(slot.player.nbaTeam.toUpperCase());
+      }
+    });
+    return Array.from(teams);
+  }, [rosterWithCRI]);
+
   return (
     <div className="min-h-screen bg-background">
       {/* NBA Scores Sidebar */}
-      <NBAScoresSidebar />
+      <NBAScoresSidebar rosterTeams={rosterTeams} />
       
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">

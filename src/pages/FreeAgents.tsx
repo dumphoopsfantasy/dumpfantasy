@@ -1198,7 +1198,9 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 ].map(cat => (
                   <button
                     key={cat.key}
-                    onClick={() => {
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (customSuggestionCategories.includes(cat.key)) {
                         setCustomSuggestionCategories(customSuggestionCategories.filter(c => c !== cat.key));
                       } else {
@@ -1446,13 +1448,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       </td>
                       {/* Bonus insight stats on right */}
                       <td className="text-center p-2 text-muted-foreground border-l border-muted-foreground/30">
-                        {player.pr15 ? player.pr15.toFixed(2) : '—'}
+                        {player.pr15 !== undefined && player.pr15 !== null ? player.pr15.toFixed(2) : '—'}
                       </td>
                       <td className="text-center p-2 text-muted-foreground">
-                        {player.rosterPct ? `${player.rosterPct.toFixed(1)}%` : '—'}
+                        {player.rosterPct !== undefined && player.rosterPct !== null ? `${player.rosterPct.toFixed(1)}%` : '—'}
                       </td>
                       <td className="text-center p-2 text-muted-foreground">
-                        {player.plusMinus !== 0 ? (player.plusMinus >= 0 ? '+' : '') + player.plusMinus.toFixed(1) : '—'}
+                        {player.plusMinus !== undefined && player.plusMinus !== null ? (player.plusMinus >= 0 ? '+' : '') + player.plusMinus.toFixed(1) : '—'}
                       </td>
                     </>
                   )}

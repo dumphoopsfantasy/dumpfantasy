@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight, RefreshCw, Calendar, TrendingUp, Wifi, WifiOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, Calendar, TrendingUp, Wifi, WifiOff, Users, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
@@ -12,7 +12,11 @@ import {
   formatDisplayDate
 } from "@/lib/nbaApi";
 
-export function NBAScoresSidebar() {
+interface NBAScoresSidebarProps {
+  rosterTeams?: string[]; // NBA team codes of players on user's roster
+}
+
+export function NBAScoresSidebar({ rosterTeams = [] }: NBAScoresSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [yesterdayScores, setYesterdayScores] = useState<NBAGame[]>([]);
   const [tonightGames, setTonightGames] = useState<NBAScheduleGame[]>([]);
@@ -92,6 +96,17 @@ export function NBAScoresSidebar() {
     return formatDisplayDate(date);
   };
 
+  // Check if user has players on a team
+  const hasRosterPlayer = (teamCode: string) => {
+    return rosterTeams.includes(teamCode) || rosterTeams.includes(teamCode.toUpperCase());
+  };
+
+  // Open ESPN game page
+  const openGamePage = (homeTeam: string, awayTeam: string) => {
+    // ESPN game URLs follow a pattern, but we'll use the scoreboard for simplicity
+    window.open(`https://www.espn.com/nba/scoreboard`, '_blank');
+  };
+
   return (
     <>
       {/* Toggle Button - Always visible */}
@@ -160,35 +175,51 @@ export function NBAScoresSidebar() {
                   No games played
                 </p>
               ) : (
-                yesterdayScores.map((game) => (
-                  <div key={game.gameId} className="bg-secondary/50 rounded-lg p-2.5 hover:bg-secondary/70 transition-colors">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <NBATeamLogo teamCode={game.awayTeam} size="xs" />
-                        <span className="text-sm font-medium">{game.awayTeam}</span>
+                yesterdayScores.map((game) => {
+                  const hasPlayerInGame = hasRosterPlayer(game.homeTeam) || hasRosterPlayer(game.awayTeam);
+                  return (
+                    <button
+                      key={game.gameId}
+                      onClick={() => openGamePage(game.homeTeam, game.awayTeam)}
+                      className={`w-full bg-secondary/50 rounded-lg p-2.5 hover:bg-secondary/70 transition-colors text-left ${
+                        hasPlayerInGame ? 'ring-1 ring-primary/50' : ''
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <NBATeamLogo teamCode={game.awayTeam} size="xs" />
+                          <span className="text-sm font-medium">{game.awayTeam}</span>
+                          {hasRosterPlayer(game.awayTeam) && (
+                            <Users className="w-3 h-3 text-primary" />
+                          )}
+                        </div>
+                        <span className={`text-sm font-bold ${game.awayScore > game.homeScore ? "text-stat-positive" : "text-muted-foreground"}`}>
+                          {game.awayScore}
+                        </span>
                       </div>
-                      <span className={`text-sm font-bold ${game.awayScore > game.homeScore ? "text-stat-positive" : "text-muted-foreground"}`}>
-                        {game.awayScore}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <NBATeamLogo teamCode={game.homeTeam} size="xs" />
-                        <span className="text-sm font-medium">{game.homeTeam}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <NBATeamLogo teamCode={game.homeTeam} size="xs" />
+                          <span className="text-sm font-medium">{game.homeTeam}</span>
+                          {hasRosterPlayer(game.homeTeam) && (
+                            <Users className="w-3 h-3 text-primary" />
+                          )}
+                        </div>
+                        <span className={`text-sm font-bold ${game.homeScore > game.awayScore ? "text-stat-positive" : "text-muted-foreground"}`}>
+                          {game.homeScore}
+                        </span>
                       </div>
-                      <span className={`text-sm font-bold ${game.homeScore > game.awayScore ? "text-stat-positive" : "text-muted-foreground"}`}>
-                        {game.homeScore}
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground text-center mt-1.5 pt-1.5 border-t border-border">
-                      {game.isLive ? (
-                        <span className="text-stat-positive animate-pulse font-medium">● LIVE - {game.status}</span>
-                      ) : (
-                        <span className="font-medium">{game.status}</span>
-                      )}
-                    </div>
-                  </div>
-                ))
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mt-1.5 pt-1.5 border-t border-border">
+                        {game.isLive ? (
+                          <span className="text-stat-positive animate-pulse font-medium">● LIVE - {game.status}</span>
+                        ) : (
+                          <span className="font-medium">{game.status}</span>
+                        )}
+                        <ExternalLink className="w-3 h-3 opacity-50" />
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
@@ -207,32 +238,50 @@ export function NBAScoresSidebar() {
                   No games scheduled
                 </p>
               ) : (
-                tonightGames.map((game) => (
-                  <div key={game.gameId} className="bg-secondary/50 rounded-lg p-2.5 hover:bg-secondary/70 transition-colors">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <NBATeamLogo teamCode={game.awayTeam} size="xs" />
-                        <span className="text-sm font-medium">{game.awayTeam}</span>
+                tonightGames.map((game) => {
+                  const hasPlayerInGame = hasRosterPlayer(game.homeTeam) || hasRosterPlayer(game.awayTeam);
+                  return (
+                    <button
+                      key={game.gameId}
+                      onClick={() => openGamePage(game.homeTeam, game.awayTeam)}
+                      className={`w-full bg-secondary/50 rounded-lg p-2.5 hover:bg-secondary/70 transition-colors text-left ${
+                        hasPlayerInGame ? 'ring-1 ring-primary/50' : ''
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <NBATeamLogo teamCode={game.awayTeam} size="xs" />
+                          <span className="text-sm font-medium">{game.awayTeam}</span>
+                          {hasRosterPlayer(game.awayTeam) && (
+                            <Users className="w-3 h-3 text-primary" />
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">@</span>
                       </div>
-                      <span className="text-xs text-muted-foreground">@</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <NBATeamLogo teamCode={game.homeTeam} size="xs" />
-                        <span className="text-sm font-medium">{game.homeTeam}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <NBATeamLogo teamCode={game.homeTeam} size="xs" />
+                          <span className="text-sm font-medium">{game.homeTeam}</span>
+                          {hasRosterPlayer(game.homeTeam) && (
+                            <Users className="w-3 h-3 text-primary" />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-xs text-center mt-1.5 pt-1.5 border-t border-border font-semibold">
-                      {game.gameTime === 'Final' ? (
-                        <span className="text-muted-foreground">Final</span>
-                      ) : game.gameTime.includes('Qtr') || game.gameTime === 'Halftime' ? (
-                        <span className="text-stat-positive animate-pulse">● {game.gameTime}</span>
-                      ) : (
-                        <span className="text-primary">{game.gameTime}</span>
-                      )}
-                    </div>
-                  </div>
-                ))
+                      <div className="flex items-center justify-between text-xs mt-1.5 pt-1.5 border-t border-border">
+                        <span className="font-semibold">
+                          {game.gameTime === 'Final' ? (
+                            <span className="text-muted-foreground">Final</span>
+                          ) : game.gameTime.includes('Qtr') || game.gameTime === 'Halftime' ? (
+                            <span className="text-stat-positive animate-pulse">● {game.gameTime}</span>
+                          ) : (
+                            <span className="text-primary">{game.gameTime}</span>
+                          )}
+                        </span>
+                        <ExternalLink className="w-3 h-3 opacity-50 text-muted-foreground" />
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
@@ -246,6 +295,12 @@ export function NBAScoresSidebar() {
                 <>Sample data shown. Refresh to try live data.</>
               )}
             </p>
+            {rosterTeams.length > 0 && (
+              <p className="text-[10px] text-primary text-center mt-1 flex items-center justify-center gap-1">
+                <Users className="w-3 h-3" />
+                = Your players in this game
+              </p>
+            )}
           </div>
         </div>
       </div>
