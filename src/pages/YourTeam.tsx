@@ -465,6 +465,7 @@ export const YourTeam = () => {
         player={selectedPlayer}
         open={!!selectedPlayer}
         onOpenChange={(open) => !open && setSelectedPlayer(null)}
+        allPlayers={roster.map(slot => slot.player)}
       />
     </div>
   );

@@ -19,6 +19,7 @@ export interface NBAScheduleGame {
   awayTeam: string;
   gameTime: string;
   arena?: string;
+  startTime?: string;
 }
 
 export interface PlayerNews {
@@ -26,7 +27,7 @@ export interface PlayerNews {
   description: string;
   source: string;
   date: string;
-  url?: string;
+  url: string;
 }
 
 // Get yesterday's date
@@ -85,113 +86,46 @@ export const getSampleYesterdayScores = (): NBAGame[] => {
 
 export const getSampleTodayGames = (): NBAScheduleGame[] => {
   return [
-    { gameId: "3", homeTeam: "DET", awayTeam: "ATL", gameTime: "7:00 PM" },
-    { gameId: "4", homeTeam: "PHI", awayTeam: "IND", gameTime: "7:30 PM" },
+    { gameId: "3", homeTeam: "DET", awayTeam: "ATL", gameTime: "7:00 PM", startTime: "7:00 PM ET" },
+    { gameId: "4", homeTeam: "PHI", awayTeam: "IND", gameTime: "7:30 PM", startTime: "7:30 PM ET" },
   ];
-};
-
-// ESPN player ID database for direct links
-const ESPN_PLAYER_IDS: Record<string, string> = {
-  "LeBron James": "1966",
-  "Stephen Curry": "3975",
-  "Kevin Durant": "3202",
-  "Giannis Antetokounmpo": "3032977",
-  "Luka Doncic": "3945274",
-  "Nikola Jokic": "3112335",
-  "Joel Embiid": "3059318",
-  "Jayson Tatum": "4065648",
-  "Damian Lillard": "6606",
-  "Anthony Davis": "6583",
-  "Jimmy Butler": "6430",
-  "Kawhi Leonard": "6450",
-  "Paul George": "4251",
-  "Kyrie Irving": "6442",
-  "Devin Booker": "3136193",
-  "Ja Morant": "4279888",
-  "Trae Young": "4277905",
-  "Donovan Mitchell": "3908809",
-  "Bam Adebayo": "4066261",
-  "Jaylen Brown": "3917376",
-  "Zion Williamson": "4395628",
-  "Anthony Edwards": "4594327",
-  "Tyrese Haliburton": "4395725",
-  "De'Aaron Fox": "4066259",
-  "Domantas Sabonis": "3155942",
-  "Pascal Siakam": "3149673",
-  "Karl-Anthony Towns": "4066533",
-  "Rudy Gobert": "3032976",
-  "DeMar DeRozan": "3978",
-  "Bradley Beal": "6580",
-  "Khris Middleton": "6609",
-  "Jrue Holiday": "4238",
-  "Chris Paul": "2779",
-  "Jamal Murray": "3936299",
-  "James Harden": "3992",
-  "Russell Westbrook": "3468",
-  "Kristaps Porzingis": "3102531",
-  "Brandon Ingram": "4066328",
-  "CJ McCollum": "2490149",
-  "Fred VanVleet": "2991230",
-  "Tyrese Maxey": "4431678",
-  "Scottie Barnes": "4594268",
-  "Cade Cunningham": "4432158",
-  "Evan Mobley": "4594327",
-  "Franz Wagner": "4432166",
-  "Paolo Banchero": "4433134",
-  "Victor Wembanyama": "4871934",
-  "Chet Holmgren": "4432809",
-};
-
-// Generate ESPN player URL
-const getESPNPlayerUrl = (playerName: string): string => {
-  const playerId = ESPN_PLAYER_IDS[playerName];
-  if (playerId) {
-    // Direct ESPN player page
-    return `https://www.espn.com/nba/player/_/id/${playerId}`;
-  }
-  // Fallback to ESPN search
-  const searchName = playerName.toLowerCase().replace(/\s+/g, '+');
-  return `https://www.espn.com/nba/player/_/name/${searchName}`;
 };
 
 // Generate player news with real, clickable URLs
 export const fetchPlayerNews = async (playerName: string): Promise<PlayerNews[]> => {
-  const firstName = playerName.split(' ')[0];
-  const lastName = playerName.split(' ').slice(1).join(' ') || firstName;
   const encodedName = encodeURIComponent(playerName);
-  const espnUrl = getESPNPlayerUrl(playerName);
+  const searchName = playerName.toLowerCase().replace(/\s+/g, '-');
+  const googleSearchName = playerName.replace(/\s+/g, '+');
   
   // Generate news with real, working URLs
-  const newsTemplates: PlayerNews[] = [
+  return [
     {
-      headline: `${playerName} - Full Player Profile & Stats`,
-      description: `View ${playerName}'s complete career statistics, game logs, news, and fantasy projections on ESPN.`,
+      headline: `${playerName} - ESPN Player Profile`,
+      description: `View complete stats, game logs, news and fantasy info for ${playerName} on ESPN.`,
       source: "ESPN",
-      date: "Live",
-      url: espnUrl,
+      date: "Profile",
+      url: `https://www.espn.com/nba/player/_/name/${searchName}`,
     },
     {
-      headline: `Latest news and updates for ${lastName}`,
-      description: `Search Google News for the most recent stories, injury reports, and analysis about ${playerName}.`,
+      headline: `Latest ${playerName} News`,
+      description: `Search for the most recent news articles, injury updates, and analysis.`,
       source: "Google News",
       date: "Search",
-      url: `https://news.google.com/search?q=${encodedName}+NBA`,
+      url: `https://www.google.com/search?q=${googleSearchName}+NBA+news&tbm=nws`,
     },
     {
-      headline: `${playerName} Fantasy Basketball Analysis`,
-      description: `Expert fantasy basketball analysis, rankings, and trade values for ${playerName}.`,
-      source: "Yahoo Fantasy",
-      date: "Analysis",
-      url: `https://sports.yahoo.com/search?query=${encodedName}`,
+      headline: `${playerName} Fantasy Analysis`,
+      description: `Expert fantasy rankings, trade values, and projections.`,
+      source: "Yahoo Sports",
+      date: "Fantasy",
+      url: `https://sports.yahoo.com/nba/players/${searchName}/`,
     },
     {
-      headline: `${lastName} Highlights & Game Recaps`,
-      description: `Watch ${playerName}'s latest highlights, interviews, and game recaps on YouTube.`,
+      headline: `${playerName} Highlights`,
+      description: `Watch recent game highlights, interviews, and top plays.`,
       source: "YouTube",
       date: "Video",
-      url: `https://www.youtube.com/results?search_query=${encodedName}+highlights`,
+      url: `https://www.youtube.com/results?search_query=${encodedName}+highlights+2024`,
     },
   ];
-  
-  return newsTemplates;
 };
