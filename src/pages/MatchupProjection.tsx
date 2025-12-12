@@ -119,12 +119,19 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
           record = recordMatch[1];
           standing = `${standingMatch[1]}${standingMatch[2]} of ${standingMatch[3]}`;
           
-          // Look for owner name after standing (usually next line with two capitalized words)
-          if (i + 1 < lines.length) {
-            const ownerLine = lines[i + 1];
+          // Look for owner name after standing - typically "FirstName LastName" pattern
+          // Also look for league name pattern like "All Hail Wemby" followed by owner
+          for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+            const ownerLine = lines[j];
+            // Skip league name or short tokens
+            if (ownerLine.length < 5) continue;
+            if (/^(Waiver|Full|Last|Current|Set|Trade|Matchup|Season|Dec|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Today|Fri|Sat|Sun|Mon|Tue|Wed|Thu)/i.test(ownerLine)) continue;
+            
+            // Match owner pattern: "FirstName LastName" (two capitalized words)
             const ownerMatch = ownerLine.match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)$/);
             if (ownerMatch) {
               owner = ownerMatch[1];
+              break;
             }
           }
           break; // Found the main team info block
@@ -500,98 +507,76 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </Card>
 
-      {/* Matchup Summary */}
-      <Card className="gradient-card border-border p-6">
-        <div className="flex items-center justify-center gap-4 md:gap-8">
-          <div className="text-center">
-            <p className="text-sm text-muted-foreground mb-1">Your Team</p>
-            <p className="font-display font-bold text-xl md:text-2xl">
+      {/* Matchup Summary - Compact */}
+      <Card className="gradient-card border-border p-4">
+        <div className="flex items-center justify-center gap-3 md:gap-6">
+          <div className="text-center flex-1 max-w-[200px]">
+            <p className="text-xs text-muted-foreground mb-0.5">Your Team</p>
+            <p className="font-display font-bold text-base md:text-lg truncate">
               {persistedMatchup.myTeam.name}
-              {persistedMatchup.myTeam.abbr && (
-                <span className="text-muted-foreground font-normal text-base ml-1">({persistedMatchup.myTeam.abbr})</span>
-              )}
             </p>
             {persistedMatchup.myTeam.owner && (
-              <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.owner}</p>
+              <p className="text-[10px] text-muted-foreground">{persistedMatchup.myTeam.owner}</p>
             )}
-            {persistedMatchup.myTeam.record && (
-              <p className="text-sm text-muted-foreground">{persistedMatchup.myTeam.record}</p>
-            )}
-            {persistedMatchup.myTeam.standing && (
-              <p className="text-xs text-primary">({persistedMatchup.myTeam.standing})</p>
-            )}
-            {persistedMatchup.myTeam.lastMatchup && (
-              <p className="text-[10px] text-muted-foreground mt-1">Last: {persistedMatchup.myTeam.lastMatchup}</p>
-            )}
+            <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.record}</p>
           </div>
           
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary/30">
-            <span className="font-display font-bold text-2xl md:text-4xl text-stat-positive">{wins}</span>
-            <span className="text-muted-foreground">-</span>
-            <span className="font-display font-bold text-2xl md:text-4xl text-stat-negative">{losses}</span>
-            <span className="text-muted-foreground">-</span>
-            <span className="font-display font-bold text-2xl md:text-4xl text-muted-foreground">{ties}</span>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/30">
+            <span className="font-display font-bold text-xl md:text-2xl text-stat-positive">{wins}</span>
+            <span className="text-muted-foreground text-sm">-</span>
+            <span className="font-display font-bold text-xl md:text-2xl text-stat-negative">{losses}</span>
+            <span className="text-muted-foreground text-sm">-</span>
+            <span className="font-display font-bold text-xl md:text-2xl text-muted-foreground">{ties}</span>
           </div>
           
-          <div className="text-center">
-            <p className="text-sm text-muted-foreground mb-1">Opponent</p>
-            <p className="font-display font-bold text-xl md:text-2xl">
+          <div className="text-center flex-1 max-w-[200px]">
+            <p className="text-xs text-muted-foreground mb-0.5">Opponent</p>
+            <p className="font-display font-bold text-base md:text-lg truncate">
               {persistedMatchup.opponent.name}
-              {persistedMatchup.opponent.abbr && (
-                <span className="text-muted-foreground font-normal text-base ml-1">({persistedMatchup.opponent.abbr})</span>
-              )}
             </p>
             {persistedMatchup.opponent.owner && (
-              <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.owner}</p>
+              <p className="text-[10px] text-muted-foreground">{persistedMatchup.opponent.owner}</p>
             )}
-            {persistedMatchup.opponent.record && (
-              <p className="text-sm text-muted-foreground">{persistedMatchup.opponent.record}</p>
-            )}
-            {persistedMatchup.opponent.standing && (
-              <p className="text-xs text-primary">({persistedMatchup.opponent.standing})</p>
-            )}
-            {persistedMatchup.opponent.lastMatchup && (
-              <p className="text-[10px] text-muted-foreground mt-1">Last: {persistedMatchup.opponent.lastMatchup}</p>
-            )}
+            <p className="text-xs text-muted-foreground">{persistedMatchup.opponent.record}</p>
           </div>
         </div>
 
-        <div className="text-center mt-4 pt-4 border-t border-border">
+        <div className="text-center mt-3 pt-3 border-t border-border">
           {wins > losses ? (
-            <p className="text-stat-positive font-display font-bold flex items-center justify-center gap-2">
-              <Trophy className="w-5 h-5" />
-              You are projected to WIN {wins}-{losses}-{ties}
+            <p className="text-stat-positive font-display font-semibold text-sm flex items-center justify-center gap-1.5">
+              <Trophy className="w-4 h-4" />
+              Projected WIN {wins}-{losses}-{ties}
             </p>
           ) : wins < losses ? (
-            <p className="text-stat-negative font-display font-bold flex items-center justify-center gap-2">
-              <Target className="w-5 h-5" />
-              You are projected to LOSE {losses}-{wins}-{ties}
+            <p className="text-stat-negative font-display font-semibold text-sm flex items-center justify-center gap-1.5">
+              <Target className="w-4 h-4" />
+              Projected LOSE {losses}-{wins}-{ties}
             </p>
           ) : (
-            <p className="text-muted-foreground font-display font-bold flex items-center justify-center gap-2">
-              <Minus className="w-5 h-5" />
+            <p className="text-muted-foreground font-display font-semibold text-sm flex items-center justify-center gap-1.5">
+              <Minus className="w-4 h-4" />
               Projected TIE {wins}-{losses}-{ties}
             </p>
           )}
         </div>
       </Card>
 
-      {/* Team Averages Summary */}
-      <div className="grid md:grid-cols-2 gap-4">
+      {/* Team Averages Summary - Compact */}
+      <div className="grid md:grid-cols-2 gap-3">
         {/* Your Team */}
-        <Card className="gradient-card border-border p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-display font-bold text-stat-positive">{persistedMatchup.myTeam.name}</h3>
-            <span className="text-xs text-muted-foreground">Avg × {MULTIPLIER}</span>
+        <Card className="gradient-card border-border p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
+            <span className="text-[10px] text-muted-foreground">×{MULTIPLIER}</span>
           </div>
-          <div className="grid grid-cols-5 gap-2 mb-3">
+          <div className="grid grid-cols-5 gap-1.5 mb-2">
             <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} multiplier={MULTIPLIER} />
             <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} multiplier={MULTIPLIER} />
             <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} multiplier={MULTIPLIER} />
             <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} multiplier={MULTIPLIER} />
             <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} multiplier={MULTIPLIER} />
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-1.5">
             <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} multiplier={MULTIPLIER} />
             <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} multiplier={MULTIPLIER} />
             <StatBox label="FG%" avg={persistedMatchup.myTeam.stats.fgPct} isPct />
@@ -599,19 +584,19 @@ Navigate to their team page and copy the whole page.`}
           </div>
         </Card>
 
-        <Card className="gradient-card border-border p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-display font-bold text-stat-negative">{persistedMatchup.opponent.name}</h3>
-            <span className="text-xs text-muted-foreground">Avg × {MULTIPLIER}</span>
+        <Card className="gradient-card border-border p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
+            <span className="text-[10px] text-muted-foreground">×{MULTIPLIER}</span>
           </div>
-          <div className="grid grid-cols-5 gap-2 mb-3">
+          <div className="grid grid-cols-5 gap-1.5 mb-2">
             <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} multiplier={MULTIPLIER} />
             <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} multiplier={MULTIPLIER} />
             <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} multiplier={MULTIPLIER} />
             <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} multiplier={MULTIPLIER} />
             <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} multiplier={MULTIPLIER} />
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-1.5">
             <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} multiplier={MULTIPLIER} />
             <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} multiplier={MULTIPLIER} />
             <StatBox label="FG%" avg={persistedMatchup.opponent.stats.fgPct} isPct />
@@ -688,10 +673,7 @@ Navigate to their team page and copy the whole page.`}
   );
 };
 
-// StatBox component for team averages display
-// Colors explained:
-// - No special colors by default - just neutral display of team's projected stats
-// - The category comparison cards (below) show green/red based on who WINS each category
+// StatBox component for team averages display - avg bold, projection smaller
 interface StatBoxProps {
   label: string;
   avg: number;
@@ -702,13 +684,13 @@ interface StatBoxProps {
 
 const StatBox = ({ label, avg, multiplier = 40, isPct }: StatBoxProps) => (
   <div className="text-center">
-    <p className="text-[10px] text-muted-foreground uppercase">{label}</p>
+    <p className="text-[9px] text-muted-foreground uppercase">{label}</p>
     {isPct ? (
-      <p className="font-display font-bold text-lg">{formatPct(avg)}</p>
+      <p className="font-display font-bold text-sm">{formatPct(avg)}</p>
     ) : (
       <>
-        <p className="text-xs text-muted-foreground">{avg.toFixed(1)}</p>
-        <p className="font-display font-bold text-lg">
+        <p className="font-display font-bold text-sm">{avg.toFixed(1)}</p>
+        <p className="text-[10px] text-muted-foreground">
           {Math.round(avg * multiplier)}
         </p>
       </>
