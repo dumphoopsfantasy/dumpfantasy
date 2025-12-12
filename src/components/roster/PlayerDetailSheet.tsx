@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Player } from "@/types/fantasy";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
@@ -7,8 +8,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { formatStat, getStatusColor, calculatePlayerScore } from "@/lib/playerUtils";
+import { fetchPlayerNews, PlayerNews } from "@/lib/nbaApi";
 import { cn } from "@/lib/utils";
-import { Trophy, TrendingUp, Target, Calendar, Newspaper } from "lucide-react";
+import { Trophy, TrendingUp, Target, Calendar, Newspaper, ExternalLink, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface PlayerDetailSheetProps {
   player: Player | null;
@@ -16,25 +19,33 @@ interface PlayerDetailSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// Mock news data - in production would come from an API
-const getPlayerNews = (playerName: string): { headline: string; source: string; date: string }[] => {
-  // Sample news based on player name patterns
-  const allNews: Record<string, { headline: string; source: string; date: string }[]> = {
-    default: [
-      { headline: "Player expected to see increased minutes", source: "ESPN", date: "2 hours ago" },
-      { headline: "Trade rumors circulating ahead of deadline", source: "The Athletic", date: "1 day ago" },
-    ],
-  };
-  
-  return allNews[playerName] || allNews.default;
-};
-
 export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSheetProps) => {
+  const [news, setNews] = useState<PlayerNews[]>([]);
+  const [isLoadingNews, setIsLoadingNews] = useState(false);
+
+  useEffect(() => {
+    if (player && open) {
+      loadPlayerNews(player.name);
+    }
+  }, [player, open]);
+
+  const loadPlayerNews = async (playerName: string) => {
+    setIsLoadingNews(true);
+    try {
+      const playerNews = await fetchPlayerNews(playerName);
+      setNews(playerNews);
+    } catch (error) {
+      console.error("Error fetching player news:", error);
+      setNews([]);
+    } finally {
+      setIsLoadingNews(false);
+    }
+  };
+
   if (!player) return null;
 
   const statusColor = getStatusColor(player.status);
   const fantasyScore = calculatePlayerScore(player);
-  const news = getPlayerNews(player.name);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -153,32 +164,67 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange }: PlayerDetailSh
 
             {/* Player News */}
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Newspaper className="w-4 h-4 text-muted-foreground" />
-                <h4 className="font-display font-bold text-sm text-muted-foreground uppercase tracking-wider">
-                  Recent News
-                </h4>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Newspaper className="w-4 h-4 text-muted-foreground" />
+                  <h4 className="font-display font-bold text-sm text-muted-foreground uppercase tracking-wider">
+                    {player.name.split(' ').slice(-1)[0]} News
+                  </h4>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => loadPlayerNews(player.name)}
+                  disabled={isLoadingNews}
+                  className="text-xs"
+                >
+                  <RefreshCw className={cn("w-3 h-3", isLoadingNews && "animate-spin")} />
+                </Button>
               </div>
               
-              {news.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No recent news available</p>
+              {isLoadingNews ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="bg-secondary/20 rounded-lg p-3 animate-pulse">
+                      <div className="h-4 bg-muted rounded w-3/4 mb-2"></div>
+                      <div className="h-3 bg-muted/50 rounded w-1/2"></div>
+                    </div>
+                  ))}
+                </div>
+              ) : news.length === 0 ? (
+                <div className="bg-secondary/20 rounded-lg p-4 text-center">
+                  <p className="text-sm text-muted-foreground">No recent news available</p>
+                </div>
               ) : (
                 <div className="space-y-3">
                   {news.map((item, idx) => (
-                    <div key={idx} className="bg-secondary/20 rounded-lg p-3">
-                      <p className="text-sm font-medium">{item.headline}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-primary">{item.source}</span>
-                        <span className="text-xs text-muted-foreground">• {item.date}</span>
+                    <div key={idx} className="bg-secondary/20 rounded-lg p-3 hover:bg-secondary/30 transition-colors">
+                      <p className="text-sm font-medium leading-tight">{item.headline}</p>
+                      {item.description && (
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
+                      )}
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-primary font-medium">{item.source}</span>
+                          <span className="text-xs text-muted-foreground">• {item.date}</span>
+                        </div>
+                        {item.url && (
+                          <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
               
-              <p className="text-xs text-muted-foreground text-center mt-4">
-                News integration requires API setup
-              </p>
+              <div className="bg-muted/30 rounded-lg p-3 mt-4">
+                <p className="text-xs text-muted-foreground text-center">
+                  News is personalized for <span className="text-primary font-medium">{player.name}</span>. 
+                  For live updates, connect a sports news API.
+                </p>
+              </div>
             </div>
           </div>
         </ScrollArea>
