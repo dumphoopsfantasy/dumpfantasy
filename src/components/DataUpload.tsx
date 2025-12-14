@@ -5,6 +5,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Upload, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PlayerStats } from "@/types/player";
+import { 
+  validateParseInput, 
+  parseWithTimeout, 
+  preprocessInput,
+  createLoopGuard,
+  MAX_INPUT_SIZE 
+} from "@/lib/parseUtils";
 
 interface DataUploadProps {
   onDataParsed: (data: PlayerStats[]) => void;
@@ -15,17 +22,12 @@ const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET'
 
 export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
   const [rawData, setRawData] = useState("");
+  const [isParsing, setIsParsing] = useState(false);
   const { toast } = useToast();
-
-  // Security constants
-  const MAX_INPUT_SIZE = 500 * 1024; // 500KB limit
-  const MAX_LINES = 5000; // Limit number of lines to prevent DoS
   
   const parseESPNData = (data: string): PlayerStats[] => {
-    // INPUT VALIDATION: Check size limits before processing
-    if (data.length > MAX_INPUT_SIZE) {
-      throw new Error(`Input too large. Maximum allowed: ${MAX_INPUT_SIZE / 1024}KB`);
-    }
+    // INPUT VALIDATION: Validate input before processing
+    validateParseInput(data);
     
     console.log('Starting to parse ESPN data...');
     
@@ -49,13 +51,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     }
     
     const rosterData = startIdx > -1 ? data.substring(startIdx) : data;
-    let lines = rosterData.split('\n').map(l => l.trim()).filter(l => l);
-    
-    // Limit lines to prevent DoS
-    if (lines.length > MAX_LINES) {
-      console.warn(`Input truncated from ${lines.length} to ${MAX_LINES} lines`);
-      lines = lines.slice(0, MAX_LINES);
-    }
+    const lines = preprocessInput(rosterData);
     
     const result: PlayerStats[] = [];
     const slotPatterns = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F/C', 'UTIL', 'Bench', 'IR'];
@@ -71,8 +67,10 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     
     const playerInfos: PlayerInfo[] = [];
     let currentSlot = '';
+    const loopGuard = createLoopGuard();
     
     for (let i = 0; i < lines.length; i++) {
+      loopGuard.check();
       const line = lines[i];
       
       // Stop at footer
@@ -280,7 +278,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     return result;
   };
 
-  const handleParse = () => {
+  const handleParse = async () => {
     if (!rawData.trim()) {
       toast({
         title: "No data",
@@ -300,8 +298,11 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       return;
     }
 
+    setIsParsing(true);
+    
     try {
-      const parsedData = parseESPNData(rawData);
+      // Parse with timeout protection
+      const parsedData = await parseWithTimeout(() => parseESPNData(rawData));
       
       if (parsedData.length === 0) {
         toast({
@@ -325,6 +326,8 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         description: errorMessage,
         variant: "destructive",
       });
+    } finally {
+      setIsParsing(false);
     }
   };
 
@@ -351,10 +354,11 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
 
       <Button 
         onClick={handleParse}
+        disabled={isParsing}
         className="w-full gradient-primary shadow-glow font-display font-bold text-lg"
       >
         <Upload className="w-5 h-5 mr-2" />
-        Load Players
+        {isParsing ? "Parsing..." : "Load Players"}
       </Button>
 
       <div className="mt-4 p-4 bg-muted/30 rounded-lg border border-border">

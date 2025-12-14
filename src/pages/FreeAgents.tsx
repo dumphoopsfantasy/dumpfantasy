@@ -17,6 +17,7 @@ import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, calculateCustomCRI, formatPct, CATEGORIES, CATEGORY_PRESETS } from "@/lib/crisUtils";
 import { Checkbox } from "@/components/ui/checkbox";
+import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 
 // Extended Free Agent interface with bonus stats and ranks
 interface FreeAgent extends Player {
@@ -64,6 +65,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [detectedStatWindow, setDetectedStatWindow] = useState<string | null>(null);
   const [customSuggestionCategories, setCustomSuggestionCategories] = useState<string[]>([]);
   const [showCustomSuggestions, setShowCustomSuggestions] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const { toast } = useToast();
 
   // Detect stat window from pasted data - look for the specific ESPN stat selector pattern
@@ -109,8 +111,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
    * Phase 3: ZIP by index - player[i] gets stats[i]
    */
   const parseESPNFreeAgents = (data: string): { players: Player[]; bonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }> } => {
+    // Validate input before processing
+    validateParseInput(data);
+    
     console.log('=== Starting ESPN Free Agents Parser ===');
     const lines = data.split('\n').map(l => l.trim()).filter(l => l);
+    const loopGuard = createLoopGuard();
     
     // ========== PHASE 1: Parse Player List (Bios) ==========
     interface PlayerInfo {
@@ -128,6 +134,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     // Method 2: Look for FA/WA markers and work backwards
     
     for (let i = 0; i < lines.length; i++) {
+      loopGuard.check();
       const line = lines[i];
       
       // Skip very short or very long lines
@@ -468,7 +475,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     return { players, bonus: bonusMap };
   };
 
-  const handleParse = () => {
+  const handleParse = async () => {
     if (!rawData.trim()) {
       toast({
         title: "No data",
@@ -478,24 +485,50 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       return;
     }
     
-    // Detect stat window from pasted data
-    const window = detectStatWindow(rawData);
-    setDetectedStatWindow(window);
-    
-    const { players, bonus } = parseESPNFreeAgents(rawData);
-    if (players.length > 0) {
-      setRawPlayers(players);
-      setBonusStats(bonus);
+    // Validate input size
+    if (rawData.length > MAX_INPUT_SIZE) {
       toast({
-        title: "Success!",
-        description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''}`,
-      });
-    } else {
-      toast({
-        title: "No players found",
-        description: "Could not parse free agent data. Make sure to copy the entire ESPN Free Agents page.",
+        title: "Input too large",
+        description: `Data exceeds maximum size of ${MAX_INPUT_SIZE / 1024}KB. Please copy only the Free Agents section.`,
         variant: "destructive",
       });
+      return;
+    }
+    
+    setIsParsing(true);
+    
+    try {
+      // Detect stat window from pasted data
+      const window = detectStatWindow(rawData);
+      setDetectedStatWindow(window);
+      
+      // Parse with timeout protection
+      const { players, bonus } = await parseWithTimeout(() => parseESPNFreeAgents(rawData));
+      
+      if (players.length > 0) {
+        setRawPlayers(players);
+        setBonusStats(bonus);
+        toast({
+          title: "Success!",
+          description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''}`,
+        });
+      } else {
+        toast({
+          title: "No players found",
+          description: "Could not parse free agent data. Make sure to copy the entire ESPN Free Agents page.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Parse error:', error);
+      const errorMessage = error instanceof Error ? error.message : "Could not parse the data. Please check the format.";
+      toast({
+        title: "Parse error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsParsing(false);
     }
   };
 
@@ -910,9 +943,9 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           className="min-h-[200px] font-mono text-sm mb-4 bg-muted/50"
         />
 
-        <Button onClick={handleParse} className="w-full gradient-primary font-display font-bold">
+        <Button onClick={handleParse} disabled={isParsing} className="w-full gradient-primary font-display font-bold">
           <Upload className="w-4 h-4 mr-2" />
-          Load Free Agents
+          {isParsing ? "Parsing..." : "Load Free Agents"}
         </Button>
       </Card>
     );

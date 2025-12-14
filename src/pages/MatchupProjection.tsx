@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
+import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -80,6 +81,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
 
   // Extract opponent name from "Current Matchup" section
   const extractOpponentFromCurrentMatchup = (data: string, myTeamName: string): string | null => {
@@ -122,11 +124,16 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
 
   // Parse ESPN full page paste - extract team info and calculate averages from active players
   const parseESPNTeamPage = (data: string): { info: TeamInfo; stats: TeamStats } | null => {
+    // Validate input
+    validateParseInput(data);
+    
     const lines = data
       .trim()
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l);
+    
+    const loopGuard = createLoopGuard();
 
     // Skip ESPN navigation and irrelevant text like "Team Settings"
     const skipPatterns =
@@ -141,6 +148,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
 
     // Find team info block pattern - look for "Team Name" followed by record and standing
     for (let i = 0; i < lines.length; i++) {
+      loopGuard.check();
       const line = lines[i];
       if (skipPatterns.test(line)) continue;
       
@@ -365,69 +373,84 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
     return null;
   };
 
-  const handleCompare = () => {
-    const myParsed = parseESPNTeamPage(myTeamData);
-    const oppParsed = parseESPNTeamPage(opponentData);
-
-    // Detect stat windows
-    const myWindow = detectStatWindow(myTeamData);
-    const oppWindow = detectStatWindow(opponentData);
-    
-    // Check for mismatch
-    if (myWindow && oppWindow && myWindow.toLowerCase() !== oppWindow.toLowerCase()) {
-      setStatWindowMismatch({ myWindow, oppWindow });
-    } else {
-      setStatWindowMismatch(null);
+  const handleCompare = async () => {
+    // Validate input sizes
+    if (myTeamData.length > MAX_INPUT_SIZE || opponentData.length > MAX_INPUT_SIZE) {
+      return; // Size validation message would show inline
     }
+    
+    setIsParsing(true);
+    
+    try {
+      const [myParsed, oppParsed] = await Promise.all([
+        parseWithTimeout(() => parseESPNTeamPage(myTeamData)),
+        parseWithTimeout(() => parseESPNTeamPage(opponentData))
+      ]);
 
-    if (myParsed && oppParsed) {
-      const finalOppInfo = { ...oppParsed.info };
+      // Detect stat windows
+      const myWindow = detectStatWindow(myTeamData);
+      const oppWindow = detectStatWindow(opponentData);
       
-      // Try to extract opponent from "Current Matchup" section of my team's paste
-      const opponentFromCurrentMatchup = extractOpponentFromCurrentMatchup(myTeamData, myParsed.info.name);
-      
-      // If opponent name is same as my team or empty, try to find the correct opponent
-      if (finalOppInfo.name === myParsed.info.name || !finalOppInfo.name || finalOppInfo.name === "Team") {
-        if (opponentFromCurrentMatchup) {
-          finalOppInfo.name = opponentFromCurrentMatchup;
-        } else {
-          // Fallback: Try to find a different team name in opponent data
-          const oppLines = opponentData.trim().split("\n").map(l => l.trim()).filter(l => l);
-          const skipPatterns = /^(Team Settings|LM Tools|hsb\.|ESPN|Settings|Get Another Team)$/i;
-          
-          for (let i = 0; i < oppLines.length; i++) {
-            const line = oppLines[i];
-            // Look for record pattern and get preceding line
-            if (/^\d+-\d+-\d+$/.test(line) && i > 0) {
-              const prevLine = oppLines[i - 1];
-              if (prevLine !== myParsed.info.name && 
-                  !skipPatterns.test(prevLine) &&
-                  prevLine.length >= 2 && 
-                  prevLine.length <= 50 && 
-                  !/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN)/i.test(prevLine)) {
-                finalOppInfo.name = prevLine;
-                finalOppInfo.record = line;
-                break;
+      // Check for mismatch
+      if (myWindow && oppWindow && myWindow.toLowerCase() !== oppWindow.toLowerCase()) {
+        setStatWindowMismatch({ myWindow, oppWindow });
+      } else {
+        setStatWindowMismatch(null);
+      }
+
+      if (myParsed && oppParsed) {
+        const finalOppInfo = { ...oppParsed.info };
+        
+        // Try to extract opponent from "Current Matchup" section of my team's paste
+        const opponentFromCurrentMatchup = extractOpponentFromCurrentMatchup(myTeamData, myParsed.info.name);
+        
+        // If opponent name is same as my team or empty, try to find the correct opponent
+        if (finalOppInfo.name === myParsed.info.name || !finalOppInfo.name || finalOppInfo.name === "Team") {
+          if (opponentFromCurrentMatchup) {
+            finalOppInfo.name = opponentFromCurrentMatchup;
+          } else {
+            // Fallback: Try to find a different team name in opponent data
+            const oppLines = opponentData.trim().split("\n").map(l => l.trim()).filter(l => l);
+            const skipPatterns = /^(Team Settings|LM Tools|hsb\.|ESPN|Settings|Get Another Team)$/i;
+            
+            for (let i = 0; i < oppLines.length; i++) {
+              const line = oppLines[i];
+              // Look for record pattern and get preceding line
+              if (/^\d+-\d+-\d+$/.test(line) && i > 0) {
+                const prevLine = oppLines[i - 1];
+                if (prevLine !== myParsed.info.name && 
+                    !skipPatterns.test(prevLine) &&
+                    prevLine.length >= 2 && 
+                    prevLine.length <= 50 && 
+                    !/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN)/i.test(prevLine)) {
+                  finalOppInfo.name = prevLine;
+                  finalOppInfo.record = line;
+                  break;
+                }
               }
             }
-          }
-          
-          // If still same name, set to "—" to indicate parsing failure
-          if (finalOppInfo.name === myParsed.info.name) {
-            finalOppInfo.name = "—";
+            
+            // If still same name, set to "—" to indicate parsing failure
+            if (finalOppInfo.name === myParsed.info.name) {
+              finalOppInfo.name = "—";
+            }
           }
         }
+        
+        // Validate: opponent name must differ from my team name
+        if (finalOppInfo.name.toLowerCase() === myParsed.info.name.toLowerCase()) {
+          finalOppInfo.name = "—";
+        }
+        
+        onMatchupChange({
+          myTeam: { ...myParsed.info, stats: myParsed.stats },
+          opponent: { ...finalOppInfo, stats: oppParsed.stats },
+        });
       }
-      
-      // Validate: opponent name must differ from my team name
-      if (finalOppInfo.name.toLowerCase() === myParsed.info.name.toLowerCase()) {
-        finalOppInfo.name = "—";
-      }
-      
-      onMatchupChange({
-        myTeam: { ...myParsed.info, stats: myParsed.stats },
-        opponent: { ...finalOppInfo, stats: oppParsed.stats },
-      });
+    } catch (error) {
+      console.error('Parse error:', error);
+    } finally {
+      setIsParsing(false);
     }
   };
 
