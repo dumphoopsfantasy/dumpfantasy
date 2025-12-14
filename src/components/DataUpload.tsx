@@ -17,7 +17,16 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
   const [rawData, setRawData] = useState("");
   const { toast } = useToast();
 
+  // Security constants
+  const MAX_INPUT_SIZE = 500 * 1024; // 500KB limit
+  const MAX_LINES = 5000; // Limit number of lines to prevent DoS
+  
   const parseESPNData = (data: string): PlayerStats[] => {
+    // INPUT VALIDATION: Check size limits before processing
+    if (data.length > MAX_INPUT_SIZE) {
+      throw new Error(`Input too large. Maximum allowed: ${MAX_INPUT_SIZE / 1024}KB`);
+    }
+    
     console.log('Starting to parse ESPN data...');
     
     // Find the STARTERS section - this marks the beginning of roster data
@@ -40,7 +49,13 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     }
     
     const rosterData = startIdx > -1 ? data.substring(startIdx) : data;
-    const lines = rosterData.split('\n').map(l => l.trim()).filter(l => l);
+    let lines = rosterData.split('\n').map(l => l.trim()).filter(l => l);
+    
+    // Limit lines to prevent DoS
+    if (lines.length > MAX_LINES) {
+      console.warn(`Input truncated from ${lines.length} to ${MAX_LINES} lines`);
+      lines = lines.slice(0, MAX_LINES);
+    }
     
     const result: PlayerStats[] = [];
     const slotPatterns = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F/C', 'UTIL', 'Bench', 'IR'];
@@ -275,6 +290,16 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       return;
     }
 
+    // Validate input size before parsing
+    if (rawData.length > MAX_INPUT_SIZE) {
+      toast({
+        title: "Input too large",
+        description: `Data exceeds maximum size of ${MAX_INPUT_SIZE / 1024}KB. Please copy only the roster section.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const parsedData = parseESPNData(rawData);
       
@@ -294,9 +319,10 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       });
     } catch (error) {
       console.error('Parse error:', error);
+      const errorMessage = error instanceof Error ? error.message : "Could not parse the data. Please check the format.";
       toast({
         title: "Parse error",
-        description: "Could not parse the data. Please check the format.",
+        description: errorMessage,
         variant: "destructive",
       });
     }

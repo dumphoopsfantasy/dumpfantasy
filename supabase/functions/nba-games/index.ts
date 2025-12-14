@@ -1,8 +1,44 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+// SECURITY: Restrict CORS to specific origins in production
+// For now, allow the Lovable preview domains and localhost
+const ALLOWED_ORIGINS = [
+  'https://lovable.dev',
+  'https://preview--',
+  'http://localhost:',
+  'http://127.0.0.1:',
+];
+
+const getCorsHeaders = (origin: string | null) => {
+  // Check if origin matches allowed patterns
+  const isAllowed = !origin || ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed) || origin.includes('.lovable.dev'));
+  
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? (origin || '*') : 'https://lovable.dev',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+};
+
+// Simple in-memory rate limiting (per-function instance)
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_REQUESTS = 60; // requests per window
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+
+const checkRateLimit = (clientIP: string): boolean => {
+  const now = Date.now();
+  const record = rateLimitMap.get(clientIP);
+  
+  if (!record || now > record.resetTime) {
+    rateLimitMap.set(clientIP, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  
+  if (record.count >= RATE_LIMIT_REQUESTS) {
+    return false;
+  }
+  
+  record.count++;
+  return true;
 };
 
 interface NBAGame {
@@ -127,9 +163,26 @@ async function fetchESPNGames(dateStr: string): Promise<NBAGame[]> {
 }
 
 serve(async (req) => {
+  const origin = req.headers.get('origin');
+  const corsHeaders = getCorsHeaders(origin);
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // Extract client IP for rate limiting
+  const clientIP = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+                   req.headers.get('cf-connecting-ip') || 
+                   'unknown';
+  
+  // Check rate limit
+  if (!checkRateLimit(clientIP)) {
+    console.log(`Rate limit exceeded for IP: ${clientIP}`);
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }), {
+      status: 429,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '60' },
+    });
   }
 
   try {
