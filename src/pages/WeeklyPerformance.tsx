@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Trophy, Upload, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatPct, CATEGORIES, calculateCRISForAll } from "@/lib/crisUtils";
+import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 
 interface MatchupTeam {
   abbr: string;
@@ -47,6 +48,7 @@ export const WeeklyPerformance = ({
   const [matchups, setMatchups] = useState<Matchup[]>(persistedMatchups);
   const [weekTitle, setWeekTitle] = useState(persistedTitle);
   const [useCris, setUseCris] = useState(true);
+  const [isParsing, setIsParsing] = useState(false);
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -88,9 +90,13 @@ export const WeeklyPerformance = ({
   };
 
   const parseWeeklyData = (data: string): { matchups: Matchup[]; week: string } => {
+    // Validate input
+    validateParseInput(data);
+    
     const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     const result: Matchup[] = [];
     let week = "";
+    const loopGuard = createLoopGuard();
     
     // Skip ESPN navigation - find "Scoreboard" and only parse after that
     const scoreboardIdx = lines.findIndex(l => l.toLowerCase() === 'scoreboard');
@@ -122,6 +128,7 @@ export const WeeklyPerformance = ({
     const currentMatchupPattern = /^(\d+)-(\d+)-(\d+)$/;
     
     for (let i = 0; i < relevantLines.length; i++) {
+      loopGuard.check();
       const line = relevantLines[i];
       const headerMatch = line.match(teamHeaderPattern);
       
@@ -302,7 +309,7 @@ export const WeeklyPerformance = ({
     return { matchups: result, week };
   };
 
-  const handleParse = () => {
+  const handleParse = async () => {
     if (!rawData.trim()) {
       toast({
         title: "No data",
@@ -312,20 +319,43 @@ export const WeeklyPerformance = ({
       return;
     }
     
-    const { matchups: parsed, week } = parseWeeklyData(rawData);
-    if (parsed.length > 0) {
-      setMatchups(parsed);
-      setWeekTitle(week);
+    if (rawData.length > MAX_INPUT_SIZE) {
       toast({
-        title: "Success!",
-        description: `Loaded ${parsed.length} matchups`,
-      });
-    } else {
-      toast({
-        title: "No matchups found",
-        description: "Could not parse any matchup data. Try copying the entire ESPN scoreboard page.",
+        title: "Input too large",
+        description: `Data exceeds maximum size of ${MAX_INPUT_SIZE / 1024}KB. Please copy only the scoreboard section.`,
         variant: "destructive",
       });
+      return;
+    }
+    
+    setIsParsing(true);
+    
+    try {
+      const { matchups: parsed, week } = await parseWithTimeout(() => parseWeeklyData(rawData));
+      if (parsed.length > 0) {
+        setMatchups(parsed);
+        setWeekTitle(week);
+        toast({
+          title: "Success!",
+          description: `Loaded ${parsed.length} matchups`,
+        });
+      } else {
+        toast({
+          title: "No matchups found",
+          description: "Could not parse any matchup data. Try copying the entire ESPN scoreboard page.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Parse error:', error);
+      const errorMessage = error instanceof Error ? error.message : "Could not parse the data. Please check the format.";
+      toast({
+        title: "Parse error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsParsing(false);
     }
   };
 
@@ -397,9 +427,9 @@ Only data below "Scoreboard" will be parsed.`}
           className="min-h-[200px] font-mono text-sm mb-4 bg-muted/50"
         />
 
-        <Button onClick={handleParse} className="w-full gradient-primary font-display font-bold">
+        <Button onClick={handleParse} disabled={isParsing} className="w-full gradient-primary font-display font-bold">
           <Upload className="w-4 h-4 mr-2" />
-          Load Weekly Data
+          {isParsing ? "Parsing..." : "Load Weekly Data"}
         </Button>
       </Card>
     );
