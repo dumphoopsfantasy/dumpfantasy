@@ -1,17 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// SECURITY: Restrict CORS to specific origins in production
-// For now, allow the Lovable preview domains and localhost
-const ALLOWED_ORIGINS = [
-  'https://lovable.dev',
-  'https://preview--',
-  'http://localhost:',
-  'http://127.0.0.1:',
-];
-
+// SECURITY: Restrict CORS to Lovable domains and localhost
 const getCorsHeaders = (origin: string | null) => {
-  // Check if origin matches allowed patterns
-  const isAllowed = !origin || ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed) || origin.includes('.lovable.dev'));
+  // Check if origin matches allowed Lovable patterns
+  const isAllowed = !origin || 
+    origin.includes('.lovable.dev') || 
+    origin.includes('.lovableproject.com') ||
+    origin.startsWith('http://localhost:') ||
+    origin.startsWith('http://127.0.0.1:');
   
   return {
     'Access-Control-Allow-Origin': isAllowed ? (origin || '*') : 'https://lovable.dev',
