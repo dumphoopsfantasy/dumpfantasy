@@ -21,11 +21,21 @@ export const Settings = () => {
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   const handleSave = () => {
-    // TODO: Save settings to local storage or backend
-    localStorage.setItem("espn_settings", JSON.stringify(espnSettings));
+    // Store only non-sensitive settings in localStorage
+    // SECURITY: ESPN auth cookies (swid, espnS2) are NOT stored - they would be vulnerable to XSS
+    const safeSettings = {
+      leagueId: espnSettings.leagueId,
+      teamId: espnSettings.teamId,
+      season: espnSettings.season,
+      // Note: swid and espnS2 are intentionally NOT persisted for security reasons
+    };
+    localStorage.setItem("espn_settings", JSON.stringify(safeSettings));
+    
     toast({
       title: "Settings saved",
-      description: "Your ESPN settings have been saved.",
+      description: espnSettings.swid || espnSettings.espnS2 
+        ? "League settings saved. Note: Authentication cookies are not stored for security reasons - you'll need to re-enter them each session."
+        : "Your ESPN settings have been saved.",
     });
   };
 
@@ -91,10 +101,12 @@ export const Settings = () => {
 
           <Separator />
 
-          <p className="text-sm text-muted-foreground">
-            For private leagues, you'll need to provide authentication cookies. 
-            <a href="#" className="text-primary ml-1 hover:underline">Learn how to find these</a>
-          </p>
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <p className="text-sm text-amber-600 dark:text-amber-400">
+              <strong>⚠️ Security Note:</strong> Authentication cookies are session-only and will not be saved to protect your ESPN account. For private leagues, you'll need to re-enter these each session.
+              <a href="#" className="text-primary ml-1 hover:underline">Learn how to find these</a>
+            </p>
+          </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
