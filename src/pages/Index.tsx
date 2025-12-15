@@ -6,6 +6,7 @@ import { LeagueStandings } from "@/components/LeagueStandings";
 import { FreeAgents } from "@/pages/FreeAgents";
 import { WeeklyPerformance } from "@/pages/WeeklyPerformance";
 import { MatchupProjection } from "@/pages/MatchupProjection";
+import { Settings } from "@/pages/Settings";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
@@ -14,7 +15,7 @@ import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
-import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings } from "lucide-react";
+import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 
@@ -424,7 +425,7 @@ const Index = () => {
               Weekly
             </TabsTrigger>
             <TabsTrigger value="settings" className="font-display font-semibold text-xs md:text-sm">
-              <Settings className="w-4 h-4 mr-1 hidden md:inline" />
+              <SettingsIcon className="w-4 h-4 mr-1 hidden md:inline" />
               Settings
             </TabsTrigger>
           </TabsList>
@@ -603,13 +604,7 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="settings">
-            <div className="max-w-4xl mx-auto space-y-6">
-              <h2 className="font-display font-bold text-2xl">Settings</h2>
-              <WeightSettings 
-                weights={customWeights}
-                onWeightsChange={setCustomWeights}
-              />
-            </div>
+            <Settings />
           </TabsContent>
         </Tabs>
       </main>
