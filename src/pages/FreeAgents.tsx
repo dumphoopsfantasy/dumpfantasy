@@ -11,13 +11,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, calculateCustomCRI, formatPct, CATEGORIES, CATEGORY_PRESETS } from "@/lib/crisUtils";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 
 // Extended Free Agent interface with bonus stats and ranks
@@ -86,6 +87,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [showCustomSuggestions, setShowCustomSuggestions] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTips, setDismissedTips] = useState<Set<string>>(new Set());
+  const [bestPickupsOpen, setBestPickupsOpen] = useState(true);
   const { toast } = useToast();
 
   const dismissTip = (tipId: string) => {
@@ -1271,41 +1273,50 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       )}
 
       {(bestPickupRecommendations.bestForWeak.length > 0 || bestPickupRecommendations.hasStandingsData) && (
-        <Card className="gradient-card border-border p-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-display font-bold text-sm">Best Pickups</h3>
-                {bestPickupRecommendations.userTeamName && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    {bestPickupRecommendations.userTeamName}
-                  </Badge>
-                )}
-                {bestPickupRecommendations.hasStandingsData && (
-                  <Badge variant="outline" className="text-[10px] text-primary">
-                    Based on League Standings
-                  </Badge>
-                )}
+        <Collapsible open={bestPickupsOpen} onOpenChange={setBestPickupsOpen}>
+          <Card className="gradient-card border-border p-4">
+            <CollapsibleTrigger className="w-full">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 cursor-pointer hover:opacity-80 transition-opacity">
+                <div>
+                  <div className="flex items-center gap-2">
+                    {bestPickupsOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                    <h3 className="font-display font-bold text-sm">Best Pickups</h3>
+                    {bestPickupRecommendations.userTeamName && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {bestPickupRecommendations.userTeamName}
+                      </Badge>
+                    )}
+                    {bestPickupRecommendations.hasStandingsData && (
+                      <Badge variant="outline" className="text-[10px] text-primary">
+                        Based on League Standings
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 text-left">
+                    {bestPickupRecommendations.hasStandingsData 
+                      ? `Weakest: ${bestPickupRecommendations.weakestCategories.map(c => `${c.label} (#${c.rank})`).join(", ")}. Strongest: ${bestPickupRecommendations.strongestCategories.slice(0, 3).map(c => `${c.label} (#${c.rank})`).join(", ")}.`
+                      : `Based on roster averages. Weakest: ${bestPickupRecommendations.weakestCategories.map(c => c.label).join(", ")}.`
+                    }
+                  </p>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {bestPickupRecommendations.hasStandingsData 
-                  ? `Weakest: ${bestPickupRecommendations.weakestCategories.map(c => `${c.label} (#${c.rank})`).join(", ")}. Strongest: ${bestPickupRecommendations.strongestCategories.slice(0, 3).map(c => `${c.label} (#${c.rank})`).join(", ")}.`
-                  : `Based on roster averages. Weakest: ${bestPickupRecommendations.weakestCategories.map(c => c.label).join(", ")}.`
-                }
-              </p>
-            </div>
-            <Button
-              variant={showCustomSuggestions ? "default" : "outline"}
-              size="sm"
-              onClick={() => setShowCustomSuggestions(!showCustomSuggestions)}
-              className="text-xs"
-            >
-              <Settings2 className="w-3 h-3 mr-1" />
-              Custom
-            </Button>
-          </div>
-          
-          {/* Custom Category Selector */}
+            </CollapsibleTrigger>
+            
+            <CollapsibleContent>
+              <div className="flex justify-end mt-3 mb-3">
+                <Button
+                  variant={showCustomSuggestions ? "default" : "outline"}
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCustomSuggestions(!showCustomSuggestions);
+                  }}
+                  className="text-xs"
+                >
+                  <Settings2 className="w-3 h-3 mr-1" />
+                  Custom
+                </Button>
+              </div>
           {showCustomSuggestions && (
             <div className="mb-4 p-3 bg-secondary/20 rounded-lg border border-border">
               <p className="text-xs font-semibold mb-2">Select categories for custom suggestions:</p>
@@ -1456,7 +1467,9 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </div>
             </div>
           </div>
-        </Card>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
       )}
 
        {/* Stats Table */}
