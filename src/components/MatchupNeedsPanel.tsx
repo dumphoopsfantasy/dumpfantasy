@@ -1,11 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { Player } from "@/types/fantasy";
-import { Target, TrendingUp, TrendingDown, Minus, Trophy, Zap, Info } from "lucide-react";
+import { Target, TrendingUp, TrendingDown, Minus, Trophy, Zap, Info, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, formatPct } from "@/lib/crisUtils";
 
@@ -212,6 +213,9 @@ export const MatchupNeedsPanel = ({
     return Math.round(value).toString();
   };
   
+  const [bestAddsOpen, setBestAddsOpen] = useState(true);
+  const [priorityCatsOpen, setPriorityCatsOpen] = useState(false);
+  
   return (
     <div className="space-y-4">
       {/* Matchup Needs Summary Bar */}
@@ -267,96 +271,116 @@ export const MatchupNeedsPanel = ({
         </div>
       </Card>
       
-      {/* Top Recommendations */}
+      {/* Top Recommendations - Collapsible */}
       {topRecommendations.length > 0 && (
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="font-display font-bold flex items-center gap-2">
-              <Zap className="w-4 h-4 text-warning" />
-              Best Adds for This Matchup
-            </h4>
-            <span className="text-xs text-muted-foreground">
-              Top 10 based on {tossups.length} toss-up{tossups.length !== 1 ? "s" : ""} + {Math.min(losses.length, 2)} close loss{Math.min(losses.length, 2) !== 1 ? "es" : ""}
-            </span>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {topRecommendations.map((item, idx) => (
-              <button
-                key={item.player.id}
-                onClick={() => onPlayerClick?.(item.player)}
-                className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors text-left group"
-              >
-                <span className="text-xs font-mono text-muted-foreground w-5">
-                  #{idx + 1}
+        <Collapsible open={bestAddsOpen} onOpenChange={setBestAddsOpen}>
+          <Card className="p-4">
+            <CollapsibleTrigger className="w-full">
+              <div className="flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity">
+                <h4 className="font-display font-bold flex items-center gap-2">
+                  {bestAddsOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                  <Zap className="w-4 h-4 text-warning" />
+                  Best Adds for This Matchup
+                </h4>
+                <span className="text-xs text-muted-foreground">
+                  Top 10 based on {tossups.length} toss-up{tossups.length !== 1 ? "s" : ""} + {Math.min(losses.length, 2)} close loss{Math.min(losses.length, 2) !== 1 ? "es" : ""}
                 </span>
-                <PlayerPhoto 
-                  name={item.player.name} 
-                  size="sm" 
-                  className="ring-2 ring-primary/20 group-hover:ring-primary/40"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm truncate">{item.player.name}</span>
-                    <NBATeamLogo teamCode={item.player.nbaTeam} size="xs" />
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-[10px] text-muted-foreground">
-                      {item.player.positions?.join(", ")}
+              </div>
+            </CollapsibleTrigger>
+            
+            <CollapsibleContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+                {topRecommendations.map((item, idx) => (
+                  <button
+                    key={item.player.id}
+                    onClick={() => onPlayerClick?.(item.player)}
+                    className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors text-left group"
+                  >
+                    <span className="text-xs font-mono text-muted-foreground w-5">
+                      #{idx + 1}
                     </span>
-                    {item.helpCategories.length > 0 && (
-                      <>
-                        <span className="text-muted-foreground">•</span>
-                        <span className="text-[10px] text-primary font-medium">
-                          Boosts {item.helpCategories.slice(0, 3).join(", ")}
+                    <PlayerPhoto 
+                      name={item.player.name} 
+                      size="sm" 
+                      className="ring-2 ring-primary/20 group-hover:ring-primary/40"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">{item.player.name}</span>
+                        <NBATeamLogo teamCode={item.player.nbaTeam} size="xs" />
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground">
+                          {item.player.positions?.join(", ")}
                         </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <Badge variant="secondary" className="text-[10px]">
-                  {useCris ? "CRI" : "wCRI"} #{item.criRank}
-                </Badge>
-              </button>
-            ))}
-          </div>
-        </Card>
+                        {item.helpCategories.length > 0 && (
+                          <>
+                            <span className="text-muted-foreground">•</span>
+                            <span className="text-[10px] text-primary font-medium">
+                              Boosts {item.helpCategories.slice(0, 3).join(", ")}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {useCris ? "CRI" : "wCRI"} #{item.criRank}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
       )}
       
-      {/* Priority Categories Details */}
+      {/* Priority Categories Details - Collapsible */}
       {priorityCategories.length > 0 && (
-        <Card className="p-4">
-          <h4 className="font-display font-bold flex items-center gap-2 mb-3">
-            <Info className="w-4 h-4 text-muted-foreground" />
-            Priority Categories
-          </h4>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {priorityCategories.map(cat => (
-              <div 
-                key={cat.key}
-                className={cn(
-                  "p-3 rounded-lg border",
-                  getStatusColor(cat.status)
-                )}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-display font-bold text-sm">{cat.label}</span>
-                  {getStatusIcon(cat.status)}
-                </div>
-                <div className="text-xs space-y-0.5">
-                  <div className="flex justify-between">
-                    <span className="opacity-75">You:</span>
-                    <span className="font-mono">{formatValue(cat.myValue, cat.key)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-75">Opp:</span>
-                    <span className="font-mono">{formatValue(cat.oppValue, cat.key)}</span>
-                  </div>
-                </div>
+        <Collapsible open={priorityCatsOpen} onOpenChange={setPriorityCatsOpen}>
+          <Card className="p-4">
+            <CollapsibleTrigger className="w-full">
+              <div className="flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity">
+                <h4 className="font-display font-bold flex items-center gap-2">
+                  {priorityCatsOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                  <Info className="w-4 h-4 text-muted-foreground" />
+                  Priority Categories
+                </h4>
+                <span className="text-xs text-muted-foreground">
+                  {priorityCategories.length} categories to target
+                </span>
               </div>
-            ))}
-          </div>
-        </Card>
+            </CollapsibleTrigger>
+            
+            <CollapsibleContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+                {priorityCategories.map(cat => (
+                  <div 
+                    key={cat.key}
+                    className={cn(
+                      "p-3 rounded-lg border",
+                      getStatusColor(cat.status)
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-display font-bold text-sm">{cat.label}</span>
+                      {getStatusIcon(cat.status)}
+                    </div>
+                    <div className="text-xs space-y-0.5">
+                      <div className="flex justify-between">
+                        <span className="opacity-75">You:</span>
+                        <span className="font-mono">{formatValue(cat.myValue, cat.key)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="opacity-75">Opp:</span>
+                        <span className="font-mono">{formatValue(cat.oppValue, cat.key)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
       )}
     </div>
   );
