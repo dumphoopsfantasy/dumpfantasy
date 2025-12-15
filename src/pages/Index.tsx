@@ -361,10 +361,19 @@ const Index = () => {
     return Array.from(teams);
   }, [rosterWithCRI]);
 
+  // Extract roster player data for NBA sidebar
+  const rosterPlayersList = useMemo(() => {
+    return rosterWithCRI.map(slot => ({
+      name: slot.player.name,
+      team: slot.player.nbaTeam || '',
+      position: slot.player.positions?.join(', ') || ''
+    }));
+  }, [rosterWithCRI]);
+
   return (
     <div className="min-h-screen bg-background">
       {/* NBA Scores Sidebar */}
-      <NBAScoresSidebar rosterTeams={rosterTeams} />
+      <NBAScoresSidebar rosterTeams={rosterTeams} rosterPlayers={rosterPlayersList} />
       
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
