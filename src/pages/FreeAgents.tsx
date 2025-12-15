@@ -960,6 +960,28 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           </div>
         </div>
 
+        {/* Tips before data entry */}
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+            <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              <span className="font-medium text-foreground">Tip:</span> Import your roster in the <span className="text-primary font-medium">Roster</span> tab first to get personalized CRI/wCRI rankings that compare free agents against your team.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+            <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              <span className="font-medium text-foreground">Tip:</span> Import standings in the <span className="text-primary font-medium">Standings</span> tab to see category-based pickup recommendations for your weakest stats.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+            <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              <span className="font-medium text-foreground">Tip:</span> Import your matchup in the <span className="text-primary font-medium">Matchup</span> tab to unlock "Best Adds for This Matchup" recommendations.
+            </p>
+          </div>
+        </div>
+
         <Textarea
           placeholder={`Copy the ENTIRE ESPN Free Agents page (Ctrl+A, Ctrl+C) and paste here.
 

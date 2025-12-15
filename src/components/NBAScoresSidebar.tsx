@@ -198,7 +198,7 @@ export function NBAScoresSidebar({ rosterTeams = [], rosterPlayers = [] }: NBASc
     return (
       <div
         key={game.gameId}
-        className={`bg-secondary/50 rounded-lg overflow-hidden transition-all ${
+        className={`bg-accent/20 rounded-lg overflow-hidden transition-all ${
           hasPlayers ? 'ring-2 ring-primary/60 bg-primary/10' : ''
         }`}
       >
