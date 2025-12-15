@@ -636,7 +636,10 @@ Navigate to their team page and copy the whole page.`}
             {persistedMatchup.myTeam.owner && (
               <p className="text-[10px] text-muted-foreground">{persistedMatchup.myTeam.owner}</p>
             )}
-            <p className="text-xs text-muted-foreground">{persistedMatchup.myTeam.record}</p>
+            <p className="text-xs text-muted-foreground">
+              {persistedMatchup.myTeam.record}
+              {persistedMatchup.myTeam.standing && ` (${persistedMatchup.myTeam.standing})`}
+            </p>
           </div>
           
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/30">
@@ -651,15 +654,16 @@ Navigate to their team page and copy the whole page.`}
             <p className="text-xs text-muted-foreground mb-0.5">Opponent</p>
             <p className="font-display font-bold text-base md:text-lg truncate">
               {persistedMatchup.opponent.name}
-              {persistedMatchup.opponent.record && persistedMatchup.opponent.record !== '—' && (
-                <span className="text-sm font-normal text-muted-foreground ml-1">
-                  ({persistedMatchup.opponent.record}{persistedMatchup.opponent.standing && `, ${persistedMatchup.opponent.standing}`})
-                </span>
-              )}
             </p>
             {persistedMatchup.opponent.owner && (
               <p className="text-[10px] text-muted-foreground">{persistedMatchup.opponent.owner}</p>
             )}
+            <p className="text-xs text-muted-foreground">
+              {persistedMatchup.opponent.record && persistedMatchup.opponent.record !== '—' 
+                ? persistedMatchup.opponent.record.replace(/[^0-9-]/g, '') 
+                : '—'}
+              {persistedMatchup.opponent.standing && ` (${persistedMatchup.opponent.standing})`}
+            </p>
           </div>
         </div>
 
@@ -672,7 +676,7 @@ Navigate to their team page and copy the whole page.`}
           ) : wins < losses ? (
             <p className="text-stat-negative font-display font-semibold text-sm flex items-center justify-center gap-1.5">
               <Target className="w-4 h-4" />
-              Projected LOSE {losses}-{wins}-{ties}
+              Projected LOSS {wins}-{losses}-{ties}
             </p>
           ) : (
             <p className="text-muted-foreground font-display font-semibold text-sm flex items-center justify-center gap-1.5">
