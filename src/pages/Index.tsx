@@ -32,9 +32,18 @@ interface MatchupStats {
   points: number;
 }
 
+interface ParsedTeam {
+  token: string;
+  tokenUpper: string;
+  name: string;
+  recordStanding: string;
+  currentMatchup: string;
+  stats: MatchupStats;
+}
+
 interface WeeklyMatchup {
-  team1: { abbr: string; name: string; record: string; weekRecord: string; stats: MatchupStats };
-  team2: { abbr: string; name: string; record: string; weekRecord: string; stats: MatchupStats };
+  teamA: ParsedTeam;
+  teamB: ParsedTeam;
 }
 
 interface MatchupProjectionData {
