@@ -398,7 +398,7 @@ The page should include the "Season Stats" section with team names, managers, an
       <div className="w-full">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border">
+            <tr className="border-b border-border bg-accent/20">
               <SortHeader label="RK" sortKeyProp="originalRank" className="text-left sticky left-0 bg-background" />
               <th className="text-left p-2 font-display sticky left-0 bg-background min-w-[150px]">Team</th>
               {CATEGORIES.map(c => (

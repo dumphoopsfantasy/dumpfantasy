@@ -155,7 +155,7 @@ export const RosterTable = ({
     <TooltipProvider>
       <div className="overflow-x-auto bg-card/30 rounded-lg border border-border">
         <Table className="w-full">
-        <TableHeader>
+        <TableHeader className="bg-accent/20">
           <TableRow className="hover:bg-transparent border-border">
             {columns.map((col) => (
               <TableHead

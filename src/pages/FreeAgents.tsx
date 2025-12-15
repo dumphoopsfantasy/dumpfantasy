@@ -1477,7 +1477,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-secondary/20">
+              <tr className="border-b border-border bg-accent/20">
                 <th className="text-left p-3 font-display">#</th>
                 <th className="text-left p-3 font-display min-w-[180px]">Player</th>
                 <th className="text-center p-2 font-display">OPP</th>

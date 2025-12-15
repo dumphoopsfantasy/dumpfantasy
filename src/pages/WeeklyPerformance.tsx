@@ -488,7 +488,7 @@ Only data below "Scoreboard" will be parsed.`}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-border bg-secondary/30">
+              <tr className="border-b border-border bg-accent/20">
                 <th className="p-3 text-left font-display text-sm">#</th>
                 <th className="p-3 text-left font-display text-sm min-w-[140px]">TEAM</th>
                 <th className="p-3 text-center font-display text-sm">Current Matchup</th>
