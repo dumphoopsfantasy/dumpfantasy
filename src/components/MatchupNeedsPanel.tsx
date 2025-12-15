@@ -214,7 +214,7 @@ export const MatchupNeedsPanel = ({
   };
   
   const [bestAddsOpen, setBestAddsOpen] = useState(true);
-  const [priorityCatsOpen, setPriorityCatsOpen] = useState(false);
+  const [priorityCatsOpen, setPriorityCatsOpen] = useState(true);
   
   return (
     <div className="space-y-4">
