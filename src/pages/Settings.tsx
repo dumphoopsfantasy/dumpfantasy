@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { Settings2, Link2, RefreshCw, Database, Upload, MessageSquare, Send } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Settings2, Link2, RefreshCw, Database, Upload, MessageSquare, Send, Palette, RotateCcw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { NBA_THEMES, NBATheme, applyTheme, resetTheme, getSavedTheme, saveTheme, clearSavedTheme } from "@/lib/nbaThemes";
 
 export const Settings = () => {
   const [espnSettings, setEspnSettings] = useState({
@@ -19,6 +21,38 @@ export const Settings = () => {
   });
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [selectedTheme, setSelectedTheme] = useState<NBATheme | null>(null);
+
+  // Load saved theme on mount
+  useEffect(() => {
+    const saved = getSavedTheme();
+    if (saved) {
+      setSelectedTheme(saved);
+    }
+  }, []);
+
+  const handleThemeChange = (abbr: string) => {
+    const theme = NBA_THEMES.find(t => t.abbr === abbr);
+    if (theme) {
+      setSelectedTheme(theme);
+      applyTheme(theme);
+      saveTheme(theme);
+      toast({
+        title: "Theme Applied",
+        description: `${theme.team} theme is now active.`,
+      });
+    }
+  };
+
+  const handleResetTheme = () => {
+    setSelectedTheme(null);
+    resetTheme();
+    clearSavedTheme();
+    toast({
+      title: "Theme Reset",
+      description: "Reverted to default basketball orange theme.",
+    });
+  };
 
   const handleSave = () => {
     // Store only non-sensitive settings in localStorage
@@ -46,12 +80,96 @@ export const Settings = () => {
     });
   };
 
+  // Helper to convert hex to a preview-friendly format
+  const hexToPreviewStyle = (hex: string) => ({ backgroundColor: hex });
+
   return (
     <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
       <div className="flex items-center gap-3">
         <Settings2 className="w-6 h-6 text-primary" />
         <h2 className="font-display font-bold text-2xl">Settings</h2>
       </div>
+
+      {/* Theme Selector */}
+      <Card className="gradient-card border-border">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Palette className="w-5 h-5 text-primary" />
+              <div>
+                <CardTitle className="font-display">Team Theme</CardTitle>
+                <CardDescription>Customize app colors with your favorite NBA team</CardDescription>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="theme">Favorite NBA Team</Label>
+            <Select 
+              value={selectedTheme?.abbr || ""} 
+              onValueChange={handleThemeChange}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a team theme..." />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px]">
+                {NBA_THEMES.map((theme) => (
+                  <SelectItem key={theme.abbr} value={theme.abbr}>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full border border-border" 
+                        style={hexToPreviewStyle(theme.primary)}
+                      />
+                      {theme.team}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Color Preview */}
+          {selectedTheme && (
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Color Preview</Label>
+              <div className="flex gap-2">
+                <div className="flex-1 space-y-1">
+                  <div 
+                    className="h-8 rounded-md border border-border" 
+                    style={hexToPreviewStyle(selectedTheme.primary)}
+                  />
+                  <p className="text-xs text-center text-muted-foreground">Primary</p>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <div 
+                    className="h-8 rounded-md border border-border" 
+                    style={hexToPreviewStyle(selectedTheme.secondary)}
+                  />
+                  <p className="text-xs text-center text-muted-foreground">Secondary</p>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <div 
+                    className="h-8 rounded-md border border-border" 
+                    style={hexToPreviewStyle(selectedTheme.accent)}
+                  />
+                  <p className="text-xs text-center text-muted-foreground">Accent</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleResetTheme}
+            className="w-full"
+          >
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Reset to Default Theme
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* ESPN Integration */}
       <Card className="gradient-card border-border">
