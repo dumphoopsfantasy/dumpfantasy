@@ -609,10 +609,16 @@ Only data below "Scoreboard" will be parsed.`}
                     <td className="p-3">
                       <div>
                         <div className="font-semibold text-base">
-                          {row.team.name} <span className="text-muted-foreground font-normal">({row.team.abbr})</span>
+                          {row.team.name && row.team.name !== row.team.abbr 
+                            ? <>{row.team.name} <span className="text-muted-foreground font-normal">({row.team.abbr})</span></>
+                            : row.team.abbr
+                          }
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          vs {row.opponent.name} ({row.opponent.abbr})
+                          vs {row.opponent.name && row.opponent.name !== row.opponent.abbr 
+                            ? `${row.opponent.name} (${row.opponent.abbr})`
+                            : row.opponent.abbr
+                          }
                         </div>
                       </div>
                     </td>
@@ -674,7 +680,10 @@ Only data below "Scoreboard" will be parsed.`}
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="font-display font-bold">
-                      {matchup.team1.name} <span className="font-normal text-muted-foreground">({matchup.team1.abbr})</span>
+                      {matchup.team1.name && matchup.team1.name !== matchup.team1.abbr 
+                        ? <>{matchup.team1.name} <span className="font-normal text-muted-foreground">({matchup.team1.abbr})</span></>
+                        : matchup.team1.abbr
+                      }
                     </p>
                   </div>
                   <div className="text-center px-4">
@@ -688,7 +697,10 @@ Only data below "Scoreboard" will be parsed.`}
                   </div>
                   <div className="flex-1 text-right">
                     <p className="font-display font-bold">
-                      {matchup.team2.name} <span className="font-normal text-muted-foreground">({matchup.team2.abbr})</span>
+                      {matchup.team2.name && matchup.team2.name !== matchup.team2.abbr 
+                        ? <>{matchup.team2.name} <span className="font-normal text-muted-foreground">({matchup.team2.abbr})</span></>
+                        : matchup.team2.abbr
+                      }
                     </p>
                   </div>
                 </div>
