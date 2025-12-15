@@ -905,8 +905,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         return { player, score };
       });
 
+    // Sort by score descending and take top 5, even if scores are negative
+    // (this handles cases where team average is high and any player would lower it)
     return scored
-      .filter((s) => s.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
       .map((s) => s.player);
