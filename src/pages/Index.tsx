@@ -377,7 +377,7 @@ const Index = () => {
       <NBAScoresSidebar rosterTeams={rosterTeams} rosterPlayers={rosterPlayersList} />
       
       {/* Header */}
-      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+      <header className="border-b-2 border-primary/30 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -403,7 +403,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue="roster" className="w-full">
-          <TabsList className="grid w-full max-w-4xl mx-auto grid-cols-6 bg-card mb-6">
+          <TabsList className="grid w-full max-w-4xl mx-auto grid-cols-6 bg-secondary/50 border border-primary/20 mb-6">
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
