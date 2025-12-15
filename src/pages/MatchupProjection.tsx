@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle } from "lucide-react";
+import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 
@@ -82,6 +82,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
   const [opponentData, setOpponentData] = useState("");
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [dismissedTip, setDismissedTip] = useState(false);
 
   // Extract opponent name from "Current Matchup" section
   const extractOpponentFromCurrentMatchup = (data: string, myTeamName: string): string | null => {
@@ -474,6 +475,19 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
         <p className="text-center text-muted-foreground">
           Paste the full ESPN team page for each team (Your Team & Opponent)
         </p>
+
+        {/* Guidance Tip */}
+        {!dismissedTip && (
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+            <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              <span className="font-medium text-foreground">Tip:</span> Once you import both teams here, go to <span className="text-primary font-medium">Free Agents</span> to see "Recommended Adds for This Matchup"—we'll highlight players that help swing toss-up categories.
+            </p>
+            <button onClick={() => setDismissedTip(true)} className="p-1 hover:bg-muted rounded-md transition-colors">
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
+        )}
 
         <Card className="p-4 bg-primary/10 border-primary/30">
           <div className="flex items-start gap-3">

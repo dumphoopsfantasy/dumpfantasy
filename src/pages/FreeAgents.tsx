@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -85,7 +85,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [customSuggestionCategories, setCustomSuggestionCategories] = useState<string[]>([]);
   const [showCustomSuggestions, setShowCustomSuggestions] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
+  const [dismissedTips, setDismissedTips] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+
+  const dismissTip = (tipId: string) => {
+    setDismissedTips(prev => new Set([...prev, tipId]));
+  };
 
   // Detect stat window from pasted data - look for the specific ESPN stat selector pattern
   const detectStatWindow = (data: string): string | null => {
@@ -989,6 +994,48 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           </h2>
           <CrisExplanation />
         </div>
+
+      {/* Guidance Tips */}
+      <div className="space-y-2">
+        {/* Tip: Import Roster */}
+        {currentRoster.length === 0 && !dismissedTips.has('roster') && (
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+            <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              <span className="font-medium text-foreground">Tip:</span> Import your roster in the <span className="text-primary font-medium">Roster</span> tab so we can compare free agents against your active players and generate better CRI/wCRI rankings.
+            </p>
+            <button onClick={() => dismissTip('roster')} className="p-1 hover:bg-muted rounded-md transition-colors">
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
+        )}
+        
+        {/* Tip: Import Standings */}
+        {leagueTeams.length === 0 && !dismissedTips.has('standings') && (
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+            <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              <span className="font-medium text-foreground">Tip:</span> Import standings in the <span className="text-primary font-medium">Standings</span> tab so we can show your team's category rankings and highlight which categories to target on waivers.
+            </p>
+            <button onClick={() => dismissTip('standings')} className="p-1 hover:bg-muted rounded-md transition-colors">
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
+        )}
+        
+        {/* Tip: Import Matchup */}
+        {!matchupData && !dismissedTips.has('matchup') && (
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+            <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              <span className="font-medium text-foreground">Tip:</span> Import your matchup in the <span className="text-primary font-medium">Matchup</span> tab to unlock "Recommended Adds for This Matchup"—we'll highlight free agents that help swing toss-up categories.
+            </p>
+            <button onClick={() => dismissTip('matchup')} className="p-1 hover:bg-muted rounded-md transition-colors">
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
+        )}
+      </div>
         <div className="flex items-center gap-3">
           {/* View Mode Toggle */}
           <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1">
