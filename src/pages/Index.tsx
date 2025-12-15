@@ -403,7 +403,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue="roster" className="w-full">
-          <TabsList className="grid w-full max-w-4xl mx-auto grid-cols-6 bg-secondary/50 border border-primary/20 mb-6">
+          <TabsList className="grid w-full max-w-4xl mx-auto grid-cols-6 bg-accent/30 border border-primary/20 mb-6">
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
