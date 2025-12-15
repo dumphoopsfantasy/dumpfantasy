@@ -137,16 +137,23 @@ export const WeeklyPerformance = ({
         const seasonRecord = headerMatch[2];
         const standing = `${headerMatch[3]}${headerMatch[4]}`;
         
-        // Look for the current matchup W-L-T on the next non-empty line
+        // Look for the current matchup W-L-T on the next non-empty lines
+        // The W-L-T record appears after the team header, before stats begin
         let currentMatchupRecord = "—";
-        for (let j = i + 1; j < Math.min(i + 5, relevantLines.length); j++) {
+        for (let j = i + 1; j < Math.min(i + 10, relevantLines.length); j++) {
           const nextLine = relevantLines[j];
-          // Skip stat headers
+          
+          // Stop if we hit another team header or stats table
+          if (teamHeaderPattern.test(nextLine)) break;
           if (/^(FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS)$/i.test(nextLine)) continue;
+          // Skip percentage values that could be stats (.485, .812)
+          if (/^\.?\d{3}$/.test(nextLine)) continue;
+          // Skip single large numbers that are stats
+          if (/^\d{2,}$/.test(nextLine) && parseInt(nextLine) > 20) continue;
           
           const matchupMatch = nextLine.match(currentMatchupPattern);
           if (matchupMatch) {
-            // Format as W-L-T, always include ties
+            // Format as W-L-T, always include all three components
             currentMatchupRecord = `${matchupMatch[1]}-${matchupMatch[2]}-${matchupMatch[3]}`;
             break;
           }
@@ -451,6 +458,7 @@ Only data below "Scoreboard" will be parsed.`}
     
     const team1Wins = categoryResults.filter(r => r.winner === 'team1').length;
     const team2Wins = categoryResults.filter(r => r.winner === 'team2').length;
+    const ties = categoryResults.filter(r => r.winner === 'tie').length;
     
     return [
       { 
@@ -461,6 +469,7 @@ Only data below "Scoreboard" will be parsed.`}
         wCri: team1CRIS.wCri,
         weekWins: team1Wins,
         weekLosses: team2Wins,
+        weekTies: ties,
         isFirstInMatchup: true 
       },
       { 
@@ -471,6 +480,7 @@ Only data below "Scoreboard" will be parsed.`}
         wCri: team2CRIS.wCri,
         weekWins: team2Wins,
         weekLosses: team1Wins,
+        weekTies: ties,
         isFirstInMatchup: false 
       },
     ];
@@ -556,7 +566,7 @@ Only data below "Scoreboard" will be parsed.`}
                         // Parse W-L-T from weekRecord to determine color
                         const record = row.team.weekRecord && row.team.weekRecord !== '—' 
                           ? row.team.weekRecord 
-                          : `${row.weekWins}-${row.weekLosses}-0`;
+                          : `${row.weekWins}-${row.weekLosses}-${row.weekTies}`;
                         const parts = record.match(/^(\d+)-(\d+)-(\d+)$/);
                         const w = parts ? parseInt(parts[1]) : row.weekWins;
                         const l = parts ? parseInt(parts[2]) : row.weekLosses;
