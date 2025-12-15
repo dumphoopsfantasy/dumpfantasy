@@ -10,7 +10,7 @@ import { Settings } from "@/pages/Settings";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
-import { WeightSettings, CustomWeights, DEFAULT_WEIGHTS } from "@/components/WeightSettings";
+import { CustomWeights, DEFAULT_WEIGHTS } from "@/components/WeightSettings";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
@@ -604,7 +604,7 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="settings">
-            <Settings />
+            <Settings weights={customWeights} onWeightsChange={setCustomWeights} />
           </TabsContent>
         </Tabs>
       </main>

@@ -1,47 +1,48 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings2, Link2, RefreshCw, Database, Upload, MessageSquare, Send, Palette, RotateCcw } from "lucide-react";
+import { Database, MessageSquare, Palette, RotateCcw, Send, Settings2, Upload } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { NBA_THEMES, NBATheme, applyTheme, resetTheme, getSavedTheme, saveTheme, clearSavedTheme } from "@/lib/nbaThemes";
+import {
+  NBA_THEMES,
+  NBATheme,
+  applyTheme,
+  clearSavedTheme,
+  getSavedTheme,
+  resetTheme,
+  saveTheme,
+} from "@/lib/nbaThemes";
+import { WeightSettings, type CustomWeights } from "@/components/WeightSettings";
 
-export const Settings = () => {
-  const [espnSettings, setEspnSettings] = useState({
-    leagueId: "",
-    teamId: "",
-    season: "2025",
-    swid: "",
-    espnS2: "",
-  });
+interface SettingsProps {
+  weights: CustomWeights;
+  onWeightsChange: (weights: CustomWeights) => void;
+}
+
+export const Settings = ({ weights, onWeightsChange }: SettingsProps) => {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<NBATheme | null>(null);
 
-  // Load saved theme on mount
   useEffect(() => {
     const saved = getSavedTheme();
-    if (saved) {
-      setSelectedTheme(saved);
-    }
+    if (saved) setSelectedTheme(saved);
   }, []);
 
   const handleThemeChange = (abbr: string) => {
-    const theme = NBA_THEMES.find(t => t.abbr === abbr);
-    if (theme) {
-      setSelectedTheme(theme);
-      applyTheme(theme);
-      saveTheme(theme);
-      toast({
-        title: "Theme Applied",
-        description: `${theme.team} theme is now active.`,
-      });
-    }
+    const theme = NBA_THEMES.find((t) => t.abbr === abbr);
+    if (!theme) return;
+
+    setSelectedTheme(theme);
+    applyTheme(theme);
+    saveTheme(theme);
+    toast({
+      title: "Theme Applied",
+      description: `${theme.team} theme is now active.`,
+    });
   };
 
   const handleResetTheme = () => {
@@ -54,33 +55,6 @@ export const Settings = () => {
     });
   };
 
-  const handleSave = () => {
-    // Store only non-sensitive settings in localStorage
-    // SECURITY: ESPN auth cookies (swid, espnS2) are NOT stored - they would be vulnerable to XSS
-    const safeSettings = {
-      leagueId: espnSettings.leagueId,
-      teamId: espnSettings.teamId,
-      season: espnSettings.season,
-      // Note: swid and espnS2 are intentionally NOT persisted for security reasons
-    };
-    localStorage.setItem("espn_settings", JSON.stringify(safeSettings));
-    
-    toast({
-      title: "Settings saved",
-      description: espnSettings.swid || espnSettings.espnS2 
-        ? "League settings saved. Note: Authentication cookies are not stored for security reasons - you'll need to re-enter them each session."
-        : "Your ESPN settings have been saved.",
-    });
-  };
-
-  const handleSync = () => {
-    toast({
-      title: "Coming Soon",
-      description: "ESPN sync functionality is under development.",
-    });
-  };
-
-  // Helper to convert hex to a preview-friendly format
   const hexToPreviewStyle = (hex: string) => ({ backgroundColor: hex });
 
   return (
@@ -93,23 +67,18 @@ export const Settings = () => {
       {/* Theme Selector */}
       <Card className="gradient-card border-border">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Palette className="w-5 h-5 text-primary" />
-              <div>
-                <CardTitle className="font-display">Team Theme</CardTitle>
-                <CardDescription>Customize app colors with your favorite NBA team</CardDescription>
-              </div>
+          <div className="flex items-center gap-3">
+            <Palette className="w-5 h-5 text-primary" />
+            <div>
+              <CardTitle className="font-display">Team Theme</CardTitle>
+              <CardDescription>Customize app colors with your favorite NBA team</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="theme">Favorite NBA Team</Label>
-            <Select 
-              value={selectedTheme?.abbr || ""} 
-              onValueChange={handleThemeChange}
-            >
+            <Select value={selectedTheme?.abbr || ""} onValueChange={handleThemeChange}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select a team theme..." />
               </SelectTrigger>
@@ -117,8 +86,8 @@ export const Settings = () => {
                 {NBA_THEMES.map((theme) => (
                   <SelectItem key={theme.abbr} value={theme.abbr}>
                     <div className="flex items-center gap-2">
-                      <div 
-                        className="w-3 h-3 rounded-full border border-border" 
+                      <div
+                        className="w-3 h-3 rounded-full border border-border"
                         style={hexToPreviewStyle(theme.primary)}
                       />
                       {theme.team}
@@ -129,137 +98,35 @@ export const Settings = () => {
             </Select>
           </div>
 
-          {/* Color Preview */}
           {selectedTheme && (
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Color Preview</Label>
               <div className="flex gap-2">
                 <div className="flex-1 space-y-1">
-                  <div 
-                    className="h-8 rounded-md border border-border" 
-                    style={hexToPreviewStyle(selectedTheme.primary)}
-                  />
+                  <div className="h-8 rounded-md border border-border" style={hexToPreviewStyle(selectedTheme.primary)} />
                   <p className="text-xs text-center text-muted-foreground">Primary</p>
                 </div>
                 <div className="flex-1 space-y-1">
-                  <div 
-                    className="h-8 rounded-md border border-border" 
-                    style={hexToPreviewStyle(selectedTheme.secondary)}
-                  />
+                  <div className="h-8 rounded-md border border-border" style={hexToPreviewStyle(selectedTheme.secondary)} />
                   <p className="text-xs text-center text-muted-foreground">Secondary</p>
                 </div>
                 <div className="flex-1 space-y-1">
-                  <div 
-                    className="h-8 rounded-md border border-border" 
-                    style={hexToPreviewStyle(selectedTheme.accent)}
-                  />
+                  <div className="h-8 rounded-md border border-border" style={hexToPreviewStyle(selectedTheme.accent)} />
                   <p className="text-xs text-center text-muted-foreground">Accent</p>
                 </div>
               </div>
             </div>
           )}
 
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={handleResetTheme}
-            className="w-full"
-          >
+          <Button variant="outline" size="sm" onClick={handleResetTheme} className="w-full">
             <RotateCcw className="w-4 h-4 mr-2" />
             Reset to Default Theme
           </Button>
         </CardContent>
       </Card>
 
-      {/* ESPN Integration */}
-      <Card className="gradient-card border-border">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Link2 className="w-5 h-5 text-primary" />
-              <div>
-                <CardTitle className="font-display">ESPN Fantasy Integration</CardTitle>
-                <CardDescription>Connect your ESPN Fantasy Basketball account</CardDescription>
-              </div>
-            </div>
-            <Badge variant="secondary">Future</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="leagueId">League ID</Label>
-              <Input
-                id="leagueId"
-                placeholder="e.g., 12345678"
-                value={espnSettings.leagueId}
-                onChange={(e) => setEspnSettings({ ...espnSettings, leagueId: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="teamId">Team ID</Label>
-              <Input
-                id="teamId"
-                placeholder="e.g., 1"
-                value={espnSettings.teamId}
-                onChange={(e) => setEspnSettings({ ...espnSettings, teamId: e.target.value })}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="season">Season</Label>
-            <Input
-              id="season"
-              placeholder="2025"
-              value={espnSettings.season}
-              onChange={(e) => setEspnSettings({ ...espnSettings, season: e.target.value })}
-            />
-          </div>
-
-          <Separator />
-
-          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-            <p className="text-sm text-amber-600 dark:text-amber-400">
-              <strong>⚠️ Security Note:</strong> Authentication cookies are session-only and will not be saved to protect your ESPN account. For private leagues, you'll need to re-enter these each session.
-              <a href="#" className="text-primary ml-1 hover:underline">Learn how to find these</a>
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="swid">SWID Cookie</Label>
-              <Input
-                id="swid"
-                type="password"
-                placeholder="{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}"
-                value={espnSettings.swid}
-                onChange={(e) => setEspnSettings({ ...espnSettings, swid: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="espnS2">espn_s2 Cookie</Label>
-              <Input
-                id="espnS2"
-                type="password"
-                placeholder="AEBxxxxxxxxxx..."
-                value={espnSettings.espnS2}
-                onChange={(e) => setEspnSettings({ ...espnSettings, espnS2: e.target.value })}
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <Button onClick={handleSave} className="flex-1">
-              Save Settings
-            </Button>
-            <Button onClick={handleSync} variant="outline" disabled className="flex items-center gap-2">
-              <RefreshCw className="w-4 h-4" />
-              Sync from ESPN
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Weights (wCRI) */}
+      <WeightSettings weights={weights} onWeightsChange={onWeightsChange} />
 
       {/* Data Management */}
       <Card className="gradient-card border-border">
@@ -302,9 +169,9 @@ export const Settings = () => {
             <div className="text-center py-4">
               <p className="text-stat-positive font-semibold">Thank you for your feedback!</p>
               <p className="text-sm text-muted-foreground mt-1">We appreciate you taking the time to reach out.</p>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 className="mt-3"
                 onClick={() => {
                   setFeedbackSubmitted(false);
@@ -326,7 +193,7 @@ export const Settings = () => {
                   className="min-h-[100px]"
                 />
               </div>
-              <Button 
+              <Button
                 onClick={() => {
                   if (!feedbackMessage.trim()) {
                     toast({
@@ -336,16 +203,16 @@ export const Settings = () => {
                     });
                     return;
                   }
-                  
+
                   const timestamp = new Date().toISOString();
                   const subject = encodeURIComponent("DumpHoops Feedback");
                   const body = encodeURIComponent(
                     `Message:\n${feedbackMessage}\n\n---\nTimestamp: ${timestamp}\nSent from: DumpHoops Analytics Settings`
                   );
-                  
-                  window.open(`mailto:dumpyourproducer@gmail.com?subject=${subject}&body=${body}`, '_blank');
+
+                  window.open(`mailto:dumpyourproducer@gmail.com?subject=${subject}&body=${body}`, "_blank");
                   setFeedbackSubmitted(true);
-                  
+
                   toast({
                     title: "Email client opened",
                     description: "Complete sending in your email app to submit feedback.",
@@ -366,9 +233,7 @@ export const Settings = () => {
         <CardContent className="pt-6">
           <div className="text-center">
             <h3 className="font-display font-bold text-xl text-gradient mb-2">DumpHoops Analytics</h3>
-            <p className="text-sm text-muted-foreground">
-              Fantasy basketball analytics powered by your data.
-            </p>
+            <p className="text-sm text-muted-foreground">Fantasy basketball analytics powered by your data.</p>
             <p className="text-xs text-muted-foreground mt-4">Version 1.0.0</p>
           </div>
         </CardContent>
