@@ -4,6 +4,7 @@ import { LeagueTeam } from "@/types/league";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { FreeAgentImpactSheet } from "@/components/FreeAgentImpactSheet";
+import { MatchupNeedsPanel } from "@/components/MatchupNeedsPanel";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -33,11 +34,29 @@ interface FreeAgent extends Player {
   plusMinus: number;
 }
 
+interface MatchupStats {
+  fgPct: number;
+  ftPct: number;
+  threepm: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  points: number;
+}
+
+interface MatchupData {
+  myTeam: { name: string; stats: MatchupStats };
+  opponent: { name: string; stats: MatchupStats };
+}
+
 interface FreeAgentsProps {
   persistedPlayers?: Player[];
   onPlayersChange?: (players: Player[]) => void;
   currentRoster?: Player[];
   leagueTeams?: LeagueTeam[];
+  matchupData?: MatchupData | null;
 }
 
 // Known NBA team codes
@@ -46,7 +65,7 @@ const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN'
 type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus';
 type ViewMode = 'stats' | 'rankings' | 'advanced';
 
-export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [] }: FreeAgentsProps) => {
+export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [], matchupData }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
@@ -1175,6 +1194,16 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             ))}
           </div>
         </Card>
+      )}
+
+      {/* Matchup-Based Research Panel */}
+      {matchupData && filteredPlayers.length > 0 && (
+        <MatchupNeedsPanel
+          matchupData={matchupData}
+          freeAgents={filteredPlayers}
+          useCris={useCris}
+          onPlayerClick={(player) => setSelectedPlayer(player as FreeAgent)}
+        />
       )}
 
       {/* Best Pickups Recommendations */}
