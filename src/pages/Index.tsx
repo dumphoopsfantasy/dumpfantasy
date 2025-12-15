@@ -573,6 +573,7 @@ const Index = () => {
               onPlayersChange={setFreeAgents}
               currentRoster={rosterWithCRI.map(slot => slot.player)}
               leagueTeams={leagueTeams}
+              matchupData={matchupData}
             />
           </TabsContent>
 
