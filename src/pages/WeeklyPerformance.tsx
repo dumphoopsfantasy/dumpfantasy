@@ -111,206 +111,259 @@ export const WeeklyPerformance = ({
     const weekMatch = relevantLines.find(l => l.toLowerCase().includes('matchup') && l.includes('('));
     if (weekMatch) week = weekMatch;
     
-    // NEW PARSING APPROACH: Look for team header + current matchup W-L-T blocks
-    // Pattern: "Team Name (W-L-T, Nth)" followed by current matchup "W-L-T" on next line
-    interface ParsedTeamData {
-      name: string;
-      seasonRecord: string;
-      standing: string;
-      currentMatchupRecord: string; // W-L-T for this week's matchup
-    }
-    
-    const teamDataBlocks: ParsedTeamData[] = [];
-    
+    // NEW ORDER-BASED PARSING: Segment by categories header, then map by position
+    // Categories header pattern (the line with all category names)
+    const categoriesHeaderPattern = /^FG%\s+FT%\s+3PM\s+REB\s+AST\s+STL\s+BLK\s+TO\s+PTS$/i;
     // Team header pattern: "Team Name (5-2-0, 2nd)" or "Team Name (4-3-0, 5th)"
     const teamHeaderPattern = /^(.+?)\s*\((\d+-\d+-\d+),\s*(\d+)(st|nd|rd|th)\)$/i;
     // Current matchup record pattern: strict W-L-T format
     const currentMatchupPattern = /^(\d+)-(\d+)-(\d+)$/;
+    // Stats row pattern: ABBR .485 .812 52 198 112 42 24 58 542
+    const statsRowPattern = /^([A-Za-z]{2,6})\s+\.?(\d{3})\s+\.?(\d{3})\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/;
     
+    // Find all indices of the categories header (each one starts a new matchup block)
+    const catHeaderIndices: number[] = [];
     for (let i = 0; i < relevantLines.length; i++) {
       loopGuard.check();
-      const line = relevantLines[i];
-      const headerMatch = line.match(teamHeaderPattern);
-      
-      if (headerMatch) {
-        const teamName = headerMatch[1].trim();
-        const seasonRecord = headerMatch[2];
-        const standing = `${headerMatch[3]}${headerMatch[4]}`;
-        
-        // Look for the current matchup W-L-T on the next non-empty lines
-        // The W-L-T record appears after the team header, before stats begin
-        let currentMatchupRecord = "—";
-        for (let j = i + 1; j < Math.min(i + 10, relevantLines.length); j++) {
-          const nextLine = relevantLines[j];
-          
-          // Stop if we hit another team header or stats table
-          if (teamHeaderPattern.test(nextLine)) break;
-          if (/^(FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS)$/i.test(nextLine)) continue;
-          // Skip percentage values that could be stats (.485, .812)
-          if (/^\.?\d{3}$/.test(nextLine)) continue;
-          // Skip single large numbers that are stats
-          if (/^\d{2,}$/.test(nextLine) && parseInt(nextLine) > 20) continue;
-          
-          const matchupMatch = nextLine.match(currentMatchupPattern);
-          if (matchupMatch) {
-            // Format as W-L-T, always include all three components
-            currentMatchupRecord = `${matchupMatch[1]}-${matchupMatch[2]}-${matchupMatch[3]}`;
-            break;
-          }
-        }
-        
-        teamDataBlocks.push({
-          name: teamName,
-          seasonRecord,
-          standing,
-          currentMatchupRecord
-        });
+      if (categoriesHeaderPattern.test(relevantLines[i])) {
+        catHeaderIndices.push(i);
       }
     }
     
-    // Look for team stat blocks (for category values)
-    interface TeamBlock {
-      abbr: string;
-      name: string;
-      record: string;
-      weekRecord: string;
-      stats: number[];
-    }
-    
-    const teamBlocks: TeamBlock[] = [];
-    
-    // Try inline format first: ABBR .485 .812 52 198 112 42 24 58 542
-    const inlineStatRegex = /^([A-Za-z]{2,6})\s+\.?(\d{3})\s+\.?(\d{3})\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/;
-    
-    for (const line of relevantLines) {
-      const match = line.match(inlineStatRegex);
-      if (match) {
-        teamBlocks.push({
-          abbr: match[1].toUpperCase(),
-          name: match[1].toUpperCase(),
-          record: '',
-          weekRecord: '',
-          stats: [
-            parseFloat('0.' + match[2]),
-            parseFloat('0.' + match[3]),
-            parseInt(match[4]),
-            parseInt(match[5]),
-            parseInt(match[6]),
-            parseInt(match[7]),
-            parseInt(match[8]),
-            parseInt(match[9]),
-            parseInt(match[10]),
-          ]
-        });
-      }
-    }
-    
-    // If no inline stats, try separate line parsing
-    if (teamBlocks.length === 0) {
-      let currentTeam: TeamBlock | null = null;
-      let collectingStats = false;
-      let currentStats: number[] = [];
-      
+    // Also try alternative: category headers might be on separate lines
+    // Look for sequences starting with "FG%" 
+    if (catHeaderIndices.length === 0) {
       for (let i = 0; i < relevantLines.length; i++) {
-        const line = relevantLines[i];
+        loopGuard.check();
+        if (relevantLines[i] === 'FG%' || relevantLines[i].toUpperCase() === 'FG%') {
+          catHeaderIndices.push(i);
+        }
+      }
+    }
+    
+    // For each categories header, extract the matchup block
+    for (let blockIdx = 0; blockIdx < catHeaderIndices.length; blockIdx++) {
+      loopGuard.check();
+      
+      const catHeaderIdx = catHeaderIndices[blockIdx];
+      const nextCatHeaderIdx = catHeaderIndices[blockIdx + 1] || relevantLines.length;
+      
+      // Find the two team headers BEFORE this categories header
+      // Search backwards from catHeaderIdx to find team headers
+      const blockStartIdx = blockIdx > 0 ? catHeaderIndices[blockIdx - 1] + 10 : 0;
+      const linesBeforeCatHeader = relevantLines.slice(blockStartIdx, catHeaderIdx);
+      
+      interface TeamHeaderData {
+        name: string;
+        seasonRecord: string;
+        standing: string;
+        currentMatchupRecord: string;
+        lineIndex: number;
+      }
+      
+      const teamHeaders: TeamHeaderData[] = [];
+      
+      for (let i = 0; i < linesBeforeCatHeader.length; i++) {
+        loopGuard.check();
+        const line = linesBeforeCatHeader[i];
+        const headerMatch = line.match(teamHeaderPattern);
         
-        if (/^[A-Z]{2,6}$/i.test(line) && 
-            !['FG', 'FT', 'PM', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PTS', 'MIN'].includes(line.toUpperCase())) {
-          if (currentTeam && currentStats.length >= 9) {
-            currentTeam.stats = currentStats.slice(0, 9);
-            teamBlocks.push(currentTeam);
+        if (headerMatch) {
+          const teamName = headerMatch[1].trim();
+          const seasonRecord = headerMatch[2];
+          const standing = `${headerMatch[3]}${headerMatch[4]}`;
+          
+          // Look for the current matchup W-L-T in the next few lines
+          let currentMatchupRecord = "—";
+          for (let j = i + 1; j < Math.min(i + 10, linesBeforeCatHeader.length); j++) {
+            const nextLine = linesBeforeCatHeader[j];
+            
+            // Stop if we hit another team header
+            if (teamHeaderPattern.test(nextLine)) break;
+            // Skip category labels
+            if (/^(FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS)$/i.test(nextLine)) continue;
+            // Skip percentage values that could be stats (.485, .812)
+            if (/^\.?\d{3}$/.test(nextLine)) continue;
+            // Skip single large numbers that are stats
+            if (/^\d{2,}$/.test(nextLine) && parseInt(nextLine) > 20) continue;
+            
+            const matchupMatch = nextLine.match(currentMatchupPattern);
+            if (matchupMatch) {
+              currentMatchupRecord = `${matchupMatch[1]}-${matchupMatch[2]}-${matchupMatch[3]}`;
+              break;
+            }
           }
           
-          currentTeam = {
-            abbr: line.toUpperCase(),
-            name: line.toUpperCase(),
+          teamHeaders.push({
+            name: teamName,
+            seasonRecord,
+            standing,
+            currentMatchupRecord,
+            lineIndex: blockStartIdx + i
+          });
+        }
+      }
+      
+      // Find the two stats rows AFTER the categories header
+      const linesAfterCatHeader = relevantLines.slice(catHeaderIdx + 1, nextCatHeaderIdx);
+      
+      interface StatsRowData {
+        abbr: string;
+        stats: number[];
+      }
+      
+      const statsRows: StatsRowData[] = [];
+      
+      for (const line of linesAfterCatHeader) {
+        loopGuard.check();
+        const match = line.match(statsRowPattern);
+        if (match) {
+          statsRows.push({
+            abbr: match[1],
+            stats: [
+              parseFloat('0.' + match[2]),
+              parseFloat('0.' + match[3]),
+              parseInt(match[4]),
+              parseInt(match[5]),
+              parseInt(match[6]),
+              parseInt(match[7]),
+              parseInt(match[8]),
+              parseInt(match[9]),
+              parseInt(match[10]),
+            ]
+          });
+          
+          // Only need 2 stats rows per matchup
+          if (statsRows.length >= 2) break;
+        }
+      }
+      
+      // Need exactly 2 team headers and 2 stats rows to form a matchup
+      if (teamHeaders.length >= 2 && statsRows.length >= 2) {
+        // Use the last 2 team headers found (closest to the categories header)
+        const team1Header = teamHeaders[teamHeaders.length - 2];
+        const team2Header = teamHeaders[teamHeaders.length - 1];
+        const stats1 = statsRows[0];
+        const stats2 = statsRows[1];
+        
+        result.push({
+          team1: {
+            abbr: stats1.abbr,
+            name: team1Header.name,
+            record: team1Header.seasonRecord,
+            weekRecord: team1Header.currentMatchupRecord,
+            stats: {
+              fgPct: stats1.stats[0],
+              ftPct: stats1.stats[1],
+              threepm: stats1.stats[2],
+              rebounds: stats1.stats[3],
+              assists: stats1.stats[4],
+              steals: stats1.stats[5],
+              blocks: stats1.stats[6],
+              turnovers: stats1.stats[7],
+              points: stats1.stats[8],
+            }
+          },
+          team2: {
+            abbr: stats2.abbr,
+            name: team2Header.name,
+            record: team2Header.seasonRecord,
+            weekRecord: team2Header.currentMatchupRecord,
+            stats: {
+              fgPct: stats2.stats[0],
+              ftPct: stats2.stats[1],
+              threepm: stats2.stats[2],
+              rebounds: stats2.stats[3],
+              assists: stats2.stats[4],
+              steals: stats2.stats[5],
+              blocks: stats2.stats[6],
+              turnovers: stats2.stats[7],
+              points: stats2.stats[8],
+            }
+          }
+        });
+      }
+    }
+    
+    // Fallback: If no matchups found using block-based approach, try original inline approach
+    if (result.length === 0) {
+      interface TeamBlock {
+        abbr: string;
+        name: string;
+        record: string;
+        weekRecord: string;
+        stats: number[];
+      }
+      
+      const teamBlocks: TeamBlock[] = [];
+      
+      for (const line of relevantLines) {
+        loopGuard.check();
+        const match = line.match(statsRowPattern);
+        if (match) {
+          teamBlocks.push({
+            abbr: match[1],
+            name: match[1],
             record: '',
             weekRecord: '',
-            stats: []
-          };
-          collectingStats = true;
-          currentStats = [];
-          continue;
+            stats: [
+              parseFloat('0.' + match[2]),
+              parseFloat('0.' + match[3]),
+              parseInt(match[4]),
+              parseInt(match[5]),
+              parseInt(match[6]),
+              parseInt(match[7]),
+              parseInt(match[8]),
+              parseInt(match[9]),
+              parseInt(match[10]),
+            ]
+          });
         }
+      }
+      
+      // Pair consecutive teams as matchups
+      for (let i = 0; i + 1 < teamBlocks.length; i += 2) {
+        loopGuard.check();
+        const block1 = teamBlocks[i];
+        const block2 = teamBlocks[i + 1];
         
-        if (collectingStats && currentTeam) {
-          if (/^\.?\d+$/.test(line)) {
-            const val = line.startsWith('.') ? parseFloat(line) : parseFloat(line);
-            currentStats.push(val);
+        result.push({
+          team1: {
+            abbr: block1.abbr,
+            name: block1.name,
+            record: block1.record,
+            weekRecord: block1.weekRecord,
+            stats: {
+              fgPct: block1.stats[0],
+              ftPct: block1.stats[1],
+              threepm: block1.stats[2],
+              rebounds: block1.stats[3],
+              assists: block1.stats[4],
+              steals: block1.stats[5],
+              blocks: block1.stats[6],
+              turnovers: block1.stats[7],
+              points: block1.stats[8],
+            }
+          },
+          team2: {
+            abbr: block2.abbr,
+            name: block2.name,
+            record: block2.record,
+            weekRecord: block2.weekRecord,
+            stats: {
+              fgPct: block2.stats[0],
+              ftPct: block2.stats[1],
+              threepm: block2.stats[2],
+              rebounds: block2.stats[3],
+              assists: block2.stats[4],
+              steals: block2.stats[5],
+              blocks: block2.stats[6],
+              turnovers: block2.stats[7],
+              points: block2.stats[8],
+            }
           }
-          
-          if (currentStats.length >= 9) {
-            currentTeam.stats = currentStats;
-            teamBlocks.push(currentTeam);
-            currentTeam = null;
-            collectingStats = false;
-            currentStats = [];
-          }
-        }
+        });
       }
-      
-      if (currentTeam && currentStats.length >= 9) {
-        currentTeam.stats = currentStats.slice(0, 9);
-        teamBlocks.push(currentTeam);
-      }
-    }
-    
-    // Build matchups by pairing consecutive team data blocks
-    // Use teamDataBlocks for name/record/matchupRecord, and teamBlocks for stats
-    for (let i = 0; i + 1 < teamBlocks.length; i += 2) {
-      const block1 = teamBlocks[i];
-      const block2 = teamBlocks[i + 1];
-      
-      // Match with teamDataBlocks based on index
-      const teamData1 = teamDataBlocks[i] || { 
-        name: block1.abbr, 
-        seasonRecord: '', 
-        standing: '', 
-        currentMatchupRecord: '—' 
-      };
-      const teamData2 = teamDataBlocks[i + 1] || { 
-        name: block2.abbr, 
-        seasonRecord: '', 
-        standing: '', 
-        currentMatchupRecord: '—' 
-      };
-      
-      result.push({
-        team1: {
-          abbr: block1.abbr,
-          name: teamData1.name,
-          record: teamData1.seasonRecord,
-          weekRecord: teamData1.currentMatchupRecord,
-          stats: {
-            fgPct: block1.stats[0],
-            ftPct: block1.stats[1],
-            threepm: block1.stats[2],
-            rebounds: block1.stats[3],
-            assists: block1.stats[4],
-            steals: block1.stats[5],
-            blocks: block1.stats[6],
-            turnovers: block1.stats[7],
-            points: block1.stats[8],
-          }
-        },
-        team2: {
-          abbr: block2.abbr,
-          name: teamData2.name,
-          record: teamData2.seasonRecord,
-          weekRecord: teamData2.currentMatchupRecord,
-          stats: {
-            fgPct: block2.stats[0],
-            ftPct: block2.stats[1],
-            threepm: block2.stats[2],
-            rebounds: block2.stats[3],
-            assists: block2.stats[4],
-            steals: block2.stats[5],
-            blocks: block2.stats[6],
-            turnovers: block2.stats[7],
-            points: block2.stats[8],
-          }
-        }
-      });
     }
     
     return { matchups: result, week };
@@ -555,9 +608,11 @@ Only data below "Scoreboard" will be parsed.`}
                     <td className="p-3 font-bold text-primary text-base">{idx + 1}</td>
                     <td className="p-3">
                       <div>
-                        <div className="font-semibold text-base">{row.team.name}</div>
+                        <div className="font-semibold text-base">
+                          {row.team.name} <span className="text-muted-foreground font-normal">({row.team.abbr})</span>
+                        </div>
                         <div className="text-sm text-muted-foreground">
-                          vs {row.opponent.abbr}
+                          vs {row.opponent.name} ({row.opponent.abbr})
                         </div>
                       </div>
                     </td>
@@ -618,8 +673,9 @@ Only data below "Scoreboard" will be parsed.`}
               <div className="p-4 border-b border-border bg-secondary/20">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <p className="font-display font-bold">{matchup.team1.name}</p>
-                    <p className="text-xs text-muted-foreground">{matchup.team1.abbr}</p>
+                    <p className="font-display font-bold">
+                      {matchup.team1.name} <span className="font-normal text-muted-foreground">({matchup.team1.abbr})</span>
+                    </p>
                   </div>
                   <div className="text-center px-4">
                     <span className="font-display font-bold text-lg">
@@ -631,8 +687,9 @@ Only data below "Scoreboard" will be parsed.`}
                     </span>
                   </div>
                   <div className="flex-1 text-right">
-                    <p className="font-display font-bold">{matchup.team2.name}</p>
-                    <p className="text-xs text-muted-foreground">{matchup.team2.abbr}</p>
+                    <p className="font-display font-bold">
+                      {matchup.team2.name} <span className="font-normal text-muted-foreground">({matchup.team2.abbr})</span>
+                    </p>
                   </div>
                 </div>
               </div>
