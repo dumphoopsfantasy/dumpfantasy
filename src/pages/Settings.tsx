@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Database, MessageSquare, Palette, RotateCcw, Send, Settings2, Upload } from "lucide-react";
+import { MessageSquare, Palette, RotateCcw, Send, Settings2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   NBA_THEMES,
@@ -128,30 +128,6 @@ export const Settings = ({ weights, onWeightsChange }: SettingsProps) => {
       {/* Weights (wCRI) */}
       <WeightSettings weights={weights} onWeightsChange={onWeightsChange} />
 
-      {/* Data Management */}
-      <Card className="gradient-card border-border">
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <Database className="w-5 h-5 text-primary" />
-            <div>
-              <CardTitle className="font-display">Data Management</CardTitle>
-              <CardDescription>Import and export your fantasy data</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Button variant="outline" className="h-24 flex-col gap-2">
-              <Upload className="w-5 h-5" />
-              <span>Import from Excel</span>
-            </Button>
-            <Button variant="outline" className="h-24 flex-col gap-2">
-              <Database className="w-5 h-5" />
-              <span>Export Data</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Feedback */}
       <Card className="gradient-card border-border">
