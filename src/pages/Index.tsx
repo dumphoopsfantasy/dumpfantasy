@@ -11,6 +11,7 @@ import { RosterTable } from "@/components/roster/RosterTable";
 import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentSuggestions";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
+import { DataCompletenessBar } from "@/components/DataCompletenessBar";
 import { CustomWeights, DEFAULT_WEIGHTS } from "@/components/WeightSettings";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
@@ -100,9 +101,27 @@ const Index = () => {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [playerSheetOpen, setPlayerSheetOpen] = useState(false);
 
+  // Tab navigation state for data completeness bar
+  const [activeTab, setActiveTab] = useState("roster");
+  const [triggerImport, setTriggerImport] = useState<string | null>(null);
+
   const handlePlayerClick = (player: Player) => {
     setSelectedPlayer(player);
     setPlayerSheetOpen(true);
+  };
+
+  const handleCompletenessNavigate = (tab: string, openImport?: boolean) => {
+    setActiveTab(tab);
+    if (openImport) {
+      setTriggerImport(tab);
+    }
+  };
+
+  // Reset triggerImport after it's been consumed
+  const consumeTriggerImport = (tab: string) => {
+    if (triggerImport === tab) {
+      setTriggerImport(null);
+    }
   };
 
   const handleDataParsed = (data: PlayerStats[]) => {
@@ -410,9 +429,19 @@ const Index = () => {
         </div>
       </header>
 
+      {/* Data Completeness Bar */}
+      <DataCompletenessBar
+        players={players}
+        matchupData={matchupData}
+        weeklyMatchups={weeklyMatchups}
+        freeAgents={freeAgents}
+        leagueTeams={leagueTeams}
+        onNavigate={handleCompletenessNavigate}
+      />
+
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
-        <Tabs defaultValue="roster" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full max-w-4xl mx-auto grid-cols-6 bg-accent/30 border border-primary/20 mb-6">
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
