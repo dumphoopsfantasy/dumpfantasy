@@ -2,10 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { Trophy, Upload, RefreshCw, Bug } from "lucide-react";
+import { Trophy, Upload, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 
@@ -328,8 +326,6 @@ export const WeeklyPerformance = ({
   const [matchups, setMatchups] = useState<ParsedMatchup[]>(persistedMatchups as ParsedMatchup[]);
   const [weekTitle, setWeekTitle] = useState(persistedTitle);
   const [isParsing, setIsParsing] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
-  const [debugOutput, setDebugOutput] = useState<string[]>([]);
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -416,9 +412,7 @@ export const WeeklyPerformance = ({
     setIsParsing(true);
     
     try {
-      const { matchups: parsed, weekLabel, debugInfo } = await parseWithTimeout(() => parseWeeklyScoreboard(rawData));
-      
-      setDebugOutput(debugInfo);
+      const { matchups: parsed, weekLabel } = await parseWithTimeout(() => parseWeeklyScoreboard(rawData));
       
       if (parsed.length >= 5) {
         setMatchups(parsed);
@@ -438,7 +432,7 @@ export const WeeklyPerformance = ({
       } else {
         toast({
           title: "No matchups found",
-          description: "Could not parse any matchup data. Enable debug mode for details.",
+          description: "Could not parse any matchup data. Please paste the full ESPN Scoreboard page.",
           variant: "destructive",
         });
       }
@@ -458,7 +452,6 @@ export const WeeklyPerformance = ({
     setMatchups([]);
     setWeekTitle("");
     setRawData("");
-    setDebugOutput([]);
     if (onMatchupsChange) onMatchupsChange([]);
     if (onTitleChange) onTitleChange("");
   };
@@ -506,27 +499,12 @@ The page should include all 5 matchups with team names, records, and stats.`}
           className="min-h-[200px] font-mono text-sm mb-4 bg-muted/50"
         />
 
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Switch id="debug-mode" checked={showDebug} onCheckedChange={setShowDebug} />
-            <Label htmlFor="debug-mode" className="text-sm text-muted-foreground flex items-center gap-1">
-              <Bug className="w-3 h-3" /> Parse Debug
-            </Label>
-          </div>
-        </div>
 
         <Button onClick={handleParse} disabled={isParsing} className="w-full gradient-primary font-display font-bold">
           <Upload className="w-4 h-4 mr-2" />
           {isParsing ? "Parsing..." : "Load Weekly Data"}
         </Button>
         
-        {showDebug && debugOutput.length > 0 && (
-          <div className="mt-4 p-3 bg-muted/50 rounded text-xs font-mono">
-            {debugOutput.map((line, i) => (
-              <div key={i}>{line}</div>
-            ))}
-          </div>
-        )}
       </Card>
     );
   }
@@ -543,25 +521,12 @@ The page should include all 5 matchups with team names, records, and stats.`}
           <h2 className="font-display font-bold text-2xl">Weekly Performance</h2>
           {weekTitle && <p className="text-muted-foreground">{weekTitle}</p>}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 mr-4">
-            <Switch id="debug-toggle" checked={showDebug} onCheckedChange={setShowDebug} />
-            <Label htmlFor="debug-toggle" className="text-xs text-muted-foreground"><Bug className="w-3 h-3 inline" /></Label>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleReset}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            New Import
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" onClick={handleReset}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          New Import
+        </Button>
       </div>
       
-      {showDebug && debugOutput.length > 0 && (
-        <div className="p-3 bg-muted/50 rounded text-xs font-mono border border-border">
-          {debugOutput.map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
-        </div>
-      )}
 
       {/* Weekly Performance Table */}
       <Card className="gradient-card border-border overflow-hidden">
