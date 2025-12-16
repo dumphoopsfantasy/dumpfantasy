@@ -79,16 +79,34 @@ export function applyTheme(theme: NBATheme): void {
   
   // Primary color
   root.style.setProperty('--primary', `${primary.h} ${primary.s}% ${primary.l}%`);
-  root.style.setProperty('--accent', `${primary.h} ${primary.s}% ${primary.l}%`);
+  root.style.setProperty('--accent', `${accent.h} ${accent.s}% ${accent.l}%`);
   root.style.setProperty('--ring', `${primary.h} ${primary.s}% ${primary.l}%`);
   
   // Secondary - use for card backgrounds and secondary elements
   root.style.setProperty('--secondary', `${secondary.h} ${Math.min(secondary.s, 33)}% ${Math.max(17, Math.min(secondary.l, 25))}%`);
   
+  // Background - derive from secondary with very dark luminosity
+  const bgHue = secondary.h;
+  const bgSat = Math.min(secondary.s, 50);
+  const bgLight = 6; // Keep it dark but tinted
+  root.style.setProperty('--background', `${bgHue} ${bgSat}% ${bgLight}%`);
+  
+  // Card background - slightly lighter than background
+  root.style.setProperty('--card', `${bgHue} ${bgSat}% 9%`);
+  root.style.setProperty('--popover', `${bgHue} ${bgSat}% 9%`);
+  
+  // Muted colors based on theme
+  root.style.setProperty('--muted', `${bgHue} ${Math.min(bgSat, 33)}% 14%`);
+  root.style.setProperty('--border', `${bgHue} ${Math.min(bgSat, 33)}% 17%`);
+  root.style.setProperty('--input', `${bgHue} ${Math.min(bgSat, 33)}% 17%`);
+  
   // Update gradients
   const primaryDarker = { ...primary, l: Math.max(primary.l - 8, 30) };
   root.style.setProperty('--gradient-primary', 
     `linear-gradient(135deg, hsl(${primary.h} ${primary.s}% ${primary.l}%) 0%, hsl(${primaryDarker.h} ${primaryDarker.s}% ${primaryDarker.l}%) 100%)`
+  );
+  root.style.setProperty('--gradient-card', 
+    `linear-gradient(165deg, hsl(${bgHue} ${bgSat}% 11%) 0%, hsl(${bgHue} ${bgSat}% 7%) 100%)`
   );
   root.style.setProperty('--shadow-glow', `0 0 60px hsl(${primary.h} ${primary.s}% ${primary.l}% / 0.15)`);
 }
@@ -101,7 +119,14 @@ export function resetTheme(): void {
   root.style.setProperty('--accent', '25 95% 53%');
   root.style.setProperty('--ring', '25 95% 53%');
   root.style.setProperty('--secondary', '217 33% 17%');
+  root.style.setProperty('--background', '222 47% 6%');
+  root.style.setProperty('--card', '222 47% 9%');
+  root.style.setProperty('--popover', '222 47% 9%');
+  root.style.setProperty('--muted', '217 33% 14%');
+  root.style.setProperty('--border', '217 33% 17%');
+  root.style.setProperty('--input', '217 33% 17%');
   root.style.setProperty('--gradient-primary', 'linear-gradient(135deg, hsl(25 95% 53%) 0%, hsl(15 90% 45%) 100%)');
+  root.style.setProperty('--gradient-card', 'linear-gradient(165deg, hsl(222 47% 11%) 0%, hsl(222 47% 7%) 100%)');
   root.style.setProperty('--shadow-glow', '0 0 60px hsl(25 95% 53% / 0.15)');
 }
 
