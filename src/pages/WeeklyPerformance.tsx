@@ -352,12 +352,52 @@ export const WeeklyPerformance = ({
   const tableRows = useMemo(() => {
     if (matchups.length === 0) return [];
     
+    // First, collect all teams
+    const allTeams: { team: ParsedTeam; opponent: ParsedTeam }[] = [];
+    for (const m of matchups) {
+      allTeams.push({ team: m.teamA, opponent: m.teamB });
+      allTeams.push({ team: m.teamB, opponent: m.teamA });
+    }
+    
+    const n = allTeams.length;
+    
+    // Calculate CRI: rank each team in each category, then sum inverted ranks
+    const categoryRanks: Map<string, Map<string, number>> = new Map();
+    
+    for (const cat of STAT_CATEGORIES) {
+      const isLowerBetter = cat.key === 'turnovers';
+      const sorted = [...allTeams].sort((a, b) => {
+        const valA = a.team.stats[cat.key as keyof TeamStats];
+        const valB = b.team.stats[cat.key as keyof TeamStats];
+        return isLowerBetter ? valA - valB : valB - valA;
+      });
+      
+      const ranks = new Map<string, number>();
+      sorted.forEach((t, idx) => {
+        // Best gets rank N, worst gets rank 1
+        ranks.set(t.team.token, n - idx);
+      });
+      categoryRanks.set(cat.key, ranks);
+    }
+    
+    // Calculate CRI for each team
+    const teamCRI = new Map<string, number>();
+    for (const t of allTeams) {
+      let cri = 0;
+      for (const cat of STAT_CATEGORIES) {
+        const rank = categoryRanks.get(cat.key)?.get(t.team.token) || 0;
+        cri += rank;
+      }
+      teamCRI.set(t.team.token, cri);
+    }
+    
     const rows: {
       team: ParsedTeam;
       opponent: ParsedTeam;
       categoryWins: number;
       categoryLosses: number;
       categoryTies: number;
+      cri: number;
     }[] = [];
     
     for (const m of matchups) {
@@ -369,6 +409,7 @@ export const WeeklyPerformance = ({
         categoryWins: winsA,
         categoryLosses: winsB,
         categoryTies: ties,
+        cri: teamCRI.get(m.teamA.token) || 0,
       });
       
       rows.push({
@@ -377,14 +418,14 @@ export const WeeklyPerformance = ({
         categoryWins: winsB,
         categoryLosses: winsA,
         categoryTies: ties,
+        cri: teamCRI.get(m.teamB.token) || 0,
       });
     }
     
-    // Sort by category wins (desc), then PTS (desc), then FG% (desc)
+    // Sort by CRI (desc), then category wins (desc)
     rows.sort((a, b) => {
-      if (b.categoryWins !== a.categoryWins) return b.categoryWins - a.categoryWins;
-      if (b.team.stats.points !== a.team.stats.points) return b.team.stats.points - a.team.stats.points;
-      return b.team.stats.fgPct - a.team.stats.fgPct;
+      if (b.cri !== a.cri) return b.cri - a.cri;
+      return b.categoryWins - a.categoryWins;
     });
     
     return rows;
@@ -576,7 +617,7 @@ The page should include all 5 matchups with team names, records, and stats.`}
                     );
                   })}
                   <td className="p-3 text-center font-bold text-primary text-base border-l border-primary/50">
-                    —
+                    {row.cri}
                   </td>
                 </tr>
               ))}
