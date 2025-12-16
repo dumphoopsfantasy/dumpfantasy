@@ -8,6 +8,7 @@ import { WeeklyPerformance } from "@/pages/WeeklyPerformance";
 import { MatchupProjection } from "@/pages/MatchupProjection";
 import { Settings } from "@/pages/Settings";
 import { RosterTable } from "@/components/roster/RosterTable";
+import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentSuggestions";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { CustomWeights, DEFAULT_WEIGHTS } from "@/components/WeightSettings";
@@ -540,6 +541,14 @@ const Index = () => {
                   onPlayerClick={handlePlayerClick}
                   categoryRanks={categoryRanks}
                   activePlayerCount={activePlayerCount}
+                />
+                
+                {/* Free Agent Suggestions */}
+                <RosterFreeAgentSuggestions
+                  freeAgents={freeAgents}
+                  leagueTeams={leagueTeams}
+                  roster={rosterWithCRI}
+                  onPlayerClick={handlePlayerClick}
                 />
               </div>
             )}
