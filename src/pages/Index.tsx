@@ -7,6 +7,7 @@ import { FreeAgents } from "@/pages/FreeAgents";
 import { WeeklyPerformance } from "@/pages/WeeklyPerformance";
 import { MatchupProjection } from "@/pages/MatchupProjection";
 import { Settings } from "@/pages/Settings";
+import { Gameplan } from "@/pages/Gameplan";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentSuggestions";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
@@ -17,7 +18,7 @@ import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
-import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon } from "lucide-react";
+import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon, Clipboard } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 
@@ -442,7 +443,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full max-w-4xl mx-auto grid-cols-6 bg-accent/30 border border-primary/20 mb-6">
+          <TabsList className="grid w-full max-w-5xl mx-auto grid-cols-7 bg-accent/30 border border-primary/20 mb-6">
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
@@ -462,6 +463,10 @@ const Index = () => {
             <TabsTrigger value="weekly" className="font-display font-semibold text-xs md:text-sm">
               <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
               Weekly
+            </TabsTrigger>
+            <TabsTrigger value="gameplan" className="font-display font-semibold text-xs md:text-sm">
+              <Clipboard className="w-4 h-4 mr-1 hidden md:inline" />
+              Gameplan
             </TabsTrigger>
             <TabsTrigger value="settings" className="font-display font-semibold text-xs md:text-sm">
               <SettingsIcon className="w-4 h-4 mr-1 hidden md:inline" />
@@ -647,6 +652,16 @@ const Index = () => {
               persistedTitle={weeklyTitle}
               onMatchupsChange={setWeeklyMatchups}
               onTitleChange={setWeeklyTitle}
+            />
+          </TabsContent>
+
+          <TabsContent value="gameplan">
+            <Gameplan
+              roster={rosterWithCRI}
+              freeAgents={freeAgents}
+              leagueTeams={leagueTeams}
+              matchupData={matchupData}
+              weeklyMatchups={weeklyMatchups}
             />
           </TabsContent>
 
