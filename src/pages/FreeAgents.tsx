@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -88,6 +88,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTips, setDismissedTips] = useState<Set<string>>(new Set());
   const [bestPickupsOpen, setBestPickupsOpen] = useState(true);
+  const [tableOnlyMode, setTableOnlyMode] = useState(false);
   const { toast } = useToast();
 
   const dismissTip = (tipId: string) => {
@@ -1217,11 +1218,20 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           <Button variant="outline" size="icon" onClick={handleReset}>
             <RefreshCw className="w-4 h-4" />
           </Button>
+          <Button 
+            variant={tableOnlyMode ? "default" : "outline"} 
+            size="sm"
+            onClick={() => setTableOnlyMode(!tableOnlyMode)}
+            className="gap-1"
+          >
+            <TableIcon className="w-4 h-4" />
+            <span className="hidden md:inline">Table Only</span>
+          </Button>
         </div>
       </Card>
 
-      {/* Compare Panel */}
-      {compareList.length > 0 && (
+      {/* Compare Panel - hidden in table only mode */}
+      {!tableOnlyMode && compareList.length > 0 && (
         <Card className="gradient-card border-primary/50 p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-display font-bold flex items-center gap-2">
@@ -1268,8 +1278,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {/* Matchup-Based Research Panel */}
-      {matchupData && filteredPlayers.length > 0 && (
+      {/* Matchup-Based Research Panel - hidden in table only mode */}
+      {!tableOnlyMode && matchupData && filteredPlayers.length > 0 && (
         <MatchupNeedsPanel
           matchupData={matchupData}
           freeAgents={filteredPlayers}
@@ -1278,8 +1288,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         />
       )}
 
-      {/* Best Pickups Recommendations */}
-      {!bestPickupRecommendations.hasStandingsData && leagueTeams.length === 0 && (
+      {/* Best Pickups Recommendations - hidden in table only mode */}
+      {!tableOnlyMode && !bestPickupRecommendations.hasStandingsData && leagueTeams.length === 0 && (
         <Card className="gradient-card border-border p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -1295,7 +1305,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {(bestPickupRecommendations.bestForWeak.length > 0 || bestPickupRecommendations.hasStandingsData) && (
+      {!tableOnlyMode && (bestPickupRecommendations.bestForWeak.length > 0 || bestPickupRecommendations.hasStandingsData) && (
         <Collapsible open={bestPickupsOpen} onOpenChange={setBestPickupsOpen}>
           <Card className="gradient-card border-border p-4">
             <CollapsibleTrigger className="w-full">
