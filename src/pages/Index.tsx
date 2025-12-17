@@ -14,11 +14,12 @@ import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { DataCompletenessBar } from "@/components/DataCompletenessBar";
 import { CustomWeights, DEFAULT_WEIGHTS } from "@/components/WeightSettings";
+import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
-import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon, Clipboard } from "lucide-react";
+import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon, Clipboard, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 
@@ -68,8 +69,8 @@ const CRI_CATEGORIES = [
 ] as const;
 
 const Index = () => {
-  // Roster state
-  const [players, setPlayers] = useState<PlayerStats[]>([]);
+  // Roster state (persisted)
+  const [players, setPlayers] = usePersistedState<PlayerStats[]>('dumphoops-roster', []);
   
   // CRI/wCRI toggle
   const [useCris, setUseCris] = useState(true);
@@ -83,20 +84,20 @@ const Index = () => {
   const [pinIRToBottom, setPinIRToBottom] = useState(true);
   
   // Free agents state (persisted)
-  const [freeAgents, setFreeAgents] = useState<Player[]>([]);
+  const [freeAgents, setFreeAgents] = usePersistedState<Player[]>('dumphoops-freeagents', []);
   
   // Weekly state (persisted)
-  const [weeklyMatchups, setWeeklyMatchups] = useState<WeeklyMatchup[]>([]);
-  const [weeklyTitle, setWeeklyTitle] = useState("");
+  const [weeklyMatchups, setWeeklyMatchups] = usePersistedState<WeeklyMatchup[]>('dumphoops-weekly', []);
+  const [weeklyTitle, setWeeklyTitle] = usePersistedState<string>('dumphoops-weekly-title', "");
   
   // Standings state (persisted)
-  const [leagueTeams, setLeagueTeams] = useState<LeagueTeam[]>([]);
+  const [leagueTeams, setLeagueTeams] = usePersistedState<LeagueTeam[]>('dumphoops-standings', []);
   
   // Matchup projection state (persisted)
-  const [matchupData, setMatchupData] = useState<MatchupProjectionData | null>(null);
+  const [matchupData, setMatchupData] = usePersistedState<MatchupProjectionData | null>('dumphoops-matchup', null);
 
-  // Custom wCRI weights
-  const [customWeights, setCustomWeights] = useState<CustomWeights>(DEFAULT_WEIGHTS);
+  // Custom wCRI weights (persisted)
+  const [customWeights, setCustomWeights] = usePersistedState<CustomWeights>('dumphoops-weights', DEFAULT_WEIGHTS);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -131,6 +132,19 @@ const Index = () => {
 
   const handleReset = () => {
     setPlayers([]);
+  };
+
+  const handleClearAllData = () => {
+    if (window.confirm("Clear all saved data? This will remove roster, free agents, standings, matchup, and weekly data.")) {
+      clearPersistedData();
+      setPlayers([]);
+      setFreeAgents([]);
+      setWeeklyMatchups([]);
+      setWeeklyTitle("");
+      setLeagueTeams([]);
+      setMatchupData(null);
+      setCustomWeights(DEFAULT_WEIGHTS);
+    }
   };
 
   // Convert PlayerStats to RosterSlot format and calculate CRI/wCRI
@@ -420,12 +434,20 @@ const Index = () => {
                 </h1>
               </div>
             </div>
-            {players.length > 0 && (
-              <Button onClick={handleReset} variant="outline" size="sm" className="font-display font-semibold">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Reset
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {players.length > 0 && (
+                <Button onClick={handleReset} variant="outline" size="sm" className="font-display font-semibold">
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Reset Roster
+                </Button>
+              )}
+              {(players.length > 0 || freeAgents.length > 0 || leagueTeams.length > 0 || matchupData || weeklyMatchups.length > 0) && (
+                <Button onClick={handleClearAllData} variant="destructive" size="sm" className="font-display font-semibold">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear All
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>
