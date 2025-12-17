@@ -346,69 +346,108 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
     scoredFA.sort((a, b) => b.score - a.score);
     const adds = scoredFA.slice(0, 5);
 
-    // Score roster players for drops with opportunity cost reasoning
+    // Score roster players for drops based on OPPORTUNITY COST
+    // Compare each roster player to best available FA at their position
     const scoredRoster = activePlayers.map(r => {
       const player = r.player;
-      const deltas: { cat: string; val: number }[] = [];
-      let totalScore = 0;
+      const playerPositions = player.positions || [];
       
-      priorityCatKeys.forEach(key => {
-        const val = (player as any)[key] || 0;
-        const isTurnover = key === "turnovers";
-        const contribution = isTurnover ? -val : val;
-        
-        deltas.push({ cat: CATEGORY_LABELS[key], val });
-        totalScore += contribution;
+      // Find best FA at same position(s)
+      const positionMatchingFAs = freeAgents.filter(fa => {
+        const faPositions = fa.positions || [];
+        return playerPositions.some(p => faPositions.includes(p));
       });
       
-      const gamesRemaining = player.gamesThisWeek || 0;
+      // Calculate player's contribution to priority categories
+      const playerContrib: Record<string, number> = {};
+      priorityCatKeys.forEach(key => {
+        playerContrib[key] = (player as any)[key] || 0;
+      });
+      
+      // Find best FA upgrade for this position
+      let bestUpgrade: { fa: Player; netGain: number; gainByCat: { cat: string; gain: number }[] } | null = null;
+      
+      positionMatchingFAs.forEach(fa => {
+        let netGain = 0;
+        const gainByCat: { cat: string; gain: number }[] = [];
+        
+        priorityCatKeys.forEach(key => {
+          const faVal = (fa as any)[key] || 0;
+          const playerVal = playerContrib[key];
+          const isTurnover = key === "turnovers";
+          // For TO, lower is better, so gain = player - fa
+          const gain = isTurnover ? (playerVal - faVal) : (faVal - playerVal);
+          netGain += gain;
+          if (gain > 0.1 || (isTurnover && gain > 0)) {
+            gainByCat.push({ cat: CATEGORY_LABELS[key], gain });
+          }
+        });
+        
+        if (!bestUpgrade || netGain > bestUpgrade.netGain) {
+          bestUpgrade = { fa, netGain, gainByCat };
+        }
+      });
       
       // Build drop reason based on opportunity cost
       const reasons: string[] = [];
+      const upgradeInfo: { faName: string; gains: string } | null = bestUpgrade && bestUpgrade.netGain > 0.5
+        ? {
+            faName: bestUpgrade.fa.name,
+            gains: bestUpgrade.gainByCat
+              .sort((a, b) => b.gain - a.gain)
+              .slice(0, 2)
+              .map(g => `+${g.gain.toFixed(1)} ${g.cat}`)
+              .join(", ")
+          }
+        : null;
       
-      if (gamesRemaining === 0) {
-        reasons.push("No games remaining this matchup");
-      } else if (gamesRemaining === 1) {
-        reasons.push("Only 1 game remaining");
-      }
-      
-      // Check for high TO
-      if (player.turnovers > 3) {
-        reasons.push("High turnover risk");
-      }
-      
-      // Check if below team average in priority cats
+      // Check if below team average in multiple priority cats
       const belowAvgCats = priorityCatKeys.filter(key => {
         const val = (player as any)[key] || 0;
         const isTurnover = key === "turnovers";
-        return isTurnover ? val > teamAvg[key] : val < teamAvg[key];
+        return isTurnover ? val > teamAvg[key] * 1.1 : val < teamAvg[key] * 0.9;
       });
       
-      if (belowAvgCats.length >= 2) {
-        reasons.push("Below team average in swing categories");
+      // Check for high TO in swing categories
+      const hasHighTO = player.turnovers > 3 && priorityCatKeys.includes("turnovers");
+      
+      if (upgradeInfo) {
+        reasons.push(`Swap for ${upgradeInfo.faName} → ${upgradeInfo.gains}`);
       }
       
-      // Check if bench player
-      if (r.slotType === "bench") {
-        reasons.push("Currently on bench");
+      if (belowAvgCats.length >= 2) {
+        const catNames = belowAvgCats.map(k => CATEGORY_LABELS[k]).join(", ");
+        reasons.push(`Below team avg in ${catNames}`);
+      }
+      
+      if (hasHighTO) {
+        reasons.push(`High turnovers (${player.turnovers.toFixed(1)}) hurting swing category`);
+      }
+      
+      if (r.slotType === "bench" && belowAvgCats.length >= 1) {
+        reasons.push("Bench player with limited swing category impact");
       }
       
       const reason = reasons.length > 0 
         ? reasons[0] 
-        : "Lower overall impact in target categories";
+        : "Lower contribution to swing categories vs available upgrades";
+      
+      // Score = opportunity cost (how much we could gain by swapping)
+      const opportunityCost = bestUpgrade ? bestUpgrade.netGain : 0;
       
       return { 
         player, 
-        score: totalScore, 
-        deltas,
-        gamesRemaining,
+        score: opportunityCost, // Higher = better to drop (more to gain)
+        upgradeInfo,
+        belowAvgCats: belowAvgCats.map(k => CATEGORY_LABELS[k]),
         reason,
         slotType: r.slotType,
       };
     });
 
-    scoredRoster.sort((a, b) => a.score - b.score);
-    const drops = scoredRoster.slice(0, 3);
+    // Sort by highest opportunity cost (most to gain by dropping)
+    scoredRoster.sort((a, b) => b.score - a.score);
+    const drops = scoredRoster.filter(r => r.score > 0 || r.belowAvgCats.length >= 2).slice(0, 3);
 
     return { adds, drops, targetCats: priorityCatKeys.map(k => CATEGORY_LABELS[k]) };
   }, [roster, freeAgents, swingCategories, weakestCategories, matchupData]);
@@ -666,11 +705,15 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
                       
                       {/* Context badges */}
                       <div className="flex flex-wrap gap-2 mb-2">
-                        {rec.gamesRemaining === 0 && (
-                          <Badge variant="destructive" className="text-xs">No games left</Badge>
+                        {rec.upgradeInfo && (
+                          <Badge variant="secondary" className="text-xs bg-stat-positive/20 text-stat-positive">
+                            Upgrade available
+                          </Badge>
                         )}
-                        {rec.gamesRemaining === 1 && (
-                          <Badge variant="secondary" className="text-xs">1 game left</Badge>
+                        {rec.belowAvgCats.length >= 2 && (
+                          <Badge variant="secondary" className="text-xs">
+                            Weak in {rec.belowAvgCats.slice(0, 2).join(", ")}
+                          </Badge>
                         )}
                         {rec.slotType === "bench" && (
                           <Badge variant="secondary" className="text-xs">Bench</Badge>
