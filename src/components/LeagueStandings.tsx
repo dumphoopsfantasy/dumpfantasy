@@ -413,11 +413,19 @@ The page should include the "Season Stats" section with team names, managers, an
             </tr>
           </thead>
           <tbody>
-            {sortedTeams.map((team, i) => (
-              <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
+          {sortedTeams.map((team, i) => {
+            const isUserTeam = team.name.toLowerCase().includes('bane');
+            return (
+              <tr key={i} className={cn(
+                "border-b border-border/50 hover:bg-muted/30",
+                isUserTeam && "bg-primary/10 border-primary/30"
+              )}>
                 <td className="p-2 font-bold text-primary">{team.originalRank}</td>
                 <td className="p-2">
-                  <div className="font-semibold">{team.name}</div>
+                  <div className={cn("font-semibold", isUserTeam && "text-primary")}>
+                    {team.name}
+                    {isUserTeam && <span className="ml-2 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">You</span>}
+                  </div>
                   {team.manager && (
                     <div className="text-xs text-muted-foreground">{team.manager}</div>
                   )}
@@ -447,7 +455,8 @@ The page should include the "Season Stats" section with team names, managers, an
                   {team[scoreKey].toFixed(1)}
                 </td>
               </tr>
-            ))}
+            );
+          })}
           </tbody>
         </table>
       </div>
