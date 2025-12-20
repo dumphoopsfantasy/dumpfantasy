@@ -2,13 +2,149 @@ import { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Upload, Trophy, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Upload, Trophy, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Target } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { LeagueTeam } from "@/types/league";
 import { cn } from "@/lib/utils";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
+
+// Playoff Contenders Profile Component
+const PlayoffContendersProfile = ({ teams }: { teams: TeamWithCris[] }) => {
+  if (teams.length < 6) return null;
+
+  // Get top 6 teams by original rank (standings order)
+  const playoffTeams = [...teams].sort((a, b) => a.originalRank - b.originalRank).slice(0, 6);
+
+  // For each team, find their top 3 categories (by rank)
+  const getTeamStrengths = (team: TeamWithCris) => {
+    const categoryRanks = CATEGORIES.map(c => {
+      const isLowerBetter = c.key === 'turnovers';
+      const sorted = [...teams].sort((a, b) => {
+        const aVal = a[c.key as keyof TeamWithCris] as number;
+        const bVal = b[c.key as keyof TeamWithCris] as number;
+        return isLowerBetter ? aVal - bVal : bVal - aVal;
+      });
+      const rank = sorted.findIndex(t => t.name === team.name) + 1;
+      return { ...c, rank, value: team[c.key as keyof TeamWithCris] as number };
+    });
+
+    // Sort by rank (best first) and take top 3
+    const strengths = categoryRanks.sort((a, b) => a.rank - b.rank).slice(0, 3);
+    // Also get weaknesses (worst 2)
+    const weaknesses = categoryRanks.sort((a, b) => b.rank - a.rank).slice(0, 2);
+
+    return { strengths, weaknesses };
+  };
+
+  const isUserTeam = (name: string) => name.toLowerCase().includes('bane');
+
+  return (
+    <Card className="gradient-card shadow-card p-4 border-border">
+      <div className="flex items-center gap-2 mb-4">
+        <Target className="w-5 h-5 text-primary" />
+        <h3 className="font-display font-bold text-lg">Playoff Contenders Category Profile</h3>
+        <span className="text-xs text-muted-foreground">(Top 6)</span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {playoffTeams.map((team, idx) => {
+          const { strengths, weaknesses } = getTeamStrengths(team);
+          const isUser = isUserTeam(team.name);
+
+          return (
+            <div 
+              key={team.name} 
+              className={cn(
+                "p-3 rounded-lg border",
+                isUser 
+                  ? "bg-primary/10 border-primary/30" 
+                  : "bg-muted/30 border-border/50"
+              )}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-bold text-muted-foreground">#{team.originalRank}</span>
+                <span className={cn("font-semibold text-sm truncate", isUser && "text-primary")}>
+                  {team.name}
+                </span>
+                {isUser && <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">You</span>}
+              </div>
+
+              {/* Strengths */}
+              <div className="mb-2">
+                <div className="text-xs text-muted-foreground mb-1">Strong in:</div>
+                <div className="flex flex-wrap gap-1">
+                  {strengths.map(s => (
+                    <span 
+                      key={s.key} 
+                      className={cn(
+                        "text-xs px-1.5 py-0.5 rounded font-medium",
+                        s.rank <= 2 ? "bg-stat-positive/20 text-stat-positive" : "bg-stat-positive/10 text-stat-positive/80"
+                      )}
+                    >
+                      {s.label} <span className="opacity-70">#{s.rank}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Weaknesses */}
+              <div>
+                <div className="text-xs text-muted-foreground mb-1">Weak in:</div>
+                <div className="flex flex-wrap gap-1">
+                  {weaknesses.map(w => (
+                    <span 
+                      key={w.key} 
+                      className={cn(
+                        "text-xs px-1.5 py-0.5 rounded font-medium",
+                        w.rank >= teams.length - 1 ? "bg-stat-negative/20 text-stat-negative" : "bg-stat-negative/10 text-stat-negative/80"
+                      )}
+                    >
+                      {w.label} <span className="opacity-70">#{w.rank}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Summary insight */}
+      <div className="mt-4 p-3 bg-muted/20 rounded-lg text-sm">
+        <span className="font-semibold">League Meta:</span>{" "}
+        {(() => {
+          // Find most contested categories (where top 6 teams are clustered)
+          const categoryCompetition = CATEGORIES.map(c => {
+            const top6Ranks = playoffTeams.map(team => {
+              const isLowerBetter = c.key === 'turnovers';
+              const sorted = [...teams].sort((a, b) => {
+                const aVal = a[c.key as keyof TeamWithCris] as number;
+                const bVal = b[c.key as keyof TeamWithCris] as number;
+                return isLowerBetter ? aVal - bVal : bVal - aVal;
+              });
+              return sorted.findIndex(t => t.name === team.name) + 1;
+            });
+            const avgRank = top6Ranks.reduce((a, b) => a + b, 0) / 6;
+            const top3Count = top6Ranks.filter(r => r <= 3).length;
+            return { label: c.label, avgRank, top3Count };
+          });
+
+          const mostContested = categoryCompetition.sort((a, b) => b.top3Count - a.top3Count).slice(0, 2);
+          const leastContested = categoryCompetition.sort((a, b) => a.top3Count - b.top3Count).slice(0, 2);
+
+          return (
+            <span className="text-muted-foreground">
+              Playoff teams compete heavily for <span className="text-foreground font-medium">{mostContested.map(c => c.label).join(", ")}</span>. 
+              {" "}Less contested: <span className="text-foreground font-medium">{leastContested.map(c => c.label).join(", ")}</span>.
+            </span>
+          );
+        })()}
+      </div>
+    </Card>
+  );
+};
 
 interface TeamWithCris extends LeagueTeam {
   cri: number;
@@ -460,6 +596,9 @@ The page should include the "Season Stats" section with team names, managers, an
           </tbody>
         </table>
       </div>
+
+      {/* Playoff Contenders Category Profile */}
+      <PlayoffContendersProfile teams={teams} />
     </div>
   );
 };
