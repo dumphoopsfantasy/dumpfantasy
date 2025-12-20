@@ -6,6 +6,7 @@ import { LeagueStandings } from "@/components/LeagueStandings";
 import { FreeAgents } from "@/pages/FreeAgents";
 import { WeeklyPerformance } from "@/pages/WeeklyPerformance";
 import { MatchupProjection } from "@/pages/MatchupProjection";
+import { StartSitAdvisor } from "@/components/StartSitAdvisor";
 import { Settings } from "@/pages/Settings";
 import { Gameplan } from "@/pages/Gameplan";
 import { RosterTable } from "@/components/roster/RosterTable";
@@ -688,7 +689,16 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="matchup">
-            <MatchupProjection persistedMatchup={matchupData} onMatchupChange={setMatchupData} />
+            <div className="flex flex-col lg:flex-row gap-6">
+              <div className="flex-1">
+                <MatchupProjection persistedMatchup={matchupData} onMatchupChange={setMatchupData} />
+              </div>
+              {rosterWithCRI.length > 0 && (
+                <div className="lg:w-80 shrink-0">
+                  <StartSitAdvisor roster={rosterWithCRI} useCris={useCris} />
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="weekly">
