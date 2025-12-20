@@ -19,7 +19,7 @@ import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
-import { BarChart3, RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon, Clipboard, Trash2 } from "lucide-react";
+import { RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon, Clipboard, Trash2, Globe } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 
@@ -35,7 +35,6 @@ interface MatchupStats {
   turnovers: number;
   points: number;
 }
-
 interface ParsedTeam {
   token: string;
   tokenUpper: string;
@@ -44,55 +43,83 @@ interface ParsedTeam {
   currentMatchup: string;
   stats: MatchupStats;
 }
-
 interface WeeklyMatchup {
   teamA: ParsedTeam;
   teamB: ParsedTeam;
 }
-
 interface MatchupProjectionData {
-  myTeam: { name: string; record: string; standing: string; owner?: string; lastMatchup?: string; stats: MatchupStats };
-  opponent: { name: string; record: string; standing: string; owner?: string; lastMatchup?: string; stats: MatchupStats };
+  myTeam: {
+    name: string;
+    record: string;
+    standing: string;
+    owner?: string;
+    lastMatchup?: string;
+    stats: MatchupStats;
+  };
+  opponent: {
+    name: string;
+    record: string;
+    standing: string;
+    owner?: string;
+    lastMatchup?: string;
+    stats: MatchupStats;
+  };
 }
 
 // CRI categories
-const CRI_CATEGORIES = [
-  { key: "fgPct", lowerBetter: false },
-  { key: "ftPct", lowerBetter: false },
-  { key: "threepm", lowerBetter: false },
-  { key: "rebounds", lowerBetter: false },
-  { key: "assists", lowerBetter: false },
-  { key: "steals", lowerBetter: false },
-  { key: "blocks", lowerBetter: false },
-  { key: "turnovers", lowerBetter: true },
-  { key: "points", lowerBetter: false },
-] as const;
-
+const CRI_CATEGORIES = [{
+  key: "fgPct",
+  lowerBetter: false
+}, {
+  key: "ftPct",
+  lowerBetter: false
+}, {
+  key: "threepm",
+  lowerBetter: false
+}, {
+  key: "rebounds",
+  lowerBetter: false
+}, {
+  key: "assists",
+  lowerBetter: false
+}, {
+  key: "steals",
+  lowerBetter: false
+}, {
+  key: "blocks",
+  lowerBetter: false
+}, {
+  key: "turnovers",
+  lowerBetter: true
+}, {
+  key: "points",
+  lowerBetter: false
+}] as const;
 const Index = () => {
   // Roster state (persisted)
   const [players, setPlayers] = usePersistedState<PlayerStats[]>('dumphoops-roster', []);
-  
+
   // CRI/wCRI toggle
   const [useCris, setUseCris] = useState(true);
   const [sortColumn, setSortColumn] = useState<string>("cri");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-  
+
   // Roster filter
   const [rosterFilter, setRosterFilter] = useState<"all" | "starters" | "bench" | "ir">("all");
-  
+
   // Pin IR to bottom toggle
   const [pinIRToBottom, setPinIRToBottom] = useState(true);
-  
+
   // Free agents state (persisted)
   const [freeAgents, setFreeAgents] = usePersistedState<Player[]>('dumphoops-freeagents', []);
-  
+
   // Weekly state (persisted)
   const [weeklyMatchups, setWeeklyMatchups] = usePersistedState<WeeklyMatchup[]>('dumphoops-weekly', []);
   const [weeklyTitle, setWeeklyTitle] = usePersistedState<string>('dumphoops-weekly-title', "");
-  
+
   // Standings state (persisted)
   const [leagueTeams, setLeagueTeams] = usePersistedState<LeagueTeam[]>('dumphoops-standings', []);
-  
+
   // Matchup projection state (persisted)
   const [matchupData, setMatchupData] = usePersistedState<MatchupProjectionData | null>('dumphoops-matchup', null);
 
@@ -106,12 +133,10 @@ const Index = () => {
   // Tab navigation state for data completeness bar
   const [activeTab, setActiveTab] = useState("roster");
   const [triggerImport, setTriggerImport] = useState<string | null>(null);
-
   const handlePlayerClick = (player: Player) => {
     setSelectedPlayer(player);
     setPlayerSheetOpen(true);
   };
-
   const handleCompletenessNavigate = (tab: string, openImport?: boolean) => {
     setActiveTab(tab);
     if (openImport) {
@@ -125,15 +150,12 @@ const Index = () => {
       setTriggerImport(null);
     }
   };
-
   const handleDataParsed = (data: PlayerStats[]) => {
     setPlayers(data);
   };
-
   const handleReset = () => {
     setPlayers([]);
   };
-
   const handleClearAllData = () => {
     if (window.confirm("Clear all saved data? This will remove roster, free agents, standings, matchup, and weekly data.")) {
       clearPersistedData();
@@ -148,9 +170,20 @@ const Index = () => {
   };
 
   // Convert PlayerStats to RosterSlot format and calculate CRI/wCRI
-  const { rosterWithCRI, categoryRanks, activePlayerCount } = useMemo(() => {
+  const {
+    rosterWithCRI,
+    categoryRanks,
+    activePlayerCount
+  } = useMemo(() => {
     // First, convert all players to RosterSlot format
-    const allSlots: (RosterSlot & { player: Player & { cri?: number; wCri?: number; criRank?: number; wCriRank?: number } })[] = players.map((p) => {
+    const allSlots: (RosterSlot & {
+      player: Player & {
+        cri?: number;
+        wCri?: number;
+        criRank?: number;
+        wCriRank?: number;
+      };
+    })[] = players.map(p => {
       const slot = p.slot || "Bench";
       const slotLower = slot.toLowerCase();
       // IR slots explicitly contain "ir" or "il"
@@ -159,7 +192,6 @@ const Index = () => {
       const isBench = slotLower === "bench";
       // Everything else (PG, SG, SF, PF, C, G, F/C, UTIL) is a starter
       const isStarter = !isIR && !isBench;
-      
       return {
         slot,
         slotType: isIR ? "ir" : isStarter ? "starter" : "bench",
@@ -167,7 +199,7 @@ const Index = () => {
           id: p.player,
           name: p.player,
           nbaTeam: p.team,
-          positions: p.position.split(",").map((pos) => pos.trim()),
+          positions: p.position.split(",").map(pos => pos.trim()),
           opponent: p.opponent,
           status: p.status as Player["status"],
           minutes: p.minutes,
@@ -183,24 +215,24 @@ const Index = () => {
           steals: p.steals,
           blocks: p.blocks,
           turnovers: p.turnovers,
-          points: p.points,
-        },
+          points: p.points
+        }
       };
     });
 
     // Define active players: Starter/Bench with valid stats (minutes > 0)
-    const activePlayers = allSlots.filter(
-      (s) => s.slotType !== "ir" && s.player.minutes > 0
-    );
+    const activePlayers = allSlots.filter(s => s.slotType !== "ir" && s.player.minutes > 0);
     const N = activePlayers.length;
-
-    if (N === 0) return { rosterWithCRI: allSlots, categoryRanks: {}, activePlayerCount: 0 };
+    if (N === 0) return {
+      rosterWithCRI: allSlots,
+      categoryRanks: {},
+      activePlayerCount: 0
+    };
 
     // Calculate category scores AND ranks for active players
     const categoryScores: Record<string, Record<string, number>> = {};
     const catRanks: Record<string, Record<string, number>> = {};
-    
-    CRI_CATEGORIES.forEach((cat) => {
+    CRI_CATEGORIES.forEach(cat => {
       const key = cat.key as keyof Player;
       // Sort active players
       const sorted = [...activePlayers].sort((a, b) => {
@@ -208,7 +240,7 @@ const Index = () => {
         const bVal = b.player[key] as number;
         return cat.lowerBetter ? aVal - bVal : bVal - aVal;
       });
-      
+
       // Assign scores: best gets N, worst gets 1
       // Assign ranks: best gets 1, worst gets N
       categoryScores[cat.key] = {};
@@ -220,17 +252,23 @@ const Index = () => {
     });
 
     // Calculate CRI and wCRI for active players
-    const activeCRI: { id: string; cri: number; wCri: number }[] = activePlayers.map((slot) => {
+    const activeCRI: {
+      id: string;
+      cri: number;
+      wCri: number;
+    }[] = activePlayers.map(slot => {
       let cri = 0;
       let wCri = 0;
-      
-      CRI_CATEGORIES.forEach((cat) => {
+      CRI_CATEGORIES.forEach(cat => {
         const score = categoryScores[cat.key][slot.player.id] || 0;
         cri += score;
         wCri += score * CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS];
       });
-      
-      return { id: slot.player.id, cri, wCri };
+      return {
+        id: slot.player.id,
+        cri,
+        wCri
+      };
     });
 
     // Sort for ranking
@@ -240,12 +278,12 @@ const Index = () => {
     // Assign ranks
     const criRanks: Record<string, number> = {};
     const wCriRanks: Record<string, number> = {};
-    criSorted.forEach((p, i) => (criRanks[p.id] = i + 1));
-    wCriSorted.forEach((p, i) => (wCriRanks[p.id] = i + 1));
+    criSorted.forEach((p, i) => criRanks[p.id] = i + 1);
+    wCriSorted.forEach((p, i) => wCriRanks[p.id] = i + 1);
 
     // Map scores back to all slots
-    const finalSlots = allSlots.map((slot) => {
-      const criData = activeCRI.find((p) => p.id === slot.player.id);
+    const finalSlots = allSlots.map(slot => {
+      const criData = activeCRI.find(p => p.id === slot.player.id);
       if (criData) {
         return {
           ...slot,
@@ -254,20 +292,20 @@ const Index = () => {
             cri: criData.cri,
             wCri: criData.wCri,
             criRank: criRanks[slot.player.id],
-            wCriRank: wCriRanks[slot.player.id],
-          },
+            wCriRank: wCriRanks[slot.player.id]
+          }
         };
       }
       // IR players with stats - calculate their scores relative to active pool
       if (slot.player.minutes > 0) {
         let cri = 0;
         let wCri = 0;
-        CRI_CATEGORIES.forEach((cat) => {
+        CRI_CATEGORIES.forEach(cat => {
           const key = cat.key as keyof Player;
           const val = slot.player[key] as number;
           // Count how many active players this IR player beats
           let score = 1;
-          activePlayers.forEach((ap) => {
+          activePlayers.forEach(ap => {
             const apVal = ap.player[key] as number;
             if (cat.lowerBetter ? val < apVal : val > apVal) score++;
           });
@@ -276,24 +314,31 @@ const Index = () => {
         });
         return {
           ...slot,
-          player: { ...slot.player, cri, wCri },
+          player: {
+            ...slot.player,
+            cri,
+            wCri
+          }
         };
       }
       return slot;
     });
-
-    return { rosterWithCRI: finalSlots, categoryRanks: catRanks, activePlayerCount: N };
+    return {
+      rosterWithCRI: finalSlots,
+      categoryRanks: catRanks,
+      activePlayerCount: N
+    };
   }, [players]);
 
   // Apply filter and sort
   const filteredRoster = useMemo(() => {
     let filtered = rosterWithCRI;
     if (rosterFilter === "starters") {
-      filtered = rosterWithCRI.filter((s) => s.slotType === "starter");
+      filtered = rosterWithCRI.filter(s => s.slotType === "starter");
     } else if (rosterFilter === "bench") {
-      filtered = rosterWithCRI.filter((s) => s.slotType === "bench");
+      filtered = rosterWithCRI.filter(s => s.slotType === "bench");
     } else if (rosterFilter === "ir") {
-      filtered = rosterWithCRI.filter((s) => s.slotType === "ir");
+      filtered = rosterWithCRI.filter(s => s.slotType === "ir");
     }
 
     // Sort with optional IR pinning
@@ -303,12 +348,10 @@ const Index = () => {
         if (a.slotType === "ir" && b.slotType !== "ir") return 1;
         if (a.slotType !== "ir" && b.slotType === "ir") return -1;
       }
-      
       const aPlayer = a.player;
       const bPlayer = b.player;
       let aVal: number | string = 0;
       let bVal: number | string = 0;
-
       switch (sortColumn) {
         case "cri":
           aVal = aPlayer.cri ?? 0;
@@ -366,16 +409,13 @@ const Index = () => {
           aVal = aPlayer.cri ?? 0;
           bVal = bPlayer.cri ?? 0;
       }
-
       if (typeof aVal === "string" && typeof bVal === "string") {
         return sortDirection === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }
       return sortDirection === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
-    
     return sorted;
   }, [rosterWithCRI, rosterFilter, sortColumn, sortDirection, pinIRToBottom]);
-
   const handleSort = (column: string) => {
     if (sortColumn === column) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -384,16 +424,14 @@ const Index = () => {
       setSortDirection("desc");
     }
   };
-
   const handleCrisToggle = (useCriMode: boolean) => {
     setUseCris(useCriMode);
     setSortColumn(useCriMode ? "cri" : "wCri");
     setSortDirection("desc");
   };
-
-  const starters = rosterWithCRI.filter((s) => s.slotType === "starter");
-  const bench = rosterWithCRI.filter((s) => s.slotType === "bench");
-  const ir = rosterWithCRI.filter((s) => s.slotType === "ir");
+  const starters = rosterWithCRI.filter(s => s.slotType === "starter");
+  const bench = rosterWithCRI.filter(s => s.slotType === "bench");
+  const ir = rosterWithCRI.filter(s => s.slotType === "ir");
 
   // Extract unique NBA team codes from roster for sidebar
   const rosterTeams = useMemo(() => {
@@ -414,9 +452,7 @@ const Index = () => {
       position: slot.player.positions?.join(', ') || ''
     }));
   }, [rosterWithCRI]);
-
-  return (
-    <div className="min-h-screen bg-background">
+  return <div className="min-h-screen bg-background">
       {/* NBA Scores Sidebar */}
       <NBAScoresSidebar rosterTeams={rosterTeams} rosterPlayers={rosterPlayersList} />
       
@@ -426,41 +462,29 @@ const Index = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg gradient-primary shadow-glow">
-                <BarChart3 className="w-5 h-5 text-white" />
+                <Globe className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl md:text-2xl font-display font-bold">
-                  <span className="text-primary">Dump</span>Hoops Analytics
+                <h1 className="text-xl md:text-2xl font-display font-bold">DumpHoops Fantasy<span className="text-primary">Dump</span>Hoops Analytics
                 </h1>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {players.length > 0 && (
-                <Button onClick={handleReset} variant="outline" size="sm" className="font-display font-semibold">
+              {players.length > 0 && <Button onClick={handleReset} variant="outline" size="sm" className="font-display font-semibold">
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Reset Roster
-                </Button>
-              )}
-              {(players.length > 0 || freeAgents.length > 0 || leagueTeams.length > 0 || matchupData || weeklyMatchups.length > 0) && (
-                <Button onClick={handleClearAllData} variant="destructive" size="sm" className="font-display font-semibold">
+                </Button>}
+              {(players.length > 0 || freeAgents.length > 0 || leagueTeams.length > 0 || matchupData || weeklyMatchups.length > 0) && <Button onClick={handleClearAllData} variant="destructive" size="sm" className="font-display font-semibold">
                   <Trash2 className="w-4 h-4 mr-2" />
                   Clear All
-                </Button>
-              )}
+                </Button>}
             </div>
           </div>
         </div>
       </header>
 
       {/* Data Completeness Bar */}
-      <DataCompletenessBar
-        players={players}
-        matchupData={matchupData}
-        weeklyMatchups={weeklyMatchups}
-        freeAgents={freeAgents}
-        leagueTeams={leagueTeams}
-        onNavigate={handleCompletenessNavigate}
-      />
+      <DataCompletenessBar players={players} matchupData={matchupData} weeklyMatchups={weeklyMatchups} freeAgents={freeAgents} leagueTeams={leagueTeams} onNavigate={handleCompletenessNavigate} />
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
@@ -497,12 +521,9 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="roster">
-            {players.length === 0 ? (
-              <div className="max-w-3xl mx-auto">
+            {players.length === 0 ? <div className="max-w-3xl mx-auto">
                 <DataUpload onDataParsed={handleDataParsed} />
-              </div>
-            ) : (
-              <div className="space-y-4">
+              </div> : <div className="space-y-4">
                 {/* Stat Window Reminder */}
                 <div className="flex items-center gap-2 bg-card/50 rounded-lg p-3 border border-border">
                   <Info className="w-4 h-4 text-primary" />
@@ -518,36 +539,16 @@ const Index = () => {
                 <div className="flex flex-wrap items-center justify-between gap-4 bg-card/50 rounded-lg p-3 border border-border">
                   {/* Filter Tabs */}
                   <div className="flex gap-2">
-                    <Button
-                      variant={rosterFilter === "all" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setRosterFilter("all")}
-                      className="font-display text-xs"
-                    >
+                    <Button variant={rosterFilter === "all" ? "default" : "outline"} size="sm" onClick={() => setRosterFilter("all")} className="font-display text-xs">
                       All ({rosterWithCRI.length})
                     </Button>
-                    <Button
-                      variant={rosterFilter === "starters" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setRosterFilter("starters")}
-                      className="font-display text-xs"
-                    >
+                    <Button variant={rosterFilter === "starters" ? "default" : "outline"} size="sm" onClick={() => setRosterFilter("starters")} className="font-display text-xs">
                       Starters ({starters.length})
                     </Button>
-                    <Button
-                      variant={rosterFilter === "bench" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setRosterFilter("bench")}
-                      className="font-display text-xs"
-                    >
+                    <Button variant={rosterFilter === "bench" ? "default" : "outline"} size="sm" onClick={() => setRosterFilter("bench")} className="font-display text-xs">
                       Bench ({bench.length})
                     </Button>
-                    <Button
-                      variant={rosterFilter === "ir" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setRosterFilter("ir")}
-                      className="font-display text-xs"
-                    >
+                    <Button variant={rosterFilter === "ir" ? "default" : "outline"} size="sm" onClick={() => setRosterFilter("ir")} className="font-display text-xs">
                       IR ({ir.length})
                     </Button>
                   </div>
@@ -556,31 +557,15 @@ const Index = () => {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground font-display">Ranking:</span>
                     <div className="flex">
-                      <Button
-                        variant={useCris ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => handleCrisToggle(true)}
-                        className="rounded-r-none font-display text-xs"
-                      >
+                      <Button variant={useCris ? "default" : "outline"} size="sm" onClick={() => handleCrisToggle(true)} className="rounded-r-none font-display text-xs">
                         CRI
                       </Button>
-                      <Button
-                        variant={!useCris ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => handleCrisToggle(false)}
-                        className="rounded-l-none font-display text-xs"
-                      >
+                      <Button variant={!useCris ? "default" : "outline"} size="sm" onClick={() => handleCrisToggle(false)} className="rounded-l-none font-display text-xs">
                         wCRI
                       </Button>
                     </div>
                     {/* Pin IR Toggle - subtle */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setPinIRToBottom(!pinIRToBottom)}
-                      className="font-display text-xs text-muted-foreground ml-2"
-                      title={pinIRToBottom ? "IR players pinned to bottom" : "IR players sorted normally"}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setPinIRToBottom(!pinIRToBottom)} className="font-display text-xs text-muted-foreground ml-2" title={pinIRToBottom ? "IR players pinned to bottom" : "IR players sorted normally"}>
                       {pinIRToBottom ? "IR↓" : "IR"}
                     </Button>
                   </div>
@@ -588,103 +573,60 @@ const Index = () => {
                 </div>
 
                 {/* Roster Table */}
-                <RosterTable
-                  roster={filteredRoster}
-                  useCris={useCris}
-                  sortColumn={sortColumn}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  onPlayerClick={handlePlayerClick}
-                  categoryRanks={categoryRanks}
-                  activePlayerCount={activePlayerCount}
-                />
+                <RosterTable roster={filteredRoster} useCris={useCris} sortColumn={sortColumn} sortDirection={sortDirection} onSort={handleSort} onPlayerClick={handlePlayerClick} categoryRanks={categoryRanks} activePlayerCount={activePlayerCount} />
                 
                 {/* Free Agent Suggestions */}
-                <RosterFreeAgentSuggestions
-                  freeAgents={freeAgents}
-                  leagueTeams={leagueTeams}
-                  roster={rosterWithCRI}
-                  onPlayerClick={handlePlayerClick}
-                />
-              </div>
-            )}
+                <RosterFreeAgentSuggestions freeAgents={freeAgents} leagueTeams={leagueTeams} roster={rosterWithCRI} onPlayerClick={handlePlayerClick} />
+              </div>}
             
             {/* Player Detail Sheet */}
-            <PlayerDetailSheet
-              player={selectedPlayer}
-              open={playerSheetOpen}
-              onOpenChange={setPlayerSheetOpen}
-              allPlayers={players.map(p => ({
-                id: p.player,
-                name: p.player,
-                nbaTeam: p.team,
-                positions: [p.position],
-                slot: (p.slot || 'bench') as "PG" | "SG" | "SF" | "PF" | "C" | "G" | "F" | "UTIL" | "Bench" | "IR",
-                status: (p.status || 'healthy') as "healthy" | "DTD" | "IR" | "O" | "SUSP",
-                statusNote: '',
-                opponent: p.opponent,
-                gameTime: '',
-                minutes: p.minutes,
-                fgm: 0,
-                fga: 0,
-                fgPct: p.fgPct,
-                ftm: 0,
-                fta: 0,
-                ftPct: p.ftPct,
-                threepm: p.threepm,
-                rebounds: p.rebounds,
-                assists: p.assists,
-                steals: p.steals,
-                blocks: p.blocks,
-                turnovers: p.turnovers,
-                points: p.points,
-              }))}
-            />
+            <PlayerDetailSheet player={selectedPlayer} open={playerSheetOpen} onOpenChange={setPlayerSheetOpen} allPlayers={players.map(p => ({
+            id: p.player,
+            name: p.player,
+            nbaTeam: p.team,
+            positions: [p.position],
+            slot: (p.slot || 'bench') as "PG" | "SG" | "SF" | "PF" | "C" | "G" | "F" | "UTIL" | "Bench" | "IR",
+            status: (p.status || 'healthy') as "healthy" | "DTD" | "IR" | "O" | "SUSP",
+            statusNote: '',
+            opponent: p.opponent,
+            gameTime: '',
+            minutes: p.minutes,
+            fgm: 0,
+            fga: 0,
+            fgPct: p.fgPct,
+            ftm: 0,
+            fta: 0,
+            ftPct: p.ftPct,
+            threepm: p.threepm,
+            rebounds: p.rebounds,
+            assists: p.assists,
+            steals: p.steals,
+            blocks: p.blocks,
+            turnovers: p.turnovers,
+            points: p.points
+          }))} />
           </TabsContent>
 
           <TabsContent value="freeagents">
-            <FreeAgents 
-              persistedPlayers={freeAgents} 
-              onPlayersChange={setFreeAgents}
-              currentRoster={rosterWithCRI.map(slot => slot.player)}
-              leagueTeams={leagueTeams}
-              matchupData={matchupData}
-            />
+            <FreeAgents persistedPlayers={freeAgents} onPlayersChange={setFreeAgents} currentRoster={rosterWithCRI.map(slot => slot.player)} leagueTeams={leagueTeams} matchupData={matchupData} />
           </TabsContent>
 
           <TabsContent value="league">
             <div className="max-w-5xl mx-auto">
-              <LeagueStandings 
-                persistedTeams={leagueTeams}
-                onTeamsChange={setLeagueTeams}
-              />
+              <LeagueStandings persistedTeams={leagueTeams} onTeamsChange={setLeagueTeams} />
             </div>
           </TabsContent>
 
           <TabsContent value="matchup">
-            <MatchupProjection 
-              persistedMatchup={matchupData}
-              onMatchupChange={setMatchupData}
-            />
+            <MatchupProjection persistedMatchup={matchupData} onMatchupChange={setMatchupData} />
           </TabsContent>
 
           <TabsContent value="weekly">
-            <WeeklyPerformance 
-              persistedMatchups={weeklyMatchups}
-              persistedTitle={weeklyTitle}
-              onMatchupsChange={setWeeklyMatchups}
-              onTitleChange={setWeeklyTitle}
-            />
+            <WeeklyPerformance persistedMatchups={weeklyMatchups} persistedTitle={weeklyTitle} onMatchupsChange={setWeeklyMatchups} onTitleChange={setWeeklyTitle} />
           </TabsContent>
 
           <TabsContent value="gameplan">
-            <Gameplan
-              roster={rosterWithCRI}
-              freeAgents={freeAgents}
-              leagueTeams={leagueTeams}
-              matchupData={matchupData}
-              weeklyMatchups={weeklyMatchups}
-            />
+            <Gameplan roster={rosterWithCRI} freeAgents={freeAgents} leagueTeams={leagueTeams} matchupData={matchupData} weeklyMatchups={weeklyMatchups} />
           </TabsContent>
 
           <TabsContent value="settings">
@@ -692,8 +634,6 @@ const Index = () => {
           </TabsContent>
         </Tabs>
       </main>
-    </div>
-  );
+    </div>;
 };
-
 export default Index;
