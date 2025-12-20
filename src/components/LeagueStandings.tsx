@@ -111,37 +111,137 @@ const PlayoffContendersProfile = ({ teams }: { teams: TeamWithCris[] }) => {
         })}
       </div>
 
-      {/* Summary insight */}
-      <div className="mt-4 p-3 bg-muted/20 rounded-lg text-sm">
-        <span className="font-semibold">League Meta:</span>{" "}
-        {(() => {
-          // Find most contested categories (where top 6 teams are clustered)
-          const categoryCompetition = CATEGORIES.map(c => {
-            const top6Ranks = playoffTeams.map(team => {
-              const isLowerBetter = c.key === 'turnovers';
-              const sorted = [...teams].sort((a, b) => {
-                const aVal = a[c.key as keyof TeamWithCris] as number;
-                const bVal = b[c.key as keyof TeamWithCris] as number;
-                return isLowerBetter ? aVal - bVal : bVal - aVal;
-              });
-              return sorted.findIndex(t => t.name === team.name) + 1;
+      {/* Top-6 Category CRI Cumulation */}
+      {(() => {
+        const N = teams.length;
+        
+        // ESPN category order: FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
+        const espnOrderCategories = CATEGORIES;
+        
+        // Compute cumulation data for each category
+        const cumulationData = espnOrderCategories.map(c => {
+          const top6Ranks = playoffTeams.map(team => {
+            const isLowerBetter = c.key === 'turnovers';
+            const sorted = [...teams].sort((a, b) => {
+              const aVal = a[c.key as keyof TeamWithCris] as number;
+              const bVal = b[c.key as keyof TeamWithCris] as number;
+              return isLowerBetter ? aVal - bVal : bVal - aVal;
             });
-            const avgRank = top6Ranks.reduce((a, b) => a + b, 0) / 6;
-            const top3Count = top6Ranks.filter(r => r <= 3).length;
-            return { label: c.label, avgRank, top3Count };
+            return sorted.findIndex(t => t.name === team.name) + 1;
           });
-
-          const mostContested = categoryCompetition.sort((a, b) => b.top3Count - a.top3Count).slice(0, 2);
-          const leastContested = categoryCompetition.sort((a, b) => a.top3Count - b.top3Count).slice(0, 2);
-
-          return (
-            <span className="text-muted-foreground">
-              Playoff teams compete heavily for <span className="text-foreground font-medium">{mostContested.map(c => c.label).join(", ")}</span>. 
-              {" "}Less contested: <span className="text-foreground font-medium">{leastContested.map(c => c.label).join(", ")}</span>.
-            </span>
-          );
-        })()}
-      </div>
+          
+          // Convert ranks to CRI points: rank #1 = N points, rank #N = 1 point
+          // For all categories (including TO), higher rank = better = more points
+          const cumulationPoints = top6Ranks.reduce((sum, rank) => sum + (N + 1 - rank), 0);
+          const avgRank = top6Ranks.reduce((a, b) => a + b, 0) / 6;
+          
+          // Pressure label: Max = 6*N, Min = 6*1
+          // High: cumulation >= 70% of max, Med: 50-70%, Low: <50%
+          const maxCumulation = 6 * N;
+          const pressureThresholdHigh = maxCumulation * 0.7; // 42 for N=10
+          const pressureThresholdMed = maxCumulation * 0.5;  // 30 for N=10
+          
+          let pressure: 'High' | 'Med' | 'Low';
+          if (cumulationPoints >= pressureThresholdHigh) pressure = 'High';
+          else if (cumulationPoints >= pressureThresholdMed) pressure = 'Med';
+          else pressure = 'Low';
+          
+          return {
+            key: c.key,
+            label: c.label,
+            cumulation: cumulationPoints,
+            avgRank: avgRank,
+            pressure
+          };
+        });
+        
+        // Sort by cumulation descending for display
+        const sortedCumulation = [...cumulationData].sort((a, b) => b.cumulation - a.cumulation);
+        
+        // Meta summary
+        const mostContested = sortedCumulation.slice(0, 3).map(c => c.label);
+        const leastContested = sortedCumulation.slice(-3).reverse().map(c => c.label);
+        
+        const getPressureColor = (pressure: 'High' | 'Med' | 'Low') => {
+          if (pressure === 'High') return 'bg-stat-negative/20 text-stat-negative';
+          if (pressure === 'Med') return 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400';
+          return 'bg-stat-positive/20 text-stat-positive';
+        };
+        
+        return (
+          <div className="mt-4 space-y-3">
+            {/* Meta Summary */}
+            <div className="p-3 bg-muted/20 rounded-lg text-sm">
+              <span className="font-semibold">League Meta:</span>{" "}
+              <span className="text-muted-foreground">
+                Most contested among playoff teams: <span className="text-foreground font-medium">{mostContested.join(", ")}</span>.
+                {" "}Least contested: <span className="text-foreground font-medium">{leastContested.join(", ")}</span>.
+              </span>
+            </div>
+            
+            {/* Top-6 Category CRI Cumulation Table */}
+            <div className="border border-border/50 rounded-lg overflow-hidden">
+              <div className="bg-muted/30 px-3 py-2 border-b border-border/50">
+                <h4 className="font-display font-semibold text-sm">Top-6 Category CRI Cumulation</h4>
+                <p className="text-xs text-muted-foreground">How strong are playoff teams in each category? (Higher = more stacked)</p>
+              </div>
+              
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/50 bg-accent/10">
+                    <th className="text-left p-2 font-display">Category</th>
+                    <th className="text-center p-2 font-display">Top-6 CRI</th>
+                    <th className="text-center p-2 font-display">Avg Rank</th>
+                    <th className="text-center p-2 font-display">Pressure</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedCumulation.map((cat, idx) => (
+                    <tr key={cat.key} className="border-b border-border/30 hover:bg-muted/20">
+                      <td className="p-2 font-medium">
+                        <span className="text-muted-foreground mr-2">#{idx + 1}</span>
+                        {cat.label}
+                      </td>
+                      <td className="text-center p-2 font-bold text-primary">{cat.cumulation}</td>
+                      <td className="text-center p-2 text-muted-foreground">{cat.avgRank.toFixed(1)}</td>
+                      <td className="text-center p-2">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-xs font-semibold",
+                          getPressureColor(cat.pressure)
+                        )}>
+                          {cat.pressure}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Category Stack Ranking (compact) */}
+            <div className="p-3 bg-muted/10 rounded-lg">
+              <div className="text-xs font-semibold text-muted-foreground mb-2">Category Stack Ranking</div>
+              <div className="flex flex-wrap gap-2">
+                {sortedCumulation.map((cat, idx) => (
+                  <span 
+                    key={cat.key}
+                    className={cn(
+                      "text-xs px-2 py-1 rounded-full border",
+                      idx < 3 
+                        ? "bg-stat-negative/10 border-stat-negative/30 text-stat-negative" 
+                        : idx >= sortedCumulation.length - 3
+                          ? "bg-stat-positive/10 border-stat-positive/30 text-stat-positive"
+                          : "bg-muted/30 border-border text-muted-foreground"
+                    )}
+                  >
+                    #{idx + 1} {cat.label} ({cat.cumulation})
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </Card>
   );
 };
