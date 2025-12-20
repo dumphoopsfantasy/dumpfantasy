@@ -695,7 +695,13 @@ const Index = () => {
               </div>
               {matchupData && rosterWithCRI.length > 0 && (
                 <div className="lg:w-80 shrink-0">
-                  <StartSitAdvisor roster={rosterWithCRI} useCris={useCris} />
+                  <StartSitAdvisor 
+                    roster={rosterWithCRI} 
+                    useCris={useCris} 
+                    matchupData={matchupData}
+                    weeklyMatchups={weeklyMatchups}
+                    leagueTeams={leagueTeams}
+                  />
                 </div>
               )}
             </div>
