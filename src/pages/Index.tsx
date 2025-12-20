@@ -19,7 +19,7 @@ import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon, Clipboard, Trash2, Globe } from "lucide-react";
+import { RefreshCw, Users, TrendingUp, Calendar, Swords, Trophy, Info, Settings as SettingsIcon, Clipboard, Trash2, ChartColumn } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 
@@ -462,7 +462,7 @@ const Index = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg gradient-primary shadow-glow">
-                <Globe className="w-5 h-5 text-white" />
+                <ChartColumn className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h1 className="text-xl md:text-2xl font-display font-bold">DumpHoops Fantasy<span className="text-primary">Dump</span>Hoops Analytics
