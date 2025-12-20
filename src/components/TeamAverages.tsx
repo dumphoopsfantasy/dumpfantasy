@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 interface TeamAveragesProps {
   players: PlayerStats[];
   leagueTeams?: LeagueTeam[];
+  teamName?: string;
 }
 
 const WEEKLY_MULTIPLIER = 40;
@@ -23,7 +24,7 @@ const CATEGORY_TO_LEAGUE_KEY: Record<string, keyof LeagueTeam> = {
   to: 'turnovers',
 };
 
-export const TeamAverages = ({ players, leagueTeams = [] }: TeamAveragesProps) => {
+export const TeamAverages = ({ players, leagueTeams = [], teamName }: TeamAveragesProps) => {
   // Only include active players (with minutes > 0)
   const activePlayers = players.filter(p => p.minutes > 0);
   const count = activePlayers.length || 1;
@@ -31,6 +32,9 @@ export const TeamAverages = ({ players, leagueTeams = [] }: TeamAveragesProps) =
   // Find user's team in standings (Mr. Bane)
   const userTeam = leagueTeams.find(t => t.name.toLowerCase().includes('bane'));
   const hasStandings = leagueTeams.length > 0 && userTeam;
+
+  // Derive team name from standings or use provided teamName
+  const displayTeamName = teamName || userTeam?.name;
 
   // Get category rank color based on standings
   const getCategoryRankColor = (category: string): string => {
@@ -85,8 +89,13 @@ export const TeamAverages = ({ players, leagueTeams = [] }: TeamAveragesProps) =
   return (
     <Card className="gradient-card shadow-card border-border p-4 mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-display font-bold text-muted-foreground">TEAM AVERAGES</h3>
-        <span className="text-xs text-muted-foreground">Weekly projection (×{WEEKLY_MULTIPLIER})</span>
+        <div className="flex items-center gap-2">
+          {displayTeamName && (
+            <h3 className="text-sm font-display font-bold text-primary">{displayTeamName}</h3>
+          )}
+          <span className="text-xs text-muted-foreground">×{WEEKLY_MULTIPLIER}</span>
+        </div>
+        <span className="text-xs text-muted-foreground">Weekly projection</span>
       </div>
       <div className="grid grid-cols-5 md:grid-cols-9 gap-2">
         <StatBox label="FG%" value={`${(averages.fgPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('fgPct')} />

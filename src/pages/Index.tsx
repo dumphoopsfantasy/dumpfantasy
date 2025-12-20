@@ -693,7 +693,7 @@ const Index = () => {
               <div className="flex-1">
                 <MatchupProjection persistedMatchup={matchupData} onMatchupChange={setMatchupData} />
               </div>
-              {rosterWithCRI.length > 0 && (
+              {matchupData && rosterWithCRI.length > 0 && (
                 <div className="lg:w-80 shrink-0">
                   <StartSitAdvisor roster={rosterWithCRI} useCris={useCris} />
                 </div>

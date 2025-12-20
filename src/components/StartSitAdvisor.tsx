@@ -13,15 +13,26 @@ interface StartSitAdvisorProps {
 
 export const StartSitAdvisor = ({ roster, useCris = true }: StartSitAdvisorProps) => {
   // Separate players into those with games today vs those without
-  const { playingToday, notPlaying, fringePlayers } = useMemo(() => {
+  const { playingToday, notPlaying, fringePlayers, injuredPlayers } = useMemo(() => {
     // Get active players (starters + bench with stats)
     const activePlayers = roster.filter(
       (slot) => slot.slotType !== "ir" && slot.player.minutes > 0
     );
 
+    // Filter out injured players (OUT, O, or status indicating they can't play)
+    const injured = activePlayers.filter((slot) => {
+      const status = slot.player.status?.toUpperCase();
+      return status === "O" || status === "OUT" || status === "SUSP";
+    });
+    
+    const availablePlayers = activePlayers.filter((slot) => {
+      const status = slot.player.status?.toUpperCase();
+      return status !== "O" && status !== "OUT" && status !== "SUSP";
+    });
+
     // Players with opponent = playing today
-    const playing = activePlayers.filter((slot) => slot.player.opponent);
-    const notPlayingList = activePlayers.filter((slot) => !slot.player.opponent);
+    const playing = availablePlayers.filter((slot) => slot.player.opponent);
+    const notPlayingList = availablePlayers.filter((slot) => !slot.player.opponent);
 
     // Sort by CRI/wCRI (higher = better)
     const scoreKey = useCris ? "cri" : "wCri";
@@ -39,6 +50,7 @@ export const StartSitAdvisor = ({ roster, useCris = true }: StartSitAdvisorProps
       playingToday: sortedPlaying,
       notPlaying: notPlayingList,
       fringePlayers: fringe,
+      injuredPlayers: injured,
     };
   }, [roster, useCris]);
 
@@ -129,6 +141,30 @@ export const StartSitAdvisor = ({ roster, useCris = true }: StartSitAdvisorProps
             </div>
           )}
 
+          {/* Injured / Out */}
+          {injuredPlayers.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-2">
+                <XCircle className="w-3.5 h-3.5 text-stat-negative" />
+                <span className="text-xs font-semibold text-stat-negative">Out / Injured</span>
+                <span className="text-[10px] text-muted-foreground">({injuredPlayers.length})</span>
+              </div>
+              <div className="space-y-1.5 opacity-60">
+                {injuredPlayers.map((slot) => (
+                  <PlayerRow
+                    key={slot.player.id}
+                    player={slot.player}
+                    slot={slot.slot}
+                    slotType={slot.slotType}
+                    scoreLabel={scoreLabel}
+                    recommendation="none"
+                    isInjured
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Not Playing Today */}
           {notPlaying.length > 0 && (
             <div>
@@ -168,9 +204,10 @@ interface PlayerRowProps {
   slotType: "starter" | "bench" | "ir";
   scoreLabel: string;
   recommendation: "start" | "bench" | "none";
+  isInjured?: boolean;
 }
 
-const PlayerRow = ({ player, slot, slotType, scoreLabel, recommendation }: PlayerRowProps) => {
+const PlayerRow = ({ player, slot, slotType, scoreLabel, recommendation, isInjured }: PlayerRowProps) => {
   const score = scoreLabel === "CRI" ? player.cri : player.wCri;
   const isCurrentlyBenched = slotType === "bench";
   const shouldSwap = (recommendation === "start" && isCurrentlyBenched) || 
@@ -190,6 +227,14 @@ const PlayerRow = ({ player, slot, slotType, scoreLabel, recommendation }: Playe
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="font-semibold text-xs truncate">{player.name}</span>
+          {isInjured && (
+            <Badge 
+              variant="outline" 
+              className="text-[9px] px-1 py-0 border-stat-negative text-stat-negative"
+            >
+              {player.status?.toUpperCase()}
+            </Badge>
+          )}
           {shouldSwap && (
             <Badge 
               variant="outline" 
@@ -206,7 +251,7 @@ const PlayerRow = ({ player, slot, slotType, scoreLabel, recommendation }: Playe
           <span>{player.nbaTeam}</span>
           <span>•</span>
           <span>{player.positions?.join("/")}</span>
-          {player.opponent && (
+          {player.opponent && !isInjured && (
             <>
               <span>•</span>
               <span className="text-primary font-medium">vs {player.opponent}</span>
