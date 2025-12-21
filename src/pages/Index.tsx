@@ -690,11 +690,9 @@ const Index = () => {
 
           <TabsContent value="matchup">
             <div className="flex flex-col lg:flex-row gap-6">
-              <div className="flex-1">
-                <MatchupProjection persistedMatchup={matchupData} onMatchupChange={setMatchupData} />
-              </div>
+              {/* Start/Sit Advisor on LEFT side under Your Team */}
               {matchupData && rosterWithCRI.length > 0 && (
-                <div className="lg:w-80 shrink-0">
+                <div className="lg:w-80 shrink-0 order-first">
                   <StartSitAdvisor 
                     roster={rosterWithCRI} 
                     useCris={useCris} 
@@ -704,6 +702,14 @@ const Index = () => {
                   />
                 </div>
               )}
+              <div className="flex-1">
+                <MatchupProjection 
+                  persistedMatchup={matchupData} 
+                  onMatchupChange={setMatchupData}
+                  weeklyMatchups={weeklyMatchups}
+                  roster={rosterWithCRI}
+                />
+              </div>
             </div>
           </TabsContent>
 

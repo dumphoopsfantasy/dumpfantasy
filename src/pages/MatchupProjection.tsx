@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X } from "lucide-react";
+import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X, ChevronDown, Calendar } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
+import { RosterSlot, Player } from "@/types/fantasy";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -69,20 +72,288 @@ interface MatchupData {
   opponent: MatchupTeam;
 }
 
+interface WeeklyTeamStats {
+  fgPct: number;
+  ftPct: number;
+  threepm: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  points: number;
+}
+
+interface WeeklyTeam {
+  token: string;
+  tokenUpper: string;
+  name: string;
+  recordStanding: string;
+  currentMatchup: string;
+  stats: WeeklyTeamStats;
+}
+
+interface WeeklyMatchup {
+  teamA: WeeklyTeam;
+  teamB: WeeklyTeam;
+}
+
 interface MatchupProjectionProps {
   persistedMatchup: MatchupData | null;
   onMatchupChange: (data: MatchupData | null) => void;
+  weeklyMatchups?: WeeklyMatchup[];
+  roster?: RosterSlot[];
 }
 
 const COUNTING_STATS = ["threepm", "rebounds", "assists", "steals", "blocks", "turnovers", "points"];
-const MULTIPLIER = 40;
 
-export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: MatchupProjectionProps) => {
+// Get day info for America/New_York timezone
+function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string } {
+  const now = new Date();
+  // Get current day in Eastern Time
+  const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'America/New_York' };
+  const dayName = new Intl.DateTimeFormat('en-US', options).format(now);
+  const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(dayName);
+  
+  // Fantasy weeks typically run Mon-Sun, so Sunday is day 7
+  const isFinalDay = dayOfWeek === 0; // Sunday
+  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek; // Convert to 1-7 (Mon=1, Sun=7)
+  const dayLabel = isFinalDay ? "Day 7/7 (Sunday) — Final day" : `Day ${dayNumber}/7 (${dayName})`;
+  
+  return { dayOfWeek, dayName, isFinalDay, dayLabel };
+}
+
+// Check if a player is OUT
+function isPlayerOut(status?: string): boolean {
+  if (!status) return false;
+  const s = status.toUpperCase().trim();
+  return s === "O" || s === "OUT" || s === "SUSP" || s.includes("(O)") || s.includes("INJ (O)");
+}
+
+// Get injury multiplier
+function getInjuryMultiplier(status?: string): number {
+  if (!status) return 1.0;
+  const s = status.toUpperCase().trim();
+  if (isPlayerOut(s)) return 0;
+  if (s === "DTD" || s.includes("DTD") || s === "Q" || s === "QUESTIONABLE") return 0.70;
+  if (s === "GTD" || s === "PROBABLE" || s === "P") return 0.85;
+  return 1.0;
+}
+
+// Compute "today expected" stats from roster players with games today
+function computeTodayExpected(roster: RosterSlot[]): TeamStats & { hasData: boolean; playerCount: number; estimatedFGA: number; estimatedFTA: number; estimatedFGM: number; estimatedFTM: number } {
+  const playersWithGamesToday = roster.filter(slot => 
+    slot.player.opponent && 
+    slot.slotType !== "ir" &&
+    !isPlayerOut(slot.player.status)
+  );
+  
+  let totalFGM = 0, totalFGA = 0, totalFTM = 0, totalFTA = 0;
+  let threepm = 0, rebounds = 0, assists = 0, steals = 0, blocks = 0, turnovers = 0, points = 0;
+  
+  playersWithGamesToday.forEach(slot => {
+    const p = slot.player;
+    const multiplier = getInjuryMultiplier(p.status);
+    
+    // Estimate FGA/FTA from FG%/FT% and points (rough heuristic)
+    // Assume ~18 FGA per game for average player based on minutes
+    const estimatedFGA = Math.max(1, (p.minutes / 30) * 12);
+    const estimatedFTA = Math.max(1, (p.minutes / 30) * 4);
+    
+    totalFGM += (p.fgPct * estimatedFGA) * multiplier;
+    totalFGA += estimatedFGA * multiplier;
+    totalFTM += (p.ftPct * estimatedFTA) * multiplier;
+    totalFTA += estimatedFTA * multiplier;
+    
+    threepm += p.threepm * multiplier;
+    rebounds += p.rebounds * multiplier;
+    assists += p.assists * multiplier;
+    steals += p.steals * multiplier;
+    blocks += p.blocks * multiplier;
+    turnovers += p.turnovers * multiplier;
+    points += p.points * multiplier;
+  });
+  
+  return {
+    fgPct: totalFGA > 0 ? totalFGM / totalFGA : 0,
+    ftPct: totalFTA > 0 ? totalFTM / totalFTA : 0,
+    threepm,
+    rebounds,
+    assists,
+    steals,
+    blocks,
+    turnovers,
+    points,
+    hasData: playersWithGamesToday.length > 0,
+    playerCount: playersWithGamesToday.length,
+    estimatedFGA: totalFGA,
+    estimatedFTA: totalFTA,
+    estimatedFGM: totalFGM,
+    estimatedFTM: totalFTM,
+  };
+}
+
+// Parse current W-L-T from Weekly currentMatchup string (e.g., "6-3-0")
+function parseCurrentRecord(currentMatchup: string): { wins: number; losses: number; ties: number } | null {
+  const match = currentMatchup.match(/^(\d+)-(\d+)-(\d+)$/);
+  if (!match) return null;
+  return {
+    wins: parseInt(match[1]),
+    losses: parseInt(match[2]),
+    ties: parseInt(match[3]),
+  };
+}
+
+export const MatchupProjection = ({ 
+  persistedMatchup, 
+  onMatchupChange,
+  weeklyMatchups = [],
+  roster = [],
+}: MatchupProjectionProps) => {
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTip, setDismissedTip] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  const dayInfo = getMatchupDayInfo();
+
+  // Find my team's weekly data if available
+  const myWeeklyData = useMemo(() => {
+    if (!persistedMatchup || weeklyMatchups.length === 0) return null;
+    
+    const myTeamName = persistedMatchup.myTeam.name.toLowerCase();
+    
+    for (const matchup of weeklyMatchups) {
+      if (matchup.teamA.name.toLowerCase().includes(myTeamName) || 
+          myTeamName.includes(matchup.teamA.name.toLowerCase())) {
+        return {
+          myTeam: matchup.teamA,
+          opponent: matchup.teamB,
+        };
+      }
+      if (matchup.teamB.name.toLowerCase().includes(myTeamName) ||
+          myTeamName.includes(matchup.teamB.name.toLowerCase())) {
+        return {
+          myTeam: matchup.teamB,
+          opponent: matchup.teamA,
+        };
+      }
+    }
+    return null;
+  }, [persistedMatchup, weeklyMatchups]);
+
+  // Compute today's expected stats from roster
+  const todayExpected = useMemo(() => {
+    return computeTodayExpected(roster);
+  }, [roster]);
+
+  // Compute dynamic projections: Current + Today Expected = Projected Final
+  const dynamicProjection = useMemo(() => {
+    if (!persistedMatchup) return null;
+
+    const hasWeeklyData = !!myWeeklyData;
+    const baselineStats = persistedMatchup.myTeam.stats;
+    const oppBaselineStats = persistedMatchup.opponent.stats;
+    
+    // Current totals from Weekly (if available), otherwise use 0
+    const currentMy = hasWeeklyData ? myWeeklyData.myTeam.stats : null;
+    const currentOpp = hasWeeklyData ? myWeeklyData.opponent.stats : null;
+    
+    // Estimate days elapsed (for percentage calculations)
+    const daysElapsed = dayInfo.dayOfWeek === 0 ? 6 : dayInfo.dayOfWeek - 1;
+    
+    // For each category, compute projected final
+    const computeProjectedFinal = (
+      current: number | null,
+      todayExp: number,
+      baseline: number,
+      isPercentage: boolean,
+      currentMakes?: number,
+      currentAttempts?: number,
+      todayMakes?: number,
+      todayAttempts?: number
+    ): { projected: number; current: number; today: number; isEstimated?: boolean } => {
+      if (isPercentage) {
+        // For percentages, use makes/attempts
+        if (current !== null && currentMakes !== undefined && currentAttempts !== undefined) {
+          const projMakes = currentMakes + (todayMakes || 0);
+          const projAttempts = currentAttempts + (todayAttempts || 0);
+          return {
+            projected: projAttempts > 0 ? projMakes / projAttempts : baseline,
+            current: current,
+            today: todayAttempts && todayAttempts > 0 ? (todayMakes || 0) / todayAttempts : 0,
+          };
+        }
+        // Estimate current attempts from baseline
+        const estAttemptsPerDay = baseline > 0 ? 15 : 10; // rough estimate
+        const estCurrentAttempts = estAttemptsPerDay * Math.max(1, daysElapsed);
+        const estCurrentMakes = (current ?? baseline) * estCurrentAttempts;
+        const projMakes = estCurrentMakes + (todayMakes || 0);
+        const projAttempts = estCurrentAttempts + (todayAttempts || 0);
+        return {
+          projected: projAttempts > 0 ? projMakes / projAttempts : baseline,
+          current: current ?? baseline,
+          today: todayAttempts && todayAttempts > 0 ? (todayMakes || 0) / todayAttempts : 0,
+          isEstimated: true,
+        };
+      }
+      
+      // Counting stats
+      const currentVal = current ?? 0;
+      return {
+        projected: currentVal + todayExp,
+        current: currentVal,
+        today: todayExp,
+      };
+    };
+
+    // My team projections
+    const myProjections = {
+      fgPct: computeProjectedFinal(
+        currentMy?.fgPct ?? null, 0, baselineStats.fgPct, true,
+        currentMy ? currentMy.fgPct * (daysElapsed * 40) : undefined,
+        currentMy ? daysElapsed * 40 : undefined,
+        todayExpected.estimatedFGM, todayExpected.estimatedFGA
+      ),
+      ftPct: computeProjectedFinal(
+        currentMy?.ftPct ?? null, 0, baselineStats.ftPct, true,
+        currentMy ? currentMy.ftPct * (daysElapsed * 15) : undefined,
+        currentMy ? daysElapsed * 15 : undefined,
+        todayExpected.estimatedFTM, todayExpected.estimatedFTA
+      ),
+      threepm: computeProjectedFinal(currentMy?.threepm ?? null, todayExpected.threepm, baselineStats.threepm * 40, false),
+      rebounds: computeProjectedFinal(currentMy?.rebounds ?? null, todayExpected.rebounds, baselineStats.rebounds * 40, false),
+      assists: computeProjectedFinal(currentMy?.assists ?? null, todayExpected.assists, baselineStats.assists * 40, false),
+      steals: computeProjectedFinal(currentMy?.steals ?? null, todayExpected.steals, baselineStats.steals * 40, false),
+      blocks: computeProjectedFinal(currentMy?.blocks ?? null, todayExpected.blocks, baselineStats.blocks * 40, false),
+      turnovers: computeProjectedFinal(currentMy?.turnovers ?? null, todayExpected.turnovers, baselineStats.turnovers * 40, false),
+      points: computeProjectedFinal(currentMy?.points ?? null, todayExpected.points, baselineStats.points * 40, false),
+    };
+
+    // Opponent projections (use Weekly current + baseline if no opponent schedule)
+    // For opponent, we don't have their today expected (no roster data), so use 0 or baseline
+    const oppProjections = {
+      fgPct: computeProjectedFinal(currentOpp?.fgPct ?? null, 0, oppBaselineStats.fgPct, true),
+      ftPct: computeProjectedFinal(currentOpp?.ftPct ?? null, 0, oppBaselineStats.ftPct, true),
+      threepm: computeProjectedFinal(currentOpp?.threepm ?? null, 0, oppBaselineStats.threepm * 40, false),
+      rebounds: computeProjectedFinal(currentOpp?.rebounds ?? null, 0, oppBaselineStats.rebounds * 40, false),
+      assists: computeProjectedFinal(currentOpp?.assists ?? null, 0, oppBaselineStats.assists * 40, false),
+      steals: computeProjectedFinal(currentOpp?.steals ?? null, 0, oppBaselineStats.steals * 40, false),
+      blocks: computeProjectedFinal(currentOpp?.blocks ?? null, 0, oppBaselineStats.blocks * 40, false),
+      turnovers: computeProjectedFinal(currentOpp?.turnovers ?? null, 0, oppBaselineStats.turnovers * 40, false),
+      points: computeProjectedFinal(currentOpp?.points ?? null, 0, oppBaselineStats.points * 40, false),
+    };
+
+    return {
+      myProjections,
+      oppProjections,
+      hasWeeklyData,
+      currentRecord: hasWeeklyData ? parseCurrentRecord(myWeeklyData.myTeam.currentMatchup) : null,
+      oppHasSchedule: false, // We don't have opponent roster
+    };
+  }, [persistedMatchup, myWeeklyData, todayExpected, dayInfo]);
 
   // Extract opponent name from "Current Matchup" section
   const extractOpponentFromCurrentMatchup = (data: string, myTeamName: string): string | null => {
@@ -497,7 +768,7 @@ export const MatchupProjection = ({ persistedMatchup, onMatchupChange }: Matchup
               <ul className="text-sm text-muted-foreground space-y-1 mt-1">
                 <li>• Stats match the view you selected on ESPN (Last 7, Last 15, Last 30, or Season Stats)</li>
                 <li>• <strong>Team Average</strong> = (Sum of all active player stats) ÷ (Number of active players)</li>
-                <li>• <strong>Weekly projection</strong> = Team Average × <strong>{MULTIPLIER}</strong></li>
+                <li>• <strong>Weekly projection</strong> = Team Average × <strong>40</strong></li>
                 <li>• <strong>Percentages</strong> (FG%, FT%) = Team average (NOT multiplied)</li>
                 <li>• <strong>TO (Turnovers)</strong>: Lower is better - fewer turnovers wins the category</li>
               </ul>
@@ -571,14 +842,38 @@ Navigate to their team page and copy the whole page.`}
     );
   }
 
+  // Use dynamic projections if available, otherwise fallback to static ×40
+  const usesDynamicProjection = dynamicProjection?.hasWeeklyData && roster.length > 0;
+
   // Calculate comparisons with projected values
   const comparisons = CATEGORIES.map((cat) => {
     const isCountingStat = COUNTING_STATS.includes(cat.key);
-    const myAvg = persistedMatchup.myTeam.stats[cat.key as keyof TeamStats];
-    const theirAvg = persistedMatchup.opponent.stats[cat.key as keyof TeamStats];
-
-    const myProjected = isCountingStat ? myAvg * MULTIPLIER : myAvg;
-    const theirProjected = isCountingStat ? theirAvg * MULTIPLIER : theirAvg;
+    const key = cat.key as keyof TeamStats;
+    
+    let myProjected: number;
+    let theirProjected: number;
+    let myCurrent: number | null = null;
+    let myTodayExp: number | null = null;
+    let theirCurrent: number | null = null;
+    let theirTodayExp: number | null = null;
+    let isEstimated = false;
+    
+    if (usesDynamicProjection && dynamicProjection) {
+      const myProj = dynamicProjection.myProjections[key];
+      const oppProj = dynamicProjection.oppProjections[key];
+      myProjected = myProj.projected;
+      theirProjected = oppProj.projected;
+      myCurrent = myProj.current;
+      myTodayExp = myProj.today;
+      theirCurrent = oppProj.current;
+      theirTodayExp = oppProj.today;
+      isEstimated = myProj.isEstimated || false;
+    } else {
+      const myAvg = persistedMatchup.myTeam.stats[key];
+      const theirAvg = persistedMatchup.opponent.stats[key];
+      myProjected = isCountingStat ? myAvg * 40 : myAvg;
+      theirProjected = isCountingStat ? theirAvg * 40 : theirAvg;
+    }
 
     let winner: "you" | "them" | "tie";
     if (cat.key === "turnovers") {
@@ -591,11 +886,18 @@ Navigate to their team page and copy the whole page.`}
     return {
       category: cat.label,
       key: cat.key,
-      myAvg, theirAvg,
-      myProjected, theirProjected,
+      myAvg: persistedMatchup.myTeam.stats[key],
+      theirAvg: persistedMatchup.opponent.stats[key],
+      myProjected, 
+      theirProjected,
+      myCurrent,
+      myTodayExp,
+      theirCurrent,
+      theirTodayExp,
       winner,
       format: cat.format,
       isCountingStat,
+      isEstimated,
     };
   });
 
@@ -603,11 +905,27 @@ Navigate to their team page and copy the whole page.`}
   const losses = comparisons.filter((c) => c.winner === "them").length;
   const ties = comparisons.filter((c) => c.winner === "tie").length;
 
+  // Get current record from Weekly if available
+  const currentRecord = dynamicProjection?.currentRecord;
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
+        <div>
+          <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
+          <div className="flex items-center gap-2 mt-1">
+            <Badge variant="outline" className="text-[10px] flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              {dayInfo.dayLabel}
+            </Badge>
+            {usesDynamicProjection && (
+              <Badge variant="secondary" className="text-[10px]">
+                Dynamic (Weekly + Today)
+              </Badge>
+            )}
+          </div>
+        </div>
         <Button variant="outline" size="sm" onClick={handleReset}>
           <RefreshCw className="w-4 h-4 mr-2" />
           New Matchup
@@ -619,11 +937,45 @@ Navigate to their team page and copy the whole page.`}
         <div className="flex items-center gap-2 text-xs">
           <Info className="w-4 h-4 text-amber-400" />
           <span className="text-muted-foreground">
-            Team average × <strong className="text-amber-400">{MULTIPLIER}</strong> = weekly projection.
-            FG%/FT% = team average. <strong className="text-amber-400">TO: Lower wins.</strong>
+            {usesDynamicProjection ? (
+              <>
+                <strong className="text-amber-400">Dynamic projection:</strong> Current (Weekly) + Today Expected = Projected Final.
+                <strong className="text-amber-400 ml-1">TO: Lower wins.</strong>
+              </>
+            ) : (
+              <>
+                Team average × <strong className="text-amber-400">40</strong> = weekly projection.
+                FG%/FT% = team average. <strong className="text-amber-400">TO: Lower wins.</strong>
+              </>
+            )}
           </span>
         </div>
       </Card>
+
+      {/* Opponent schedule notice */}
+      {usesDynamicProjection && !dynamicProjection?.oppHasSchedule && (
+        <Card className="p-2 bg-muted/30 border-muted">
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <Info className="w-3 h-3" />
+            <span>Opponent projection uses baseline averages (schedule not imported).</span>
+          </div>
+        </Card>
+      )}
+
+      {/* Today's Players Summary */}
+      {todayExpected.hasData && (
+        <Card className="p-3 bg-primary/5 border-primary/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">Today's Games</span>
+            </div>
+            <Badge variant="outline" className="text-xs">
+              {todayExpected.playerCount} player{todayExpected.playerCount !== 1 ? 's' : ''} playing
+            </Badge>
+          </div>
+        </Card>
+      )}
 
       {/* Matchup Summary - Compact */}
       <Card className="gradient-card border-border p-4">
@@ -642,12 +994,21 @@ Navigate to their team page and copy the whole page.`}
             </p>
           </div>
           
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/30">
-            <span className="font-display font-bold text-xl md:text-2xl text-stat-positive">{wins}</span>
-            <span className="text-muted-foreground text-sm">-</span>
-            <span className="font-display font-bold text-xl md:text-2xl text-stat-negative">{losses}</span>
-            <span className="text-muted-foreground text-sm">-</span>
-            <span className="font-display font-bold text-xl md:text-2xl text-muted-foreground">{ties}</span>
+          <div className="flex flex-col items-center gap-1">
+            {/* Current score from Weekly */}
+            {currentRecord && (
+              <div className="text-[10px] text-muted-foreground">
+                Current: {currentRecord.wins}-{currentRecord.losses}-{currentRecord.ties}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/30">
+              <span className="font-display font-bold text-xl md:text-2xl text-stat-positive">{wins}</span>
+              <span className="text-muted-foreground text-sm">-</span>
+              <span className="font-display font-bold text-xl md:text-2xl text-stat-negative">{losses}</span>
+              <span className="text-muted-foreground text-sm">-</span>
+              <span className="font-display font-bold text-xl md:text-2xl text-muted-foreground">{ties}</span>
+            </div>
+            <div className="text-[10px] text-muted-foreground">Projected</div>
           </div>
           
           <div className="text-center flex-1 max-w-[200px]">
@@ -687,49 +1048,133 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </Card>
 
-      {/* Team Averages Summary - Compact */}
-      <div className="grid md:grid-cols-2 gap-3">
-        {/* Your Team */}
-        <Card className="gradient-card border-border p-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
-            <span className="text-[10px] text-muted-foreground">×{MULTIPLIER}</span>
-          </div>
-          <div className="grid grid-cols-5 gap-1.5 mb-2">
-            <StatBox label="FG%" avg={persistedMatchup.myTeam.stats.fgPct} isPct />
-            <StatBox label="FT%" avg={persistedMatchup.myTeam.stats.ftPct} isPct />
-            <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} multiplier={MULTIPLIER} />
-            <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} multiplier={MULTIPLIER} />
-            <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} multiplier={MULTIPLIER} />
-          </div>
-          <div className="grid grid-cols-4 gap-1.5">
-            <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} multiplier={MULTIPLIER} />
-            <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} multiplier={MULTIPLIER} />
-            <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} multiplier={MULTIPLIER} />
-            <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} multiplier={MULTIPLIER} />
-          </div>
-        </Card>
+      {/* Projection Breakdown Toggle */}
+      {usesDynamicProjection && (
+        <Collapsible open={showBreakdown} onOpenChange={setShowBreakdown}>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full">
+              <ChevronDown className={cn("w-4 h-4 mr-2 transition-transform", showBreakdown && "rotate-180")} />
+              {showBreakdown ? "Hide" : "Show"} Projection Breakdown
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-4">
+            <div className="grid md:grid-cols-2 gap-3">
+              {/* Your Team Breakdown */}
+              <Card className="gradient-card border-border p-3">
+                <h3 className="font-display font-semibold text-sm text-stat-positive mb-3">{persistedMatchup.myTeam.name}</h3>
+                <div className="space-y-2 text-xs">
+                  <div className="grid grid-cols-4 gap-1 text-muted-foreground text-[10px] font-medium">
+                    <span>Cat</span>
+                    <span className="text-right">Current</span>
+                    <span className="text-right">+Today</span>
+                    <span className="text-right">Final</span>
+                  </div>
+                  {comparisons.map((comp) => (
+                    <div key={comp.key} className="grid grid-cols-4 gap-1 items-center">
+                      <span className="font-medium">{comp.category}</span>
+                      <span className="text-right text-muted-foreground">
+                        {comp.isCountingStat 
+                          ? Math.round(comp.myCurrent ?? 0)
+                          : formatPct(comp.myCurrent ?? comp.myAvg)}
+                      </span>
+                      <span className="text-right text-primary">
+                        {comp.isCountingStat 
+                          ? `+${Math.round(comp.myTodayExp ?? 0)}`
+                          : '—'}
+                      </span>
+                      <span className={cn("text-right font-bold", comp.winner === "you" && "text-stat-positive")}>
+                        {comp.isCountingStat 
+                          ? Math.round(comp.myProjected)
+                          : formatPct(comp.myProjected)}
+                        {comp.isEstimated && !comp.isCountingStat && <span className="text-[8px] text-muted-foreground ml-0.5">(est)</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
 
-        <Card className="gradient-card border-border p-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
-            <span className="text-[10px] text-muted-foreground">×{MULTIPLIER}</span>
-          </div>
-          <div className="grid grid-cols-5 gap-1.5 mb-2">
-            <StatBox label="FG%" avg={persistedMatchup.opponent.stats.fgPct} isPct />
-            <StatBox label="FT%" avg={persistedMatchup.opponent.stats.ftPct} isPct />
-            <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} multiplier={MULTIPLIER} />
-            <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} multiplier={MULTIPLIER} />
-            <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} multiplier={MULTIPLIER} />
-          </div>
-          <div className="grid grid-cols-4 gap-1.5">
-            <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} multiplier={MULTIPLIER} />
-            <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} multiplier={MULTIPLIER} />
-            <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} multiplier={MULTIPLIER} />
-            <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} multiplier={MULTIPLIER} />
-          </div>
-        </Card>
-      </div>
+              {/* Opponent Breakdown */}
+              <Card className="gradient-card border-border p-3">
+                <h3 className="font-display font-semibold text-sm text-stat-negative mb-3">{persistedMatchup.opponent.name}</h3>
+                <div className="space-y-2 text-xs">
+                  <div className="grid grid-cols-4 gap-1 text-muted-foreground text-[10px] font-medium">
+                    <span>Cat</span>
+                    <span className="text-right">Current</span>
+                    <span className="text-right">+Today</span>
+                    <span className="text-right">Final</span>
+                  </div>
+                  {comparisons.map((comp) => (
+                    <div key={comp.key} className="grid grid-cols-4 gap-1 items-center">
+                      <span className="font-medium">{comp.category}</span>
+                      <span className="text-right text-muted-foreground">
+                        {comp.isCountingStat 
+                          ? Math.round(comp.theirCurrent ?? 0)
+                          : formatPct(comp.theirCurrent ?? comp.theirAvg)}
+                      </span>
+                      <span className="text-right text-muted-foreground">
+                        {comp.isCountingStat 
+                          ? `+${Math.round(comp.theirTodayExp ?? 0)}`
+                          : '—'}
+                      </span>
+                      <span className={cn("text-right font-bold", comp.winner === "them" && "text-stat-negative")}>
+                        {comp.isCountingStat 
+                          ? Math.round(comp.theirProjected)
+                          : formatPct(comp.theirProjected)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Team Averages Summary - Compact (only show when NOT using dynamic projection) */}
+      {!usesDynamicProjection && (
+        <div className="grid md:grid-cols-2 gap-3">
+          {/* Your Team */}
+          <Card className="gradient-card border-border p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
+              <span className="text-[10px] text-muted-foreground">×40</span>
+            </div>
+            <div className="grid grid-cols-5 gap-1.5 mb-2">
+              <StatBox label="FG%" avg={persistedMatchup.myTeam.stats.fgPct} isPct />
+              <StatBox label="FT%" avg={persistedMatchup.myTeam.stats.ftPct} isPct />
+              <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} multiplier={40} />
+              <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} multiplier={40} />
+              <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} multiplier={40} />
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} multiplier={40} />
+              <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} multiplier={40} />
+              <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} multiplier={40} />
+              <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} multiplier={40} />
+            </div>
+          </Card>
+
+          <Card className="gradient-card border-border p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
+              <span className="text-[10px] text-muted-foreground">×40</span>
+            </div>
+            <div className="grid grid-cols-5 gap-1.5 mb-2">
+              <StatBox label="FG%" avg={persistedMatchup.opponent.stats.fgPct} isPct />
+              <StatBox label="FT%" avg={persistedMatchup.opponent.stats.ftPct} isPct />
+              <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} multiplier={40} />
+              <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} multiplier={40} />
+              <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} multiplier={40} />
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} multiplier={40} />
+              <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} multiplier={40} />
+              <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} multiplier={40} />
+              <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} multiplier={40} />
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Category Breakdown */}
       <div className="space-y-3">
@@ -748,10 +1193,24 @@ Navigate to their team page and copy the whole page.`}
                 {comp.isCountingStat ? (
                   <>
                     <p className="font-display font-bold text-2xl md:text-3xl">{formatProjection(comp.myProjected)}</p>
-                    <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.myAvg, comp.format)}</p>
+                    {usesDynamicProjection && comp.myCurrent !== null ? (
+                      <p className="text-xs text-muted-foreground">
+                        {Math.round(comp.myCurrent)} + <span className="text-primary">{Math.round(comp.myTodayExp ?? 0)}</span>
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.myAvg, comp.format)}</p>
+                    )}
                   </>
                 ) : (
-                  <p className="font-display font-bold text-2xl md:text-3xl">{formatAverage(comp.myAvg, comp.format)}</p>
+                  <>
+                    <p className="font-display font-bold text-2xl md:text-3xl">
+                      {formatAverage(comp.myProjected, comp.format)}
+                      {comp.isEstimated && <span className="text-xs text-muted-foreground ml-1">(est)</span>}
+                    </p>
+                    {usesDynamicProjection && comp.myCurrent !== null && (
+                      <p className="text-xs text-muted-foreground">was: {formatAverage(comp.myCurrent, comp.format)}</p>
+                    )}
+                  </>
                 )}
                 {comp.winner === "you" && (
                   <div className="flex items-center justify-center gap-1 mt-1">
@@ -779,10 +1238,21 @@ Navigate to their team page and copy the whole page.`}
                 {comp.isCountingStat ? (
                   <>
                     <p className="font-display font-bold text-2xl md:text-3xl">{formatProjection(comp.theirProjected)}</p>
-                    <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.theirAvg, comp.format)}</p>
+                    {usesDynamicProjection && comp.theirCurrent !== null ? (
+                      <p className="text-xs text-muted-foreground">
+                        {Math.round(comp.theirCurrent)} + <span className="text-muted-foreground">{Math.round(comp.theirTodayExp ?? 0)}</span>
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.theirAvg, comp.format)}</p>
+                    )}
                   </>
                 ) : (
-                  <p className="font-display font-bold text-2xl md:text-3xl">{formatAverage(comp.theirAvg, comp.format)}</p>
+                  <>
+                    <p className="font-display font-bold text-2xl md:text-3xl">{formatAverage(comp.theirProjected, comp.format)}</p>
+                    {usesDynamicProjection && comp.theirCurrent !== null && (
+                      <p className="text-xs text-muted-foreground">was: {formatAverage(comp.theirCurrent, comp.format)}</p>
+                    )}
+                  </>
                 )}
                 {comp.winner === "them" && (
                   <div className="flex items-center justify-center gap-1 mt-1">

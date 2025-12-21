@@ -138,7 +138,7 @@ export const StartSitAdvisor = ({
     return null;
   }, [matchupData, weeklyMatchups]);
 
-  // Calculate category urgency based on Weekly + Matchup projections
+  // Calculate category urgency based on Weekly + Matchup projections + today's expected
   const categoryUrgency = useMemo((): CategoryUrgency[] => {
     if (!matchupData) {
       // No matchup data - return all MED urgency
@@ -154,35 +154,45 @@ export const StartSitAdvisor = ({
     const projectedMy = matchupData.myTeam.stats;
     const projectedOpp = matchupData.opponent.stats;
     
-    // Use weekly actuals if available, otherwise use projections
-    const currentMy = myWeeklyData?.myTeam.stats || projectedMy;
-    const currentOpp = myWeeklyData?.opponent.stats || projectedOpp;
+    // Use weekly actuals if available
+    const currentMy = myWeeklyData?.myTeam.stats;
+    const currentOpp = myWeeklyData?.opponent.stats;
+    const hasWeeklyData = !!myWeeklyData;
 
     return CATEGORIES.map(cat => {
-      const myVal = currentMy[cat.key as keyof MatchupStats] || 0;
-      const oppVal = currentOpp[cat.key as keyof MatchupStats] || 0;
+      // Use current weekly values or projected baseline
+      const myCurrentVal = hasWeeklyData 
+        ? (currentMy?.[cat.key as keyof MatchupStats] || 0)
+        : (projectedMy[cat.key as keyof MatchupStats] * (cat.key === "fgPct" || cat.key === "ftPct" ? 1 : 40)) || 0;
+      const oppCurrentVal = hasWeeklyData 
+        ? (currentOpp?.[cat.key as keyof MatchupStats] || 0)
+        : (projectedOpp[cat.key as keyof MatchupStats] * (cat.key === "fgPct" || cat.key === "ftPct" ? 1 : 40)) || 0;
       
       // Calculate delta (positive = winning)
       let delta: number;
       if (cat.lowerBetter) {
         // For TO, lower is better, so if I have less, I'm winning
-        delta = oppVal - myVal;
+        delta = oppCurrentVal - myCurrentVal;
       } else {
-        delta = myVal - oppVal;
+        delta = myCurrentVal - oppCurrentVal;
       }
 
       // Determine urgency based on current state and projections
       const projMyVal = projectedMy[cat.key as keyof MatchupStats] || 0;
       const projOppVal = projectedOpp[cat.key as keyof MatchupStats] || 0;
       
+      // For projections, use ×40 for counting stats
+      const projMyTotal = (cat.key === "fgPct" || cat.key === "ftPct") ? projMyVal : projMyVal * 40;
+      const projOppTotal = (cat.key === "fgPct" || cat.key === "ftPct") ? projOppVal : projOppVal * 40;
+      
       let projDelta: number;
       if (cat.lowerBetter) {
-        projDelta = projOppVal - projMyVal;
+        projDelta = projOppTotal - projMyTotal;
       } else {
-        projDelta = projMyVal - projOppVal;
+        projDelta = projMyTotal - projOppTotal;
       }
 
-      // Swingable thresholds (percentage of projected totals)
+      // Swingable thresholds (percentage of remaining projection)
       const swingThreshold = 0.15;
       let isSwingable = false;
       
@@ -191,7 +201,7 @@ export const StartSitAdvisor = ({
         isSwingable = Math.abs(delta) <= 0.020;
       } else {
         // Counting stats: swingable if deficit <= 15% of remaining projection
-        const remaining = Math.max(0, (projMyVal + projOppVal) / 2 - Math.max(myVal, oppVal));
+        const remaining = Math.max(0, (projMyTotal + projOppTotal) / 2 - Math.max(myCurrentVal, oppCurrentVal));
         isSwingable = Math.abs(delta) <= remaining * swingThreshold || Math.abs(delta) <= 10;
       }
 
