@@ -631,74 +631,80 @@ The page should include the "Season Stats" section with team names, managers, an
         </div>
       </div>
 
-      <div className="w-full">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-accent/20">
-              <SortHeader label="RK" sortKeyProp="originalRank" className="text-left sticky left-0 bg-background" />
-              <th className="text-left p-2 font-display sticky left-0 bg-background min-w-[150px]">Team</th>
-              {CATEGORIES.map(c => (
-                <SortHeader key={c.key} label={c.label} sortKeyProp={c.key as SortKey} className="min-w-[70px]" />
-              ))}
-              <SortHeader label="Record" sortKeyProp="record" />
-              <SortHeader 
-                label={scoreLabel} 
-                sortKeyProp={useCris ? 'cri' : 'wCri'} 
-                className="border-l-2 border-primary/50 min-w-[70px]" 
-              />
-            </tr>
-          </thead>
-          <tbody>
-          {sortedTeams.map((team, i) => {
-            const isUserTeam = team.name.toLowerCase().includes('bane');
-            return (
-              <tr key={i} className={cn(
-                "border-b border-border/50 hover:bg-muted/30",
-                isUserTeam && "bg-primary/10 border-primary/30"
-              )}>
-                <td className="p-2 font-bold text-primary">{team.originalRank}</td>
-                <td className="p-2">
-                  <div className={cn("font-semibold", isUserTeam && "text-primary")}>
-                    {team.name}
-                    {isUserTeam && <span className="ml-2 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">You</span>}
-                  </div>
-                  {team.manager && (
-                    <div className="text-xs text-muted-foreground">{team.manager}</div>
-                  )}
-                </td>
-                {CATEGORIES.map(c => {
-                  const isLowerBetter = c.key === 'turnovers';
-                  const rank = getCategoryRank(team, c.key as keyof LeagueTeam, isLowerBetter);
-                  const value = team[c.key as keyof TeamWithCris] as number;
-                  return (
-                    <td key={c.key} className="text-center p-2">
-                      <div className={cn(
-                        "rounded px-1 py-0.5 inline-block min-w-[50px]",
-                        getRankColor(rank, teams.length)
-                      )}>
-                        <span className="font-semibold">
-                          {c.format === 'pct' ? formatPct(value) : value.toFixed(0)}
-                        </span>
-                        <span className="text-xs text-muted-foreground ml-1">#{rank}</span>
-                      </div>
-                    </td>
-                  );
-                })}
-                <td className="text-center p-2 font-semibold">
-                  {team.record || '-'}
-                </td>
-                <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
-                  {team[scoreKey].toFixed(1)}
-                </td>
+      {/* Two-column layout: Main table + Contenders profile */}
+      <div className="flex flex-col lg:flex-row gap-4">
+        {/* Main standings table - left side */}
+        <div className="flex-1 lg:w-[65%] overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-accent/20">
+                <SortHeader label="RK" sortKeyProp="originalRank" className="text-left sticky left-0 bg-background" />
+                <th className="text-left p-2 font-display sticky left-0 bg-background min-w-[150px]">Team</th>
+                {CATEGORIES.map(c => (
+                  <SortHeader key={c.key} label={c.label} sortKeyProp={c.key as SortKey} className="min-w-[70px]" />
+                ))}
+                <SortHeader label="Record" sortKeyProp="record" />
+                <SortHeader 
+                  label={scoreLabel} 
+                  sortKeyProp={useCris ? 'cri' : 'wCri'} 
+                  className="border-l-2 border-primary/50 min-w-[70px]" 
+                />
               </tr>
-            );
-          })}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+            {sortedTeams.map((team, i) => {
+              const isUserTeam = team.name.toLowerCase().includes('bane');
+              return (
+                <tr key={i} className={cn(
+                  "border-b border-border/50 hover:bg-muted/30",
+                  isUserTeam && "bg-primary/10 border-primary/30"
+                )}>
+                  <td className="p-2 font-bold text-primary">{team.originalRank}</td>
+                  <td className="p-2">
+                    <div className={cn("font-semibold", isUserTeam && "text-primary")}>
+                      {team.name}
+                      {isUserTeam && <span className="ml-2 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">You</span>}
+                    </div>
+                    {team.manager && (
+                      <div className="text-xs text-muted-foreground">{team.manager}</div>
+                    )}
+                  </td>
+                  {CATEGORIES.map(c => {
+                    const isLowerBetter = c.key === 'turnovers';
+                    const rank = getCategoryRank(team, c.key as keyof LeagueTeam, isLowerBetter);
+                    const value = team[c.key as keyof TeamWithCris] as number;
+                    return (
+                      <td key={c.key} className="text-center p-2">
+                        <div className={cn(
+                          "rounded px-1 py-0.5 inline-block min-w-[50px]",
+                          getRankColor(rank, teams.length)
+                        )}>
+                          <span className="font-semibold">
+                            {c.format === 'pct' ? formatPct(value) : value.toFixed(0)}
+                          </span>
+                          <span className="text-xs text-muted-foreground ml-1">#{rank}</span>
+                        </div>
+                      </td>
+                    );
+                  })}
+                  <td className="text-center p-2 font-semibold">
+                    {team.record || '-'}
+                  </td>
+                  <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
+                    {team[scoreKey].toFixed(1)}
+                  </td>
+                </tr>
+              );
+            })}
+            </tbody>
+          </table>
+        </div>
 
-      {/* Playoff Contenders Category Profile */}
-      <PlayoffContendersProfile teams={teams} />
+        {/* Playoff Contenders Category Profile - right side */}
+        <div className="lg:w-[35%] lg:sticky lg:top-20 lg:self-start">
+          <PlayoffContendersProfile teams={teams} />
+        </div>
+      </div>
     </div>
   );
 };

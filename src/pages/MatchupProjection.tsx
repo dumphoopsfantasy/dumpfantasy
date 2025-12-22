@@ -70,6 +70,7 @@ interface MatchupTeam extends TeamInfo {
 interface MatchupData {
   myTeam: MatchupTeam;
   opponent: MatchupTeam;
+  opponentRoster?: RosterSlot[];
 }
 
 interface WeeklyTeamStats {
@@ -103,47 +104,26 @@ interface MatchupProjectionProps {
   onMatchupChange: (data: MatchupData | null) => void;
   weeklyMatchups?: WeeklyMatchup[];
   roster?: RosterSlot[];
+  opponentRoster?: RosterSlot[];
 }
 
 const COUNTING_STATS = ["threepm", "rebounds", "assists", "steals", "blocks", "turnovers", "points"];
 
-// Get day info for America/New_York timezone
-function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string } {
-  const now = new Date();
-  // Get current day in Eastern Time
-  const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'America/New_York' };
-  const dayName = new Intl.DateTimeFormat('en-US', options).format(now);
-  const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(dayName);
-  
-  // Fantasy weeks typically run Mon-Sun, so Sunday is day 7
-  const isFinalDay = dayOfWeek === 0; // Sunday
-  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek; // Convert to 1-7 (Mon=1, Sun=7)
-  const dayLabel = isFinalDay ? "Day 7/7 (Sunday) — Final day" : `Day ${dayNumber}/7 (${dayName})`;
-  
-  return { dayOfWeek, dayName, isFinalDay, dayLabel };
+// Check if opponent field indicates a game today (contains vs/@ with time)
+function hasGameToday(opponent?: string): boolean {
+  if (!opponent) return false;
+  const opp = opponent.trim();
+  // Match patterns like "vs SAC 10:00 PM", "@LAL 7:30 PM", "vs @Sac 10:00 PM"
+  const hasVsOrAt = /^(vs|@)/i.test(opp) || opp.includes('@') || opp.toLowerCase().includes('vs');
+  const hasTime = /\d{1,2}:\d{2}\s*(AM|PM)/i.test(opp);
+  // Also check for just time pattern if opponent is present
+  return hasVsOrAt && hasTime;
 }
 
-// Check if a player is OUT
-function isPlayerOut(status?: string): boolean {
-  if (!status) return false;
-  const s = status.toUpperCase().trim();
-  return s === "O" || s === "OUT" || s === "SUSP" || s.includes("(O)") || s.includes("INJ (O)");
-}
-
-// Get injury multiplier
-function getInjuryMultiplier(status?: string): number {
-  if (!status) return 1.0;
-  const s = status.toUpperCase().trim();
-  if (isPlayerOut(s)) return 0;
-  if (s === "DTD" || s.includes("DTD") || s === "Q" || s === "QUESTIONABLE") return 0.70;
-  if (s === "GTD" || s === "PROBABLE" || s === "P") return 0.85;
-  return 1.0;
-}
-
-// Compute "today expected" stats from roster players with games today
-function computeTodayExpected(roster: RosterSlot[]): TeamStats & { hasData: boolean; playerCount: number; estimatedFGA: number; estimatedFTA: number; estimatedFGM: number; estimatedFTM: number } {
+// Compute "today expected" stats from any roster (works for both user and opponent)
+function computeTodayExpectedFromRoster(roster: RosterSlot[]): TeamStats & { hasData: boolean; playerCount: number; estimatedFGA: number; estimatedFTA: number; estimatedFGM: number; estimatedFTM: number } {
   const playersWithGamesToday = roster.filter(slot => 
-    slot.player.opponent && 
+    hasGameToday(slot.player.opponent) && 
     slot.slotType !== "ir" &&
     !isPlayerOut(slot.player.status)
   );
@@ -156,7 +136,6 @@ function computeTodayExpected(roster: RosterSlot[]): TeamStats & { hasData: bool
     const multiplier = getInjuryMultiplier(p.status);
     
     // Estimate FGA/FTA from FG%/FT% and points (rough heuristic)
-    // Assume ~18 FGA per game for average player based on minutes
     const estimatedFGA = Math.max(1, (p.minutes / 30) * 12);
     const estimatedFTA = Math.max(1, (p.minutes / 30) * 4);
     
@@ -191,6 +170,210 @@ function computeTodayExpected(roster: RosterSlot[]): TeamStats & { hasData: bool
     estimatedFGM: totalFGM,
     estimatedFTM: totalFTM,
   };
+}
+
+// Get day info for America/New_York timezone
+function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string } {
+  const now = new Date();
+  // Get current day in Eastern Time
+  const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'America/New_York' };
+  const dayName = new Intl.DateTimeFormat('en-US', options).format(now);
+  const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(dayName);
+  
+  // Fantasy weeks typically run Mon-Sun, so Sunday is day 7
+  const isFinalDay = dayOfWeek === 0; // Sunday
+  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek; // Convert to 1-7 (Mon=1, Sun=7)
+  const dayLabel = isFinalDay ? "Day 7/7 (Sunday) — Final day" : `Day ${dayNumber}/7 (${dayName})`;
+  
+  return { dayOfWeek, dayName, isFinalDay, dayLabel };
+}
+
+// Check if a player is OUT
+function isPlayerOut(status?: string): boolean {
+  if (!status) return false;
+  const s = status.toUpperCase().trim();
+  return s === "O" || s === "OUT" || s === "SUSP" || s.includes("(O)") || s.includes("INJ (O)");
+}
+
+// Get injury multiplier
+function getInjuryMultiplier(status?: string): number {
+  if (!status) return 1.0;
+  const s = status.toUpperCase().trim();
+  if (isPlayerOut(s)) return 0;
+  if (s === "DTD" || s.includes("DTD") || s === "Q" || s === "QUESTIONABLE") return 0.70;
+  if (s === "GTD" || s === "PROBABLE" || s === "P") return 0.85;
+  return 1.0;
+}
+
+// Legacy computeTodayExpected for backwards compatibility (uses old logic)
+function computeTodayExpected(roster: RosterSlot[]): TeamStats & { hasData: boolean; playerCount: number; estimatedFGA: number; estimatedFTA: number; estimatedFGM: number; estimatedFTM: number } {
+  return computeTodayExpectedFromRoster(roster);
+}
+
+// Parse opponent roster from ESPN paste to extract players with their OPP field
+function parseOpponentRoster(data: string): RosterSlot[] {
+  if (!data) return [];
+  
+  const lines = data.trim().split("\n").map(l => l.trim()).filter(l => l);
+  const roster: RosterSlot[] = [];
+  
+  // Find stats section start
+  let statsStartIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === 'MIN' && i + 1 < lines.length) {
+      const nextFew = lines.slice(i, i + 5).join(' ');
+      if (nextFew.includes('FG') || nextFew.includes('3PM') || nextFew.includes('REB')) {
+        statsStartIdx = i;
+        break;
+      }
+    }
+  }
+  
+  if (statsStartIdx === -1) return [];
+  
+  // Collect stat tokens
+  const statTokens: string[] = [];
+  let dataStartIdx = statsStartIdx + 1;
+  while (
+    dataStartIdx < lines.length &&
+    /^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|MIN)$/i.test(lines[dataStartIdx])
+  ) {
+    dataStartIdx++;
+  }
+  
+  for (let i = dataStartIdx; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^(Username|Password|ESPN\.com|Copyright|©)/i.test(line)) break;
+    if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
+      const parts = line.split('/');
+      statTokens.push(parts[0], parts[1]);
+      continue;
+    }
+    if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
+      statTokens.push(line);
+    }
+  }
+  
+  // Parse player rows - look for slot patterns and player info
+  // Pattern: Slot, Player Name, Team, OPP (with game info), Stats...
+  const slotPattern = /^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR)$/i;
+  const COLS = 17;
+  const numStatRows = Math.floor(statTokens.length / COLS);
+  
+  // Also need to find player names/teams/opponents before stats
+  // Look backwards from stats to find player info
+  const playerInfoLines: { name: string; team: string; opp: string; status: string; slotType: string }[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Look for slot pattern
+    if (slotPattern.test(line)) {
+      const slot = line.toUpperCase();
+      const slotType = slot.includes('IR') ? 'ir' : slot === 'BENCH' ? 'bench' : 'starter';
+      
+      // Next lines should be: player name, injury status (optional), team, position, OPP info
+      let playerName = '';
+      let team = '';
+      let opp = '';
+      let status = '';
+      
+      for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+        const nextLine = lines[j];
+        
+        // Skip slot patterns
+        if (slotPattern.test(nextLine)) break;
+        
+        // Check for injury status patterns
+        if (/^(O|OUT|DTD|GTD|Q|SUSP|P)$/i.test(nextLine)) {
+          status = nextLine.toUpperCase();
+          continue;
+        }
+        
+        // Check for team code (3-letter uppercase)
+        if (/^[A-Z]{2,4}$/.test(nextLine) && !team) {
+          team = nextLine;
+          continue;
+        }
+        
+        // Check for opponent pattern (vs/@ with team and optionally time)
+        if ((nextLine.startsWith('@') || nextLine.toLowerCase().startsWith('vs')) && !opp) {
+          opp = nextLine;
+          continue;
+        }
+        
+        // Check for time pattern (likely part of opponent info)
+        if (/^\d{1,2}:\d{2}\s*(AM|PM)/i.test(nextLine) && opp) {
+          opp += ' ' + nextLine;
+          continue;
+        }
+        
+        // If we haven't found player name yet and this isn't a stat/number
+        if (!playerName && !(/^[\d.-]+$/.test(nextLine) || /^\d+\/\d+$/.test(nextLine))) {
+          // Check if it looks like a player name (at least 2 words or single word > 3 chars)
+          if (nextLine.length > 3 && !/^(MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS|Stats|--)/i.test(nextLine)) {
+            playerName = nextLine;
+          }
+        }
+        
+        // Stop if we hit stats section markers
+        if (nextLine === 'MIN' || /^[\d.]+$/.test(nextLine)) break;
+      }
+      
+      if (playerName) {
+        playerInfoLines.push({ name: playerName, team, opp, status, slotType });
+      }
+    }
+  }
+  
+  // Match player info with stats
+  for (let i = 0; i < Math.min(numStatRows, playerInfoLines.length); i++) {
+    const info = playerInfoLines[i];
+    const base = i * COLS;
+    const parseVal = (idx: number): number => {
+      const val = statTokens[base + idx];
+      if (!val || val === '--') return 0;
+      return parseFloat(val);
+    };
+    
+    const min = parseVal(0);
+    if (min === 0 || isNaN(min)) continue;
+    
+    let fgPct = parseVal(3);
+    if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
+    
+    let ftPct = parseVal(6);
+    if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
+    
+    roster.push({
+      slot: info.slotType === 'ir' ? 'IR' : info.slotType === 'bench' ? 'Bench' : 'UTIL',
+      slotType: info.slotType as 'starter' | 'bench' | 'ir',
+      player: {
+        id: info.name,
+        name: info.name,
+        nbaTeam: info.team,
+        positions: [],
+        opponent: info.opp,
+        status: info.status as Player['status'],
+        minutes: min,
+        fgm: 0,
+        fga: 0,
+        fgPct: fgPct,
+        ftm: 0,
+        fta: 0,
+        ftPct: ftPct,
+        threepm: parseVal(7),
+        rebounds: parseVal(8),
+        assists: parseVal(9),
+        steals: parseVal(10),
+        blocks: parseVal(11),
+        turnovers: parseVal(12),
+        points: parseVal(13),
+      },
+    });
+  }
+  
+  return roster;
 }
 
 // Parse current W-L-T from Weekly currentMatchup string (e.g., "6-3-0")
@@ -248,6 +431,12 @@ export const MatchupProjection = ({
   const todayExpected = useMemo(() => {
     return computeTodayExpected(roster);
   }, [roster]);
+
+  // Compute opponent's today expected stats from persisted opponent roster
+  const oppTodayExpected = useMemo(() => {
+    if (!persistedMatchup?.opponentRoster) return computeTodayExpectedFromRoster([]);
+    return computeTodayExpectedFromRoster(persistedMatchup.opponentRoster);
+  }, [persistedMatchup?.opponentRoster]);
 
   // Compute dynamic projections: Current + Today Expected = Projected Final
   const dynamicProjection = useMemo(() => {
@@ -332,18 +521,28 @@ export const MatchupProjection = ({
       points: computeProjectedFinal(currentMy?.points ?? null, todayExpected.points, baselineStats.points * 40, false),
     };
 
-    // Opponent projections (use Weekly current + baseline if no opponent schedule)
-    // For opponent, we don't have their today expected (no roster data), so use 0 or baseline
+    // Opponent projections - use their roster data if available
+    const oppHasRoster = persistedMatchup.opponentRoster && persistedMatchup.opponentRoster.length > 0;
     const oppProjections = {
-      fgPct: computeProjectedFinal(currentOpp?.fgPct ?? null, 0, oppBaselineStats.fgPct, true),
-      ftPct: computeProjectedFinal(currentOpp?.ftPct ?? null, 0, oppBaselineStats.ftPct, true),
-      threepm: computeProjectedFinal(currentOpp?.threepm ?? null, 0, oppBaselineStats.threepm * 40, false),
-      rebounds: computeProjectedFinal(currentOpp?.rebounds ?? null, 0, oppBaselineStats.rebounds * 40, false),
-      assists: computeProjectedFinal(currentOpp?.assists ?? null, 0, oppBaselineStats.assists * 40, false),
-      steals: computeProjectedFinal(currentOpp?.steals ?? null, 0, oppBaselineStats.steals * 40, false),
-      blocks: computeProjectedFinal(currentOpp?.blocks ?? null, 0, oppBaselineStats.blocks * 40, false),
-      turnovers: computeProjectedFinal(currentOpp?.turnovers ?? null, 0, oppBaselineStats.turnovers * 40, false),
-      points: computeProjectedFinal(currentOpp?.points ?? null, 0, oppBaselineStats.points * 40, false),
+      fgPct: computeProjectedFinal(
+        currentOpp?.fgPct ?? null, 0, oppBaselineStats.fgPct, true,
+        currentOpp ? currentOpp.fgPct * (daysElapsed * 40) : undefined,
+        currentOpp ? daysElapsed * 40 : undefined,
+        oppTodayExpected.estimatedFGM, oppTodayExpected.estimatedFGA
+      ),
+      ftPct: computeProjectedFinal(
+        currentOpp?.ftPct ?? null, 0, oppBaselineStats.ftPct, true,
+        currentOpp ? currentOpp.ftPct * (daysElapsed * 15) : undefined,
+        currentOpp ? daysElapsed * 15 : undefined,
+        oppTodayExpected.estimatedFTM, oppTodayExpected.estimatedFTA
+      ),
+      threepm: computeProjectedFinal(currentOpp?.threepm ?? null, oppTodayExpected.threepm, oppBaselineStats.threepm * 40, false),
+      rebounds: computeProjectedFinal(currentOpp?.rebounds ?? null, oppTodayExpected.rebounds, oppBaselineStats.rebounds * 40, false),
+      assists: computeProjectedFinal(currentOpp?.assists ?? null, oppTodayExpected.assists, oppBaselineStats.assists * 40, false),
+      steals: computeProjectedFinal(currentOpp?.steals ?? null, oppTodayExpected.steals, oppBaselineStats.steals * 40, false),
+      blocks: computeProjectedFinal(currentOpp?.blocks ?? null, oppTodayExpected.blocks, oppBaselineStats.blocks * 40, false),
+      turnovers: computeProjectedFinal(currentOpp?.turnovers ?? null, oppTodayExpected.turnovers, oppBaselineStats.turnovers * 40, false),
+      points: computeProjectedFinal(currentOpp?.points ?? null, oppTodayExpected.points, oppBaselineStats.points * 40, false),
     };
 
     return {
@@ -351,9 +550,9 @@ export const MatchupProjection = ({
       oppProjections,
       hasWeeklyData,
       currentRecord: hasWeeklyData ? parseCurrentRecord(myWeeklyData.myTeam.currentMatchup) : null,
-      oppHasSchedule: false, // We don't have opponent roster
+      oppHasSchedule: oppHasRoster && oppTodayExpected.hasData,
     };
-  }, [persistedMatchup, myWeeklyData, todayExpected, dayInfo]);
+  }, [persistedMatchup, myWeeklyData, todayExpected, oppTodayExpected, dayInfo]);
 
   // Extract opponent name from "Current Matchup" section
   const extractOpponentFromCurrentMatchup = (data: string, myTeamName: string): string | null => {
@@ -714,9 +913,13 @@ export const MatchupProjection = ({
           finalOppInfo.name = "—";
         }
         
+        // Parse opponent roster to get players with game info
+        const oppRoster = parseOpponentRoster(opponentData);
+        
         onMatchupChange({
           myTeam: { ...myParsed.info, stats: myParsed.stats },
           opponent: { ...finalOppInfo, stats: oppParsed.stats },
+          opponentRoster: oppRoster,
         });
       }
     } catch (error) {
