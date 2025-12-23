@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Player } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,8 +8,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { 
   AlertCircle, TrendingUp, TrendingDown, Minus, UserPlus, UserMinus, 
   Calendar, Target, AlertTriangle, CheckCircle, Clock, Shield, 
-  ChevronDown, ChevronUp, Zap, Eye, EyeOff
+  ChevronDown, ChevronUp, Zap, Eye, EyeOff, RefreshCw, AlertOctagon
 } from "lucide-react";
+import { useNBASchedule } from "@/hooks/useNBASchedule";
 
 interface MatchupStats {
   fgPct: number;
@@ -121,6 +122,23 @@ function getRiskBadgeSmall(risk: RiskLevel) {
 
 export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyMatchups }: GameplanProps) {
   const [showAllCategories, setShowAllCategories] = useState(false);
+
+  // Build roster players for schedule matching
+  const rosterPlayers = useMemo(() => 
+    roster.map(r => ({ name: r.player.name, team: r.player.nbaTeam, position: r.player.positions?.[0] || '' })),
+    [roster]
+  );
+
+  // Use shared schedule hook (same as NBA Scores sidebar)
+  const { 
+    todayGames: scheduleTodayGames, 
+    isLoading: scheduleLoading, 
+    lastUpdated: scheduleLastUpdated,
+    fetchSchedule,
+    teamHasGameToday,
+    hasScheduleData: scheduleDataAvailable,
+    error: scheduleError,
+  } = useNBASchedule(rosterPlayers);
 
   // Find my team in weekly matchups for current matchup record
   const myTeamWeekly = useMemo(() => {
@@ -246,8 +264,13 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
     return `${leadStatus} ${matchupRecord.wins}–${matchupRecord.losses}–${matchupRecord.ties}${swingCount > 0 ? `, ${attackCats.length} to attack, ${atRiskCount} at risk` : ""}`;
   }, [matchupRecord, protectCats, attackCats]);
 
-  // Helper: check if player has a game today
-  const hasGameToday = (player: Player): boolean => {
+  // Helper: check if player has a game today (uses shared schedule OR player opponent data)
+  const checkHasGameToday = (player: Player): boolean => {
+    // First, check shared schedule data (most reliable source)
+    if (scheduleDataAvailable && player.nbaTeam) {
+      return teamHasGameToday(player.nbaTeam);
+    }
+    // Fallback to player-level opponent data if schedule unavailable
     const hasValidOpponent = player.opponent && 
       player.opponent !== "--" && 
       player.opponent.trim() !== "" &&
@@ -256,17 +279,18 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
     return hasValidOpponent && hasValidGameTime;
   };
 
-  // TODAY'S GAMES - properly scoped to "has game today" first
+  // TODAY'S GAMES - properly scoped to "has game today" first, using shared schedule
   const todayGames = useMemo(() => {
-    // Check if we have any schedule data at all
-    const anyPlayerHasGameData = roster.some(r => hasGameToday(r.player));
-    if (!anyPlayerHasGameData) {
-      return { hasScheduleData: false, eligible: 0, unavailable: [], unavailableCount: 0 };
+    // Use shared schedule data OR fall back to player-level data
+    const hasAnyScheduleInfo = scheduleDataAvailable || roster.some(r => checkHasGameToday(r.player));
+    
+    if (!hasAnyScheduleInfo) {
+      return { hasScheduleData: false, eligible: 0, unavailable: [], unavailableCount: 0, dtdStarters: [] };
     }
 
     // Build todayEligible: hasGameToday AND not O/IR
     const todayEligible = roster.filter(r => {
-      if (!hasGameToday(r.player)) return false;
+      if (!checkHasGameToday(r.player)) return false;
       const inactiveStatuses = ["O", "IR", "SUSP"];
       if (r.player.status && inactiveStatuses.includes(r.player.status)) return false;
       if (r.slotType === "ir") return false;
@@ -275,14 +299,14 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
 
     // Build todayUnavailable: hasGameToday AND is O/IR
     const todayUnavailable = roster.filter(r => {
-      if (!hasGameToday(r.player)) return false;
+      if (!checkHasGameToday(r.player)) return false;
       const status = r.player.status;
       return status === "O" || status === "IR";
     });
 
     // Players in starting slots with DTD status (action items)
     const dtdInStartingSlots = roster.filter(r => {
-      if (!hasGameToday(r.player)) return false;
+      if (!checkHasGameToday(r.player)) return false;
       if (r.player.status !== "DTD") return false;
       return r.slotType === "starter";
     });
@@ -294,6 +318,13 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
       unavailableCount: todayUnavailable.length,
       dtdStarters: dtdInStartingSlots.map(r => ({ name: r.player.name, status: r.player.status })),
     };
+  }, [roster, scheduleDataAvailable, teamHasGameToday]);
+
+  // Injured players on roster (useful even without schedule)
+  const injuredPlayers = useMemo(() => {
+    return roster.filter(r => 
+      r.player.status === "O" || r.player.status === "DTD"
+    ).map(r => ({ name: r.player.name, status: r.player.status, slotType: r.slotType }));
   }, [roster]);
 
   // ACTION ITEMS based on category priorities
@@ -618,9 +649,27 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
           {/* Today's Execution Checklist - only show if schedule data exists */}
           {todayGames.hasScheduleData ? (
             <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Calendar className="w-4 h-4 text-primary" />
-                <span className="font-display font-semibold">Today's Checklist</span>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-primary" />
+                  <span className="font-display font-semibold">Today's Checklist</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {scheduleLastUpdated && (
+                    <span className="text-xs text-muted-foreground">
+                      {scheduleLastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  )}
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={() => fetchSchedule(true)}
+                    disabled={scheduleLoading}
+                    className="h-6 w-6"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${scheduleLoading ? 'animate-spin' : ''}`} />
+                  </Button>
+                </div>
               </div>
               
               {/* Player game counts */}
@@ -671,14 +720,66 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
             </Card>
           ) : (
             <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
-                <span className="font-display font-semibold text-muted-foreground">Today's Checklist</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <span className="font-display font-semibold text-muted-foreground">Today's Checklist</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => fetchSchedule(true)}
+                  disabled={scheduleLoading}
+                  className="h-7 text-xs"
+                >
+                  <RefreshCw className={`w-3 h-3 mr-1 ${scheduleLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
               </div>
-              <div className="text-sm text-muted-foreground text-center py-4">
-                <Clock className="w-5 h-5 mx-auto mb-2 opacity-50" />
-                <p>No schedule data available.</p>
-                <p className="text-xs mt-1">Import today's games to see checklist.</p>
+
+              {/* Show last updated if available */}
+              {scheduleLastUpdated && (
+                <p className="text-xs text-muted-foreground mb-3">
+                  Last updated: {scheduleLastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </p>
+              )}
+
+              {/* Schedule unavailable message */}
+              <div className="text-sm text-muted-foreground mb-4 flex items-start gap-2 bg-muted/50 rounded px-2 py-2">
+                <AlertOctagon className="w-4 h-4 shrink-0 mt-0.5 opacity-70" />
+                <span>Schedule unavailable. Use the Refresh button above.</span>
+              </div>
+
+              {/* Injury Watch - still useful without schedule */}
+              {injuredPlayers.length > 0 && (
+                <div className="mb-3">
+                  <div className="text-xs text-muted-foreground font-semibold uppercase mb-1.5">
+                    Injury Watch (Roster)
+                  </div>
+                  <div className="space-y-1">
+                    {injuredPlayers.slice(0, 4).map((p, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs bg-stat-negative/10 rounded px-2 py-1">
+                        <AlertTriangle className="w-3 h-3 text-stat-negative" />
+                        <span className="font-medium">{p.name}</span>
+                        <Badge variant="outline" className="text-xs px-1 py-0 h-4 border-stat-negative text-stat-negative">
+                          {p.status}
+                        </Badge>
+                      </div>
+                    ))}
+                    {injuredPlayers.length > 4 && (
+                      <p className="text-xs text-muted-foreground pl-5">+{injuredPlayers.length - 4} more</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Lineup Reminder - always useful */}
+              <div className="text-xs text-muted-foreground font-semibold uppercase mb-1.5">
+                Lineup Reminder
+              </div>
+              <div className="text-sm text-muted-foreground">
+                <CheckCircle className="w-3 h-3 inline mr-1 text-primary" />
+                Confirm all starting slots are filled via Matchup → Start/Sit Advisor
               </div>
             </Card>
           )}
