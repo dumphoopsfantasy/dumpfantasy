@@ -11,6 +11,7 @@ import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 import { RosterSlot, Player } from "@/types/fantasy";
 import { useToast } from "@/hooks/use-toast";
+import { BaselinePacePanel } from "@/components/BaselinePacePanel";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -1468,8 +1469,10 @@ Navigate to their team page and copy the whole page.`}
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Category Breakdown */}
-      <div className="space-y-3">
+      {/* Category Breakdown with Baseline Pace Panel */}
+      <div className="grid lg:grid-cols-[1fr_320px] gap-4">
+        {/* Main Category Breakdown */}
+        <div className="space-y-3">
         {comparisons.map((comp) => (
           <Card
             key={comp.category}
@@ -1556,6 +1559,18 @@ Navigate to their team page and copy the whole page.`}
             </div>
           </Card>
         ))}
+        </div>
+
+        {/* Baseline Pace Panel - Right side on desktop, below on mobile */}
+        <BaselinePacePanel
+          myTeamName={persistedMatchup.myTeam.name}
+          opponentName={persistedMatchup.opponent.name}
+          myBaselineStats={persistedMatchup.myTeam.stats}
+          oppBaselineStats={persistedMatchup.opponent.stats}
+          myCurrentStats={myWeeklyData?.myTeam.stats ?? null}
+          oppCurrentStats={myWeeklyData?.opponent.stats ?? null}
+          dayOfWeek={dayInfo.dayOfWeek}
+        />
       </div>
     </div>
   );
