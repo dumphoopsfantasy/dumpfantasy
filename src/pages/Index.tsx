@@ -14,8 +14,9 @@ import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentS
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { DataCompletenessBar } from "@/components/DataCompletenessBar";
-import { CustomCRIBuilder, DEFAULT_CRI_WEIGHTS, CustomCRIWeights } from "@/components/CustomCRIBuilder";
+import { CustomCRIBuilder, CustomCRIConfig, computeCustomRanks } from "@/components/CustomCRIBuilder";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
+import { CustomWeights } from "@/components/WeightSettings";
 import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
@@ -122,8 +123,11 @@ const Index = () => {
   // Matchup projection state (persisted)
   const [matchupData, setMatchupData] = usePersistedState<MatchupProjectionData | null>("dumphoops-matchup", null);
 
-  // Custom CRI weights (persisted with new key)
-  const [customWeights, setCustomWeights] = usePersistedState<CustomCRIWeights>("dumphoops.criWeights", DEFAULT_CRI_WEIGHTS);
+  // Custom CRI config for roster-only ranking (category filter)
+  const [customCriConfig, setCustomCriConfig] = useState<CustomCRIConfig | null>(null);
+
+  // Global CRI weights for Settings page (separate from custom CRI config)
+  const [globalWeights, setGlobalWeights] = usePersistedState<CustomWeights>("dumphoops.criWeights", CRIS_WEIGHTS as CustomWeights);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -191,7 +195,7 @@ const Index = () => {
       setWeeklyTitle("");
       setLeagueTeams([]);
       setMatchupData(null);
-      setCustomWeights(DEFAULT_CRI_WEIGHTS);
+      setCustomCriConfig(null);
     }
   };
 
@@ -341,15 +345,55 @@ const Index = () => {
     return { rosterWithCRI: finalSlots, categoryRanks: catRanks, activePlayerCount: N };
   }, [players]);
 
+  // Compute custom ranks if config is active
+  const rosterWithCustomRanks = useMemo(() => {
+    if (!customCriConfig || customCriConfig.selectedCategories.length === 0) {
+      return rosterWithCRI;
+    }
+    // Build player data array for ranking
+    const playersForRanking = rosterWithCRI.map(slot => ({
+      id: slot.player.id,
+      name: slot.player.name,
+      fgPct: slot.player.fgPct,
+      ftPct: slot.player.ftPct,
+      threepm: slot.player.threepm,
+      rebounds: slot.player.rebounds,
+      assists: slot.player.assists,
+      steals: slot.player.steals,
+      blocks: slot.player.blocks,
+      turnovers: slot.player.turnovers,
+      points: slot.player.points,
+    }));
+    const customRanks = computeCustomRanks(playersForRanking, customCriConfig);
+    return rosterWithCRI.map(slot => ({
+      ...slot,
+      player: {
+        ...slot.player,
+        customRank: customRanks[slot.player.id]?.customRank,
+        customScore: customRanks[slot.player.id]?.customScore,
+      }
+    }));
+  }, [rosterWithCRI, customCriConfig]);
+
+  // Custom rank label for display
+  const customRankLabel = useMemo(() => {
+    if (!customCriConfig || customCriConfig.selectedCategories.length === 0) return "";
+    const LABELS: Record<string, string> = {
+      points: "PTS", threepm: "3PM", rebounds: "REB", assists: "AST",
+      steals: "STL", blocks: "BLK", fgPct: "FG%", ftPct: "FT%", turnovers: "TO"
+    };
+    return customCriConfig.selectedCategories.map(k => LABELS[k] || k).join(", ");
+  }, [customCriConfig]);
+
   // Apply filter and sort
   const filteredRoster = useMemo(() => {
-    let filtered = rosterWithCRI;
+    let filtered = rosterWithCustomRanks;
     if (rosterFilter === "starters") {
-      filtered = rosterWithCRI.filter((s) => s.slotType === "starter");
+      filtered = rosterWithCustomRanks.filter((s) => s.slotType === "starter");
     } else if (rosterFilter === "bench") {
-      filtered = rosterWithCRI.filter((s) => s.slotType === "bench");
+      filtered = rosterWithCustomRanks.filter((s) => s.slotType === "bench");
     } else if (rosterFilter === "ir") {
-      filtered = rosterWithCRI.filter((s) => s.slotType === "ir");
+      filtered = rosterWithCustomRanks.filter((s) => s.slotType === "ir");
     }
 
     // Sort with optional IR pinning
@@ -590,7 +634,7 @@ const Index = () => {
                 </div>
 
                 {/* Custom CRI Builder */}
-                <CustomCRIBuilder weights={customWeights} onWeightsChange={setCustomWeights} />
+                <CustomCRIBuilder onConfigChange={setCustomCriConfig} />
 
                 <TeamAverages players={players} leagueTeams={leagueTeams} />
                 <PlayerRankings players={players} onPlayerClick={handlePlayerClick} leagueTeams={leagueTeams} />
@@ -677,6 +721,8 @@ const Index = () => {
                   onPlayerClick={handlePlayerClick}
                   categoryRanks={categoryRanks}
                   activePlayerCount={activePlayerCount}
+                  customRankActive={!!customCriConfig && customCriConfig.selectedCategories.length > 0}
+                  customRankLabel={customRankLabel}
                 />
 
                 {/* Free Agent Suggestions */}
@@ -749,7 +795,6 @@ const Index = () => {
                     matchupData={matchupData}
                     weeklyMatchups={weeklyMatchups}
                     leagueTeams={leagueTeams}
-                    customWeights={customWeights}
                   />
                 </div>
               )}
@@ -785,7 +830,7 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="settings">
-            <Settings weights={customWeights} onWeightsChange={setCustomWeights} />
+            <Settings weights={globalWeights} onWeightsChange={setGlobalWeights} />
           </TabsContent>
         </Tabs>
       </main>

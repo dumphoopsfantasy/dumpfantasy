@@ -1,139 +1,113 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Slider } from "@/components/ui/slider";
-import { ChevronDown, Save, RotateCcw, Settings, Sparkles } from "lucide-react";
-import { CRIS_WEIGHTS } from "@/lib/crisUtils";
+import { Switch } from "@/components/ui/switch";
+import { ChevronDown, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export interface CustomCRIWeights {
-  fgPct: number;
-  ftPct: number;
-  threepm: number;
-  rebounds: number;
-  assists: number;
-  steals: number;
-  blocks: number;
-  turnovers: number;
-  points: number;
+// Category definitions
+const CATEGORIES = [
+  { key: "points", label: "PTS" },
+  { key: "threepm", label: "3PM" },
+  { key: "rebounds", label: "REB" },
+  { key: "assists", label: "AST" },
+  { key: "steals", label: "STL" },
+  { key: "blocks", label: "BLK" },
+  { key: "fgPct", label: "FG%" },
+  { key: "ftPct", label: "FT%" },
+  { key: "turnovers", label: "TO" },
+] as const;
+
+export type CategoryKey = typeof CATEGORIES[number]["key"];
+
+export interface CustomCRIConfig {
+  selectedCategories: CategoryKey[];
+  invertTO: boolean;
 }
 
-export const DEFAULT_CRI_WEIGHTS: CustomCRIWeights = { ...CRIS_WEIGHTS };
+const STORAGE_KEY_CATS = "dumphoops.customCri.selectedCats";
+const STORAGE_KEY_INVERT = "dumphoops.customCri.invertTO";
 
-// Presets for common punt strategies
-const PRESETS: Record<string, { name: string; weights: CustomCRIWeights }> = {
-  default: {
-    name: "Default",
-    weights: DEFAULT_CRI_WEIGHTS,
-  },
-  puntTO: {
-    name: "Punt TO",
-    weights: {
-      ...DEFAULT_CRI_WEIGHTS,
-      turnovers: 0,
-    },
-  },
-  puntFG: {
-    name: "Punt FG%",
-    weights: {
-      ...DEFAULT_CRI_WEIGHTS,
-      fgPct: 0,
-    },
-  },
-  puntFT: {
-    name: "Punt FT%",
-    weights: {
-      ...DEFAULT_CRI_WEIGHTS,
-      ftPct: 0,
-    },
-  },
-  stocks: {
-    name: "Stocks Build",
-    weights: {
-      ...DEFAULT_CRI_WEIGHTS,
-      steals: 1.3,
-      blocks: 1.3,
-    },
-  },
-};
+// Load from localStorage
+function loadConfig(): CustomCRIConfig {
+  try {
+    const savedCats = localStorage.getItem(STORAGE_KEY_CATS);
+    const savedInvert = localStorage.getItem(STORAGE_KEY_INVERT);
+    return {
+      selectedCategories: savedCats ? JSON.parse(savedCats) : [],
+      invertTO: savedInvert !== null ? JSON.parse(savedInvert) : true,
+    };
+  } catch {
+    return { selectedCategories: [], invertTO: true };
+  }
+}
 
-const CATEGORY_LABELS: Record<keyof CustomCRIWeights, { label: string; isInverted?: boolean }> = {
-  fgPct: { label: "FG%" },
-  ftPct: { label: "FT%" },
-  threepm: { label: "3PM" },
-  rebounds: { label: "REB" },
-  assists: { label: "AST" },
-  steals: { label: "STL" },
-  blocks: { label: "BLK" },
-  turnovers: { label: "TO", isInverted: true },
-  points: { label: "PTS" },
-};
+// Save to localStorage
+function saveConfig(config: CustomCRIConfig) {
+  try {
+    localStorage.setItem(STORAGE_KEY_CATS, JSON.stringify(config.selectedCategories));
+    localStorage.setItem(STORAGE_KEY_INVERT, JSON.stringify(config.invertTO));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 interface CustomCRIBuilderProps {
-  weights: CustomCRIWeights;
-  onWeightsChange: (weights: CustomCRIWeights) => void;
+  onConfigChange: (config: CustomCRIConfig | null) => void;
 }
 
-export function CustomCRIBuilder({ weights, onWeightsChange }: CustomCRIBuilderProps) {
+export function CustomCRIBuilder({ onConfigChange }: CustomCRIBuilderProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [localWeights, setLocalWeights] = useState<CustomCRIWeights>(weights);
-  const [hasChanges, setHasChanges] = useState(false);
+  const [config, setConfig] = useState<CustomCRIConfig>(loadConfig);
 
-  const isDefault = useMemo(() => {
-    return Object.keys(DEFAULT_CRI_WEIGHTS).every(
-      (key) => localWeights[key as keyof CustomCRIWeights] === DEFAULT_CRI_WEIGHTS[key as keyof CustomCRIWeights]
-    );
-  }, [localWeights]);
-
-  const activePreset = useMemo(() => {
-    for (const [key, preset] of Object.entries(PRESETS)) {
-      const matches = Object.keys(preset.weights).every(
-        (cat) => localWeights[cat as keyof CustomCRIWeights] === preset.weights[cat as keyof CustomCRIWeights]
-      );
-      if (matches) return key;
+  // On mount, notify parent if there are saved selections
+  useEffect(() => {
+    if (config.selectedCategories.length > 0) {
+      onConfigChange(config);
     }
-    return null;
-  }, [localWeights]);
+  }, []);
 
-  const handleWeightChange = (key: keyof CustomCRIWeights, value: number) => {
-    const newWeights = { ...localWeights, [key]: Math.round(value * 100) / 100 };
-    setLocalWeights(newWeights);
-    setHasChanges(true);
+  const isActive = config.selectedCategories.length > 0;
+
+  const toggleCategory = (key: CategoryKey) => {
+    setConfig((prev) => {
+      const isSelected = prev.selectedCategories.includes(key);
+      const newCats = isSelected
+        ? prev.selectedCategories.filter((k) => k !== key)
+        : [...prev.selectedCategories, key];
+      return { ...prev, selectedCategories: newCats };
+    });
   };
 
-  const handlePreset = (presetKey: string) => {
-    const preset = PRESETS[presetKey];
-    if (preset) {
-      setLocalWeights(preset.weights);
-      setHasChanges(true);
+  const handleApply = () => {
+    saveConfig(config);
+    if (config.selectedCategories.length > 0) {
+      onConfigChange(config);
+    } else {
+      onConfigChange(null);
     }
   };
 
-  const handleSave = () => {
-    onWeightsChange(localWeights);
-    setHasChanges(false);
+  const handleClear = () => {
+    const cleared = { selectedCategories: [], invertTO: true };
+    setConfig(cleared);
+    saveConfig(cleared);
+    onConfigChange(null);
   };
 
-  const handleReset = () => {
-    setLocalWeights(DEFAULT_CRI_WEIGHTS);
-    onWeightsChange(DEFAULT_CRI_WEIGHTS);
-    setHasChanges(false);
+  const handleInvertToggle = (checked: boolean) => {
+    setConfig((prev) => ({ ...prev, invertTO: checked }));
   };
 
-  const handleNormalize = () => {
-    const total = Object.values(localWeights).reduce((sum, w) => sum + w, 0);
-    if (total === 0) return;
-    
-    const normalized: CustomCRIWeights = {} as CustomCRIWeights;
-    for (const key of Object.keys(localWeights) as Array<keyof CustomCRIWeights>) {
-      normalized[key] = Math.round((localWeights[key] / total) * 9 * 100) / 100;
-    }
-    setLocalWeights(normalized);
-    setHasChanges(true);
-  };
+  // Get label for active categories
+  const activeLabels = useMemo(() => {
+    return config.selectedCategories
+      .map((key) => CATEGORIES.find((c) => c.key === key)?.label)
+      .filter(Boolean)
+      .join(", ");
+  }, [config.selectedCategories]);
 
   return (
     <Card className="gradient-card border-border p-4">
@@ -141,10 +115,12 @@ export function CustomCRIBuilder({ weights, onWeightsChange }: CustomCRIBuilderP
         <CollapsibleTrigger asChild>
           <Button variant="ghost" className="w-full justify-between p-0 h-auto hover:bg-transparent">
             <div className="flex items-center gap-2">
-              <Settings className="w-4 h-4 text-primary" />
+              <Sparkles className="w-4 h-4 text-primary" />
               <span className="font-display font-bold text-sm">Custom CRI Builder</span>
-              {!isDefault && (
-                <Badge variant="secondary" className="text-[10px]">Custom</Badge>
+              {isActive && (
+                <Badge variant="secondary" className="text-[10px] bg-primary/20">
+                  Active
+                </Badge>
               )}
             </div>
             <ChevronDown className={cn("w-4 h-4 transition-transform", isOpen && "rotate-180")} />
@@ -152,109 +128,151 @@ export function CustomCRIBuilder({ weights, onWeightsChange }: CustomCRIBuilderP
         </CollapsibleTrigger>
 
         <CollapsibleContent className="pt-4 space-y-4">
-          <p className="text-xs text-muted-foreground">
-            Customize category weights for CRI/wCRI calculations. Higher weight = more importance in rankings.
-            <span className="text-stat-negative ml-1">(TO is inverted: lower TO = better)</span>
-          </p>
-
-          {/* Presets */}
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(PRESETS).map(([key, preset]) => (
-              <Button
-                key={key}
-                variant={activePreset === key ? "default" : "outline"}
-                size="sm"
-                onClick={() => handlePreset(key)}
-                className="text-xs"
-              >
-                <Sparkles className="w-3 h-3 mr-1" />
-                {preset.name}
-              </Button>
-            ))}
-          </div>
-
-          {/* Weight Sliders */}
-          <div className="grid md:grid-cols-3 gap-4">
-            {(Object.keys(CATEGORY_LABELS) as Array<keyof CustomCRIWeights>).map((key) => {
-              const cat = CATEGORY_LABELS[key];
-              return (
-                <div key={key} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className={cn(
-                      "text-sm font-medium",
-                      cat.isInverted && "text-stat-negative"
-                    )}>
-                      {cat.label}
-                      {cat.isInverted && <span className="text-[10px] ml-1">(inverted)</span>}
-                    </span>
-                    <Input
-                      type="number"
-                      value={localWeights[key]}
-                      onChange={(e) => handleWeightChange(key, parseFloat(e.target.value) || 0)}
-                      className="w-16 h-7 text-xs text-right font-mono"
-                      min={0}
-                      max={2}
-                      step={0.05}
-                    />
-                  </div>
-                  <Slider
-                    value={[localWeights[key]]}
-                    onValueChange={([value]) => handleWeightChange(key, value)}
-                    min={0}
-                    max={1.5}
-                    step={0.05}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-[9px] text-muted-foreground">
-                    <span>0 (ignore)</span>
-                    <span className="text-primary/60">Default: {DEFAULT_CRI_WEIGHTS[key]}</span>
-                    <span>1.5+</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleNormalize}
-                className="text-xs"
-              >
-                Normalize Weights
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReset}
-                disabled={isDefault}
-                className="text-xs"
-              >
-                <RotateCcw className="w-3 h-3 mr-1" />
-                Reset to Default
-              </Button>
+          {/* Category chips */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">
+              Select categories to rank (My Roster only)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {CATEGORIES.map((cat) => {
+                const isSelected = config.selectedCategories.includes(cat.key);
+                const isTO = cat.key === "turnovers";
+                return (
+                  <Button
+                    key={cat.key}
+                    variant={isSelected ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => toggleCategory(cat.key)}
+                    className={cn(
+                      "text-xs h-7 px-3",
+                      isSelected && "bg-primary text-primary-foreground",
+                      isTO && !isSelected && "border-stat-negative/50 text-stat-negative"
+                    )}
+                  >
+                    {cat.label}
+                    {isTO && config.invertTO && (
+                      <span className="ml-1 text-[9px] opacity-70">↓</span>
+                    )}
+                  </Button>
+                );
+              })}
             </div>
-            {hasChanges && (
-              <Button
-                size="sm"
-                onClick={handleSave}
-                className="text-xs gradient-primary"
-              >
-                <Save className="w-3 h-3 mr-1" />
-                Apply Changes
-              </Button>
-            )}
           </div>
 
-          {/* Guardrail Notice */}
-          <div className="p-2 bg-muted/30 rounded-lg text-[10px] text-muted-foreground">
-            <strong>Note:</strong> Your top 6 CRI players are protected from drop recommendations regardless of custom weights.
+          {/* Toggle for TO inversion */}
+          <div className="flex items-center justify-between py-2 border-t border-border">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">Invert TO (lower is better)</span>
+            </div>
+            <Switch
+              checked={config.invertTO}
+              onCheckedChange={handleInvertToggle}
+            />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center justify-between pt-2 border-t border-border">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClear}
+              disabled={!isActive}
+              className="text-xs"
+            >
+              <X className="w-3 h-3 mr-1" />
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleApply}
+              disabled={config.selectedCategories.length === 0}
+              className="text-xs gradient-primary"
+            >
+              Apply to My Roster
+            </Button>
           </div>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Active indicator outside collapsible */}
+      {isActive && !isOpen && (
+        <div className="mt-2 pt-2 border-t border-border">
+          <p className="text-[10px] text-muted-foreground">
+            <span className="text-primary font-medium">Custom Rank active:</span>{" "}
+            {activeLabels} <span className="opacity-60">(My Roster only)</span>
+          </p>
+        </div>
+      )}
     </Card>
   );
+}
+
+// Utility function to compute custom ranks for roster
+export function computeCustomRanks(
+  roster: Array<{ id: string; [key: string]: any }>,
+  config: CustomCRIConfig
+): Record<string, { customRank: number; customScore: number }> {
+  if (config.selectedCategories.length === 0) {
+    return {};
+  }
+
+  const N = roster.length;
+  if (N === 0) return {};
+
+  // For each selected category, compute ranks within roster
+  const categoryRankPoints: Record<string, Record<string, number>> = {};
+
+  config.selectedCategories.forEach((catKey) => {
+    categoryRankPoints[catKey] = {};
+
+    // Sort players by this category
+    const sorted = [...roster].sort((a, b) => {
+      const valA = a[catKey] as number | undefined;
+      const valB = b[catKey] as number | undefined;
+
+      // Handle undefined/null as worst
+      if (valA === undefined || valA === null) return 1;
+      if (valB === undefined || valB === null) return -1;
+
+      // For TO with invert ON: lower is better
+      if (catKey === "turnovers" && config.invertTO) {
+        return valA - valB; // Lower first
+      }
+      // For all others: higher is better
+      return valB - valA;
+    });
+
+    // Assign rank points: best gets N, worst gets 1
+    sorted.forEach((player, idx) => {
+      categoryRankPoints[catKey][player.id] = N - idx;
+    });
+  });
+
+  // Compute total score for each player
+  const scores: Record<string, number> = {};
+  roster.forEach((player) => {
+    let score = 0;
+    config.selectedCategories.forEach((catKey) => {
+      score += categoryRankPoints[catKey][player.id] || 0;
+    });
+    scores[player.id] = score;
+  });
+
+  // Rank by score (higher = better)
+  const sortedByScore = [...roster].sort((a, b) => {
+    const diff = scores[b.id] - scores[a.id];
+    if (diff !== 0) return diff;
+    // Tie-breaker: alphabetical by name or id
+    return (a.name || a.id).localeCompare(b.name || b.id);
+  });
+
+  const result: Record<string, { customRank: number; customScore: number }> = {};
+  sortedByScore.forEach((player, idx) => {
+    result[player.id] = {
+      customRank: idx + 1,
+      customScore: scores[player.id],
+    };
+  });
+
+  return result;
 }
