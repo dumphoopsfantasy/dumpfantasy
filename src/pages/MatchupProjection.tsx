@@ -400,7 +400,7 @@ export const MatchupProjection = ({
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTip, setDismissedTip] = useState(false);
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(true); // Dynamic projection expanded by default
 
   const dayInfo = getMatchupDayInfo();
 
@@ -1204,50 +1204,118 @@ Navigate to their team page and copy the whole page.`}
         </Button>
       </div>
 
-      {/* Stats Info Notice */}
-      <Card className="p-3 bg-amber-500/10 border-amber-500/30">
-        <div className="flex items-center gap-2 text-xs">
-          <Info className="w-4 h-4 text-amber-400" />
-          <span className="text-muted-foreground">
-            {usesDynamicProjection ? (
-              <>
-                <strong className="text-amber-400">Dynamic projection:</strong> Current (Weekly) + Today Expected = Projected Final.
-                <strong className="text-amber-400 ml-1">TO: Lower wins.</strong>
-              </>
-            ) : (
-              <>
-                Team average × <strong className="text-amber-400">40</strong> = weekly projection.
-                FG%/FT% = team average. <strong className="text-amber-400">TO: Lower wins.</strong>
-              </>
-            )}
-          </span>
-        </div>
-      </Card>
-
-      {/* Opponent schedule notice */}
-      {usesDynamicProjection && !dynamicProjection?.oppHasSchedule && (
-        <Card className="p-2 bg-muted/30 border-muted">
-          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-            <Info className="w-3 h-3" />
-            <span>Opponent projection uses baseline averages (schedule not imported).</span>
-          </div>
-        </Card>
-      )}
-
-      {/* Today's Players Summary */}
-      {todayExpected.hasData && (
-        <Card className="p-3 bg-primary/5 border-primary/20">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium">Today's Games</span>
+      {/* Baseline Week Projection (collapsed by default) */}
+      <Collapsible defaultOpen={false}>
+        <CollapsibleTrigger asChild>
+          <Card className="p-3 bg-muted/30 border-border cursor-pointer hover:bg-muted/50 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-muted-foreground" />
+                <span className="font-display font-semibold text-sm">Baseline Week Projection (Team Composite × 40)</span>
+              </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground" />
             </div>
-            <Badge variant="outline" className="text-xs">
-              {todayExpected.playerCount} player{todayExpected.playerCount !== 1 ? 's' : ''} playing
-            </Badge>
+          </Card>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3">
+          <div className="grid md:grid-cols-2 gap-3">
+            {/* My Team Baseline */}
+            <Card className="gradient-card border-border p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
+                <span className="text-[10px] text-muted-foreground">Avg × 40</span>
+              </div>
+              <div className="grid grid-cols-9 gap-1 text-center">
+                {/* ESPN stat order: FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS */}
+                <div>
+                  <p className="text-[9px] text-muted-foreground">FG%</p>
+                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.myTeam.stats.fgPct)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">FT%</p>
+                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.myTeam.stats.ftPct)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">3PM</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.threepm * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">REB</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.rebounds * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">AST</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.assists * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">STL</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.steals * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">BLK</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.blocks * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">TO</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.turnovers * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">PTS</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.points * 40)}</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Opponent Baseline */}
+            <Card className="gradient-card border-border p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
+                <span className="text-[10px] text-muted-foreground">Avg × 40</span>
+              </div>
+              <div className="grid grid-cols-9 gap-1 text-center">
+                <div>
+                  <p className="text-[9px] text-muted-foreground">FG%</p>
+                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.opponent.stats.fgPct)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">FT%</p>
+                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.opponent.stats.ftPct)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">3PM</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.threepm * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">REB</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.rebounds * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">AST</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.assists * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">STL</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.steals * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">BLK</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.blocks * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">TO</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.turnovers * 40)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-muted-foreground">PTS</p>
+                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.points * 40)}</p>
+                </div>
+              </div>
+            </Card>
           </div>
-        </Card>
-      )}
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Removed misleading "players playing today" count */}
 
       {/* Matchup Summary - Compact */}
       <Card className="gradient-card border-border p-4">
@@ -1320,18 +1388,35 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </Card>
 
-      {/* Projection Breakdown Toggle */}
-      {usesDynamicProjection && (
-        <Collapsible open={showBreakdown} onOpenChange={setShowBreakdown}>
-          <CollapsibleTrigger asChild>
-            <Button variant="outline" size="sm" className="w-full">
-              <ChevronDown className={cn("w-4 h-4 mr-2 transition-transform", showBreakdown && "rotate-180")} />
-              {showBreakdown ? "Hide" : "Show"} Projection Breakdown
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-4">
+      {/* Dynamic Projection (Current + Remaining Games) - expanded by default */}
+      <Collapsible open={showBreakdown} onOpenChange={setShowBreakdown} defaultOpen={true}>
+        <CollapsibleTrigger asChild>
+          <Card className="p-3 bg-primary/5 border-primary/20 cursor-pointer hover:bg-primary/10 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-primary" />
+                <span className="font-display font-semibold text-sm">Dynamic Projection (Current + Remaining Games)</span>
+                {!myWeeklyData && (
+                  <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-400/30">
+                    Weekly data required
+                  </Badge>
+                )}
+              </div>
+              <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", showBreakdown && "rotate-180")} />
+            </div>
+          </Card>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3">
+          {!myWeeklyData ? (
+            <Card className="p-4 bg-muted/30 border-border">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                <span>Import Weekly Scoreboard data to enable dynamic projection.</span>
+              </div>
+            </Card>
+          ) : (
             <div className="grid md:grid-cols-2 gap-3">
-              {/* Your Team Breakdown */}
+              {/* My Team Dynamic */}
               <Card className="gradient-card border-border p-3">
                 <h3 className="font-display font-semibold text-sm text-stat-positive mb-3">{persistedMatchup.myTeam.name}</h3>
                 <div className="space-y-2 text-xs">
@@ -1339,7 +1424,7 @@ Navigate to their team page and copy the whole page.`}
                     <span>Cat</span>
                     <span className="text-right">Current</span>
                     <span className="text-right">+Today</span>
-                    <span className="text-right">Final</span>
+                    <span className="text-right">Proj Final</span>
                   </div>
                   {comparisons.map((comp) => (
                     <div key={comp.key} className="grid grid-cols-4 gap-1 items-center">
@@ -1365,15 +1450,22 @@ Navigate to their team page and copy the whole page.`}
                 </div>
               </Card>
 
-              {/* Opponent Breakdown */}
+              {/* Opponent Dynamic */}
               <Card className="gradient-card border-border p-3">
-                <h3 className="font-display font-semibold text-sm text-stat-negative mb-3">{persistedMatchup.opponent.name}</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
+                  {!dynamicProjection?.oppHasSchedule && (
+                    <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-400/30">
+                      No roster imported
+                    </Badge>
+                  )}
+                </div>
                 <div className="space-y-2 text-xs">
                   <div className="grid grid-cols-4 gap-1 text-muted-foreground text-[10px] font-medium">
                     <span>Cat</span>
                     <span className="text-right">Current</span>
                     <span className="text-right">+Today</span>
-                    <span className="text-right">Final</span>
+                    <span className="text-right">Proj Final</span>
                   </div>
                   {comparisons.map((comp) => (
                     <div key={comp.key} className="grid grid-cols-4 gap-1 items-center">
@@ -1384,9 +1476,11 @@ Navigate to their team page and copy the whole page.`}
                           : formatPct(comp.theirCurrent ?? comp.theirAvg)}
                       </span>
                       <span className="text-right text-muted-foreground">
-                        {comp.isCountingStat 
-                          ? `+${Math.round(comp.theirTodayExp ?? 0)}`
-                          : '—'}
+                        {/* Show N/A for opponent +Today if roster not imported */}
+                        {dynamicProjection?.oppHasSchedule 
+                          ? (comp.isCountingStat ? `+${Math.round(comp.theirTodayExp ?? 0)}` : '—')
+                          : <span className="text-amber-400/70">N/A</span>
+                        }
                       </span>
                       <span className={cn("text-right font-bold", comp.winner === "them" && "text-stat-negative")}>
                         {comp.isCountingStat 
@@ -1398,55 +1492,9 @@ Navigate to their team page and copy the whole page.`}
                 </div>
               </Card>
             </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* Team Averages Summary - Compact (only show when NOT using dynamic projection) */}
-      {!usesDynamicProjection && (
-        <div className="grid md:grid-cols-2 gap-3">
-          {/* Your Team */}
-          <Card className="gradient-card border-border p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
-              <span className="text-[10px] text-muted-foreground">×40</span>
-            </div>
-            <div className="grid grid-cols-5 gap-1.5 mb-2">
-              <StatBox label="FG%" avg={persistedMatchup.myTeam.stats.fgPct} isPct />
-              <StatBox label="FT%" avg={persistedMatchup.myTeam.stats.ftPct} isPct />
-              <StatBox label="3PM" avg={persistedMatchup.myTeam.stats.threepm} multiplier={40} />
-              <StatBox label="REB" avg={persistedMatchup.myTeam.stats.rebounds} multiplier={40} />
-              <StatBox label="AST" avg={persistedMatchup.myTeam.stats.assists} multiplier={40} />
-            </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              <StatBox label="STL" avg={persistedMatchup.myTeam.stats.steals} multiplier={40} />
-              <StatBox label="BLK" avg={persistedMatchup.myTeam.stats.blocks} multiplier={40} />
-              <StatBox label="TO" avg={persistedMatchup.myTeam.stats.turnovers} multiplier={40} />
-              <StatBox label="PTS" avg={persistedMatchup.myTeam.stats.points} multiplier={40} />
-            </div>
-          </Card>
-
-          <Card className="gradient-card border-border p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
-              <span className="text-[10px] text-muted-foreground">×40</span>
-            </div>
-            <div className="grid grid-cols-5 gap-1.5 mb-2">
-              <StatBox label="FG%" avg={persistedMatchup.opponent.stats.fgPct} isPct />
-              <StatBox label="FT%" avg={persistedMatchup.opponent.stats.ftPct} isPct />
-              <StatBox label="3PM" avg={persistedMatchup.opponent.stats.threepm} multiplier={40} />
-              <StatBox label="REB" avg={persistedMatchup.opponent.stats.rebounds} multiplier={40} />
-              <StatBox label="AST" avg={persistedMatchup.opponent.stats.assists} multiplier={40} />
-            </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              <StatBox label="STL" avg={persistedMatchup.opponent.stats.steals} multiplier={40} />
-              <StatBox label="BLK" avg={persistedMatchup.opponent.stats.blocks} multiplier={40} />
-              <StatBox label="TO" avg={persistedMatchup.opponent.stats.turnovers} multiplier={40} />
-              <StatBox label="PTS" avg={persistedMatchup.opponent.stats.points} multiplier={40} />
-            </div>
-          </Card>
-        </div>
-      )}
+          )}
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Category Breakdown */}
       <div className="space-y-3">
