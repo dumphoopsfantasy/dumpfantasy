@@ -632,9 +632,9 @@ The page should include the "Season Stats" section with team names, managers, an
       </div>
 
       {/* Two-column layout: Main table + Contenders profile */}
-      <div className="flex flex-col lg:flex-row gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
         {/* Main standings table - left side */}
-        <div className="flex-1 lg:w-[65%] overflow-x-auto">
+        <div className="min-w-0 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-accent/20">
@@ -701,7 +701,7 @@ The page should include the "Season Stats" section with team names, managers, an
         </div>
 
         {/* Playoff Contenders Category Profile - right side */}
-        <div className="lg:w-[35%] lg:sticky lg:top-20 lg:self-start">
+        <div className="lg:sticky lg:top-20 lg:self-start max-w-full">
           <PlayoffContendersProfile teams={teams} />
         </div>
       </div>
