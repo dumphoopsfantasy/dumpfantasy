@@ -1002,6 +1002,18 @@ export const MatchupProjection = ({
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  // Try to get the raw blob first
+                  const rawBlob = localStorage.getItem('dumphoops-roster-raw');
+                  if (rawBlob && rawBlob.length > 0) {
+                    setMyTeamData(rawBlob);
+                    toast({
+                      title: "Roster data loaded",
+                      description: "Raw roster data imported from Roster tab.",
+                    });
+                    return;
+                  }
+                  
+                  // Fallback: check if roster exists but no raw blob
                   if (roster.length === 0) {
                     toast({
                       title: "No roster data",
@@ -1010,51 +1022,11 @@ export const MatchupProjection = ({
                     });
                     return;
                   }
-                  // Generate ESPN-like paste from roster data
-                  const rosterPaste = roster.map(slot => {
-                    const p = slot.player;
-                    const posStr = p.positions?.join(", ") || "UTIL";
-                    const line = [
-                      slot.slot || "UTIL",
-                      p.name,
-                      p.nbaTeam || "",
-                      posStr,
-                      p.opponent || "--",
-                      "",  // status
-                      "MIN",
-                      p.minutes?.toFixed(1) || "0.0",
-                      "FGM/FGA",
-                      `${Math.round((p.fgPct || 0) * 10)}/${Math.round(10 / (p.fgPct || 0.45))}`,
-                      "FG%",
-                      (p.fgPct || 0).toFixed(3),
-                      "FTM/FTA",
-                      `${Math.round((p.ftPct || 0) * 4)}/${Math.round(4 / (p.ftPct || 0.75))}`,
-                      "FT%",
-                      (p.ftPct || 0).toFixed(3),
-                      "3PM",
-                      p.threepm?.toFixed(1) || "0.0",
-                      "REB",
-                      p.rebounds?.toFixed(1) || "0.0",
-                      "AST",
-                      p.assists?.toFixed(1) || "0.0",
-                      "STL",
-                      p.steals?.toFixed(1) || "0.0",
-                      "BLK",
-                      p.blocks?.toFixed(1) || "0.0",
-                      "TO",
-                      p.turnovers?.toFixed(1) || "0.0",
-                      "PTS",
-                      p.points?.toFixed(1) || "0.0",
-                    ].join("\n");
-                    return line;
-                  }).join("\n");
                   
-                  // Set the paste data with basic team header
-                  const pasteHeader = `My Team\n0-0-0\n1st Place\nSTARTERS\nSTATS\nMIN\n`;
-                  setMyTeamData(pasteHeader + rosterPaste);
                   toast({
-                    title: "Roster data loaded",
-                    description: `${roster.length} players imported from Roster tab.`,
+                    title: "No raw data available",
+                    description: "Re-import your roster on the Roster tab to enable this feature.",
+                    variant: "destructive"
                   });
                 }}
                 className="font-display text-xs"

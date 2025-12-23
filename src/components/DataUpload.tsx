@@ -313,6 +313,13 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         return;
       }
 
+      // Store the raw blob for "Use My Roster" in Matchup tab
+      try {
+        localStorage.setItem('dumphoops-roster-raw', rawData);
+      } catch (e) {
+        console.warn('Could not save raw roster blob:', e);
+      }
+
       onDataParsed(parsedData);
       toast({
         title: "Success!",
