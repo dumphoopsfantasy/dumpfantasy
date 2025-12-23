@@ -1178,7 +1178,7 @@ Navigate to their team page and copy the whole page.`}
       </div>
 
       {/* Baseline Week Projection (collapsed by default) */}
-      <Collapsible defaultOpen={false}>
+      <Collapsible defaultOpen={true}>
         <CollapsibleTrigger asChild>
           <Card className="p-3 bg-muted/30 border-border cursor-pointer hover:bg-muted/50 transition-colors">
             <div className="flex items-center justify-between">
