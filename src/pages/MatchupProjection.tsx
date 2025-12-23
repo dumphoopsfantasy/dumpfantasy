@@ -6,10 +6,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X, ChevronDown, Calendar } from "lucide-react";
+import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X, ChevronDown, Calendar, Users } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 import { RosterSlot, Player } from "@/types/fantasy";
+import { useToast } from "@/hooks/use-toast";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -393,6 +394,7 @@ export const MatchupProjection = ({
   weeklyMatchups = [],
   roster = [],
 }: MatchupProjectionProps) => {
+  const { toast } = useToast();
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
@@ -993,7 +995,74 @@ export const MatchupProjection = ({
 
         <div className="grid md:grid-cols-2 gap-4">
           <Card className="gradient-card shadow-card p-4 border-border">
-            <h3 className="font-display font-bold mb-2 text-stat-positive">Your Team</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-display font-bold text-stat-positive">Your Team</h3>
+              {/* Use My Roster Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (roster.length === 0) {
+                    toast({
+                      title: "No roster data",
+                      description: "Import on Roster tab first.",
+                      variant: "destructive"
+                    });
+                    return;
+                  }
+                  // Generate ESPN-like paste from roster data
+                  const rosterPaste = roster.map(slot => {
+                    const p = slot.player;
+                    const posStr = p.positions?.join(", ") || "UTIL";
+                    const line = [
+                      slot.slot || "UTIL",
+                      p.name,
+                      p.nbaTeam || "",
+                      posStr,
+                      p.opponent || "--",
+                      "",  // status
+                      "MIN",
+                      p.minutes?.toFixed(1) || "0.0",
+                      "FGM/FGA",
+                      `${Math.round((p.fgPct || 0) * 10)}/${Math.round(10 / (p.fgPct || 0.45))}`,
+                      "FG%",
+                      (p.fgPct || 0).toFixed(3),
+                      "FTM/FTA",
+                      `${Math.round((p.ftPct || 0) * 4)}/${Math.round(4 / (p.ftPct || 0.75))}`,
+                      "FT%",
+                      (p.ftPct || 0).toFixed(3),
+                      "3PM",
+                      p.threepm?.toFixed(1) || "0.0",
+                      "REB",
+                      p.rebounds?.toFixed(1) || "0.0",
+                      "AST",
+                      p.assists?.toFixed(1) || "0.0",
+                      "STL",
+                      p.steals?.toFixed(1) || "0.0",
+                      "BLK",
+                      p.blocks?.toFixed(1) || "0.0",
+                      "TO",
+                      p.turnovers?.toFixed(1) || "0.0",
+                      "PTS",
+                      p.points?.toFixed(1) || "0.0",
+                    ].join("\n");
+                    return line;
+                  }).join("\n");
+                  
+                  // Set the paste data with basic team header
+                  const pasteHeader = `My Team\n0-0-0\n1st Place\nSTARTERS\nSTATS\nMIN\n`;
+                  setMyTeamData(pasteHeader + rosterPaste);
+                  toast({
+                    title: "Roster data loaded",
+                    description: `${roster.length} players imported from Roster tab.`,
+                  });
+                }}
+                className="font-display text-xs"
+              >
+                <Users className="w-3 h-3 mr-1" />
+                Use My Roster
+              </Button>
+            </div>
             <Textarea
               placeholder={`Paste the full ESPN page for your team...
 

@@ -61,7 +61,7 @@ interface CategoryUrgency {
   lowerBetter: boolean;
 }
 
-// ESPN lineup slots and their eligible positions
+// ESPN lineup slots and their eligible positions - exactly 8 starters per day
 const LINEUP_SLOTS: { slot: string; eligible: string[] }[] = [
   { slot: "PG", eligible: ["PG"] },
   { slot: "SG", eligible: ["SG"] },
@@ -69,9 +69,7 @@ const LINEUP_SLOTS: { slot: string; eligible: string[] }[] = [
   { slot: "PF", eligible: ["PF"] },
   { slot: "C", eligible: ["C"] },
   { slot: "G", eligible: ["PG", "SG"] },
-  { slot: "F", eligible: ["SF", "PF"] },
-  { slot: "UTIL", eligible: ["PG", "SG", "SF", "PF", "C"] },
-  { slot: "UTIL", eligible: ["PG", "SG", "SF", "PF", "C"] },
+  { slot: "F/C", eligible: ["SF", "PF", "C"] },
   { slot: "UTIL", eligible: ["PG", "SG", "SF", "PF", "C"] },
 ];
 

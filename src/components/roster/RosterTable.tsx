@@ -14,8 +14,6 @@ interface PlayerWithCRI extends Player {
   wCri?: number;
   criRank?: number;
   wCriRank?: number;
-  customRank?: number;
-  customScore?: number;
 }
 
 interface RosterTableProps {
@@ -27,8 +25,6 @@ interface RosterTableProps {
   onPlayerClick: (player: Player) => void;
   categoryRanks: Record<string, Record<string, number>>;
   activePlayerCount: number;
-  customRankActive?: boolean;
-  customRankLabel?: string;
 }
 
 // Map column keys to category rank keys
@@ -53,10 +49,8 @@ export const RosterTable = ({
   onPlayerClick,
   categoryRanks,
   activePlayerCount,
-  customRankActive = false,
-  customRankLabel = "",
 }: RosterTableProps) => {
-  // Build columns dynamically based on useCris toggle and customRank
+  // Build columns dynamically based on useCris toggle
   const columns = [
     { key: "rank", label: "#", sortable: false, className: "w-[36px]" },
     { key: "player", label: "Player", sortable: true, className: "min-w-[160px]" },
@@ -71,12 +65,9 @@ export const RosterTable = ({
     { key: "blocks", label: "BLK", sortable: true },
     { key: "turnovers", label: "TO", sortable: true },
     { key: "points", label: "PTS", sortable: true },
-    // Show custom rank column when active, otherwise show CRI/wCRI
-    customRankActive
-      ? { key: "customRank", label: "Custom", sortable: true, className: "border-l border-border min-w-[70px]" }
-      : useCris
-        ? { key: "cri", label: "CRI", sortable: true, className: "border-l border-border min-w-[60px]" }
-        : { key: "wCri", label: "wCRI", sortable: true, className: "border-l border-border min-w-[60px]" },
+    useCris
+      ? { key: "cri", label: "CRI", sortable: true, className: "border-l border-border min-w-[60px]" }
+      : { key: "wCri", label: "wCRI", sortable: true, className: "border-l border-border min-w-[60px]" },
   ];
 
   const renderSortIcon = (column: string) => {
@@ -191,17 +182,11 @@ export const RosterTable = ({
             const hasStats = player.minutes > 0;
             
             // Determine which rank to display in # column
-            const displayRank = customRankActive 
-              ? player.customRank 
-              : (useCris ? player.criRank : player.wCriRank);
+            const displayRank = useCris ? player.criRank : player.wCriRank;
             
             // Metric values for the last column
-            const metricValue = customRankActive 
-              ? player.customScore 
-              : (useCris ? player.cri : player.wCri);
-            const metricRank = customRankActive 
-              ? player.customRank 
-              : (useCris ? player.criRank : player.wCriRank);
+            const metricValue = useCris ? player.cri : player.wCri;
+            const metricRank = useCris ? player.criRank : player.wCriRank;
 
             return (
               <TableRow
@@ -289,46 +274,24 @@ export const RosterTable = ({
                 <StatCell playerId={player.id} categoryKey="turnovers" isIR={isIR} hasStats={hasStats} value={player.turnovers} />
                 <StatCell playerId={player.id} categoryKey="points" isIR={isIR} hasStats={hasStats} value={player.points} />
 
-                {/* CRI, wCRI, or Custom Rank (only the selected metric) */}
+                {/* CRI/wCRI display */}
                 <TableCell className="px-2 py-1.5 text-center border-l border-border">
-                  {customRankActive ? (
-                    // Custom rank display
-                    metricRank !== undefined ? (
-                      <div className="flex flex-col items-center">
+                  {hasStats && metricValue !== undefined ? (
+                    <div className="flex flex-col items-center">
+                      <span className="text-sm font-mono font-semibold">{metricValue.toFixed(1)}</span>
+                      {metricRank && (
                         <span
                           className={cn(
-                            "text-sm font-display font-bold",
-                            metricRank <= 3 ? "text-stat-positive" : metricRank > 10 ? "text-stat-negative" : "text-foreground"
+                            "text-[10px] font-display",
+                            metricRank <= 3 ? "text-stat-positive" : metricRank > 10 ? "text-stat-negative" : "text-muted-foreground"
                           )}
                         >
                           #{metricRank}
                         </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          {metricValue}pts
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">--</span>
-                    )
+                      )}
+                    </div>
                   ) : (
-                    // CRI/wCRI display
-                    hasStats && metricValue !== undefined ? (
-                      <div className="flex flex-col items-center">
-                        <span className="text-sm font-mono font-semibold">{metricValue.toFixed(1)}</span>
-                        {metricRank && (
-                          <span
-                            className={cn(
-                              "text-[10px] font-display",
-                              metricRank <= 3 ? "text-stat-positive" : metricRank > 10 ? "text-stat-negative" : "text-muted-foreground"
-                            )}
-                          >
-                            #{metricRank}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">--</span>
-                    )
+                    <span className="text-sm text-muted-foreground">--</span>
                   )}
                 </TableCell>
               </TableRow>
