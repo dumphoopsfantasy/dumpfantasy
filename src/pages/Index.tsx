@@ -14,7 +14,8 @@ import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentS
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { DataCompletenessBar } from "@/components/DataCompletenessBar";
-import { CustomWeights, DEFAULT_WEIGHTS } from "@/components/WeightSettings";
+import { CustomCRIBuilder, DEFAULT_CRI_WEIGHTS, CustomCRIWeights } from "@/components/CustomCRIBuilder";
+import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
@@ -32,9 +33,10 @@ import {
   Settings as SettingsIcon,
   Clipboard,
   Trash2,
+  ChevronDown,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CRIS_WEIGHTS } from "@/lib/crisUtils";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 // Weekly matchup types
 interface MatchupStats {
@@ -73,6 +75,7 @@ interface MatchupProjectionData {
     lastMatchup?: string;
     stats: MatchupStats;
   };
+  opponentRoster?: RosterSlot[];
 }
 
 // CRI categories
@@ -89,8 +92,11 @@ const CRI_CATEGORIES = [
 ] as const;
 
 const Index = () => {
-  // Roster state (persisted)
+  // Roster state (persisted) - MY roster
   const [players, setPlayers] = usePersistedState<PlayerStats[]>("dumphoops-roster", []);
+
+  // OPPONENT roster state (persisted separately)
+  const [opponentRoster, setOpponentRoster] = usePersistedState<RosterSlot[]>("dumphoops-opponent-roster", []);
 
   // CRI/wCRI toggle
   const [useCris, setUseCris] = useState(true);
@@ -116,8 +122,8 @@ const Index = () => {
   // Matchup projection state (persisted)
   const [matchupData, setMatchupData] = usePersistedState<MatchupProjectionData | null>("dumphoops-matchup", null);
 
-  // Custom wCRI weights (persisted)
-  const [customWeights, setCustomWeights] = usePersistedState<CustomWeights>("dumphoops-weights", DEFAULT_WEIGHTS);
+  // Custom CRI weights (persisted with new key)
+  const [customWeights, setCustomWeights] = usePersistedState<CustomCRIWeights>("dumphoops.criWeights", DEFAULT_CRI_WEIGHTS);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -150,8 +156,27 @@ const Index = () => {
     setPlayers(data);
   };
 
-  const handleReset = () => {
+  // Reset only MY roster
+  const handleResetMyRoster = () => {
     setPlayers([]);
+  };
+
+  // Reset only opponent roster
+  const handleResetOpponentRoster = () => {
+    setOpponentRoster([]);
+    // Also clear opponent roster from matchupData
+    if (matchupData) {
+      setMatchupData({ ...matchupData, opponentRoster: [] });
+    }
+  };
+
+  // Reset both rosters
+  const handleResetBothRosters = () => {
+    setPlayers([]);
+    setOpponentRoster([]);
+    if (matchupData) {
+      setMatchupData({ ...matchupData, opponentRoster: [] });
+    }
   };
 
   const handleClearAllData = () => {
@@ -160,12 +185,21 @@ const Index = () => {
     ) {
       clearPersistedData();
       setPlayers([]);
+      setOpponentRoster([]);
       setFreeAgents([]);
       setWeeklyMatchups([]);
       setWeeklyTitle("");
       setLeagueTeams([]);
       setMatchupData(null);
-      setCustomWeights(DEFAULT_WEIGHTS);
+      setCustomWeights(DEFAULT_CRI_WEIGHTS);
+    }
+  };
+
+  // Handle matchup change - also update opponentRoster separately
+  const handleMatchupChange = (data: MatchupProjectionData | null) => {
+    setMatchupData(data);
+    if (data?.opponentRoster && data.opponentRoster.length > 0) {
+      setOpponentRoster(data.opponentRoster);
     }
   };
 
@@ -442,7 +476,7 @@ const Index = () => {
       {/* NBA Scores Sidebar */}
       <NBAScoresSidebar rosterTeams={rosterTeams} rosterPlayers={rosterPlayersList} />
 
-      {/* Header */}
+      {/* Header - NO reset buttons here, moved to Roster tab */}
       <header className="border-b-2 border-primary/30 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
@@ -455,29 +489,6 @@ const Index = () => {
                   <span className="text-primary">Dump</span>Hoops Fantasy
                 </h1>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {players.length > 0 && (
-                <Button onClick={handleReset} variant="outline" size="sm" className="font-display font-semibold">
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Reset Roster
-                </Button>
-              )}
-              {(players.length > 0 ||
-                freeAgents.length > 0 ||
-                leagueTeams.length > 0 ||
-                matchupData ||
-                weeklyMatchups.length > 0) && (
-                <Button
-                  onClick={handleClearAllData}
-                  variant="destructive"
-                  size="sm"
-                  className="font-display font-semibold"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Clear All
-                </Button>
-              )}
             </div>
           </div>
         </div>
@@ -534,13 +545,52 @@ const Index = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Stat Window Reminder */}
-                <div className="flex items-center gap-2 bg-card/50 rounded-lg p-3 border border-border">
-                  <Info className="w-4 h-4 text-primary" />
-                  <p className="text-sm text-muted-foreground">
-                    Stats shown match the view you selected on ESPN (Last 7, Last 15, Last 30, or Season averages)
-                  </p>
+                {/* Roster Header with Reset Buttons */}
+                <div className="flex items-center justify-between bg-card/50 rounded-lg p-3 border border-border">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-4 h-4 text-primary" />
+                    <p className="text-sm text-muted-foreground">
+                      Stats shown match the view you selected on ESPN (Last 7, Last 15, Last 30, or Season averages)
+                    </p>
+                  </div>
+                  
+                  {/* Reset Controls - Only on Roster tab */}
+                  <div className="flex items-center gap-2">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="font-display font-semibold">
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Reset
+                          <ChevronDown className="w-3 h-3 ml-1" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleResetMyRoster}>
+                          Reset My Roster
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleResetOpponentRoster}>
+                          Reset Opponent
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleResetBothRosters} className="text-stat-negative">
+                          Reset Both
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    
+                    <Button
+                      onClick={handleClearAllData}
+                      variant="destructive"
+                      size="sm"
+                      className="font-display font-semibold"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Clear All
+                    </Button>
+                  </div>
                 </div>
+
+                {/* Custom CRI Builder */}
+                <CustomCRIBuilder weights={customWeights} onWeightsChange={setCustomWeights} />
 
                 <TeamAverages players={players} leagueTeams={leagueTeams} />
                 <PlayerRankings players={players} onPlayerClick={handlePlayerClick} leagueTeams={leagueTeams} />
@@ -699,15 +749,17 @@ const Index = () => {
                     matchupData={matchupData}
                     weeklyMatchups={weeklyMatchups}
                     leagueTeams={leagueTeams}
+                    customWeights={customWeights}
                   />
                 </div>
               )}
               <div className="flex-1">
                 <MatchupProjection 
                   persistedMatchup={matchupData} 
-                  onMatchupChange={setMatchupData}
+                  onMatchupChange={handleMatchupChange}
                   weeklyMatchups={weeklyMatchups}
                   roster={rosterWithCRI}
+                  opponentRoster={opponentRoster}
                 />
               </div>
             </div>

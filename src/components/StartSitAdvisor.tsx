@@ -2,10 +2,11 @@ import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
-import { RosterSlot, Player, CategoryStats } from "@/types/fantasy";
+import { RosterSlot, Player, CategoryStats, SlotType } from "@/types/fantasy";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, XCircle, AlertCircle, Calendar, TrendingUp, Lock, AlertTriangle } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, Calendar, TrendingUp, Lock, AlertTriangle, Target } from "lucide-react";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
+import { CustomCRIWeights, DEFAULT_CRI_WEIGHTS } from "@/components/CustomCRIBuilder";
 
 // Category definitions with labels
 const CATEGORIES = [
@@ -61,6 +62,20 @@ interface CategoryUrgency {
   lowerBetter: boolean;
 }
 
+// ESPN lineup slots and their eligible positions
+const LINEUP_SLOTS: { slot: string; eligible: string[] }[] = [
+  { slot: "PG", eligible: ["PG"] },
+  { slot: "SG", eligible: ["SG"] },
+  { slot: "SF", eligible: ["SF"] },
+  { slot: "PF", eligible: ["PF"] },
+  { slot: "C", eligible: ["C"] },
+  { slot: "G", eligible: ["PG", "SG"] },
+  { slot: "F", eligible: ["SF", "PF"] },
+  { slot: "UTIL", eligible: ["PG", "SG", "SF", "PF", "C"] },
+  { slot: "UTIL", eligible: ["PG", "SG", "SF", "PF", "C"] },
+  { slot: "UTIL", eligible: ["PG", "SG", "SF", "PF", "C"] },
+];
+
 interface PlayerRecommendation {
   slot: RosterSlot;
   score: number;
@@ -69,6 +84,7 @@ interface PlayerRecommendation {
   isCore: boolean;
   injuryStatus: "healthy" | "DTD" | "GTD" | "OUT";
   injuryMultiplier: number;
+  assignedSlot?: string;
 }
 
 interface StartSitAdvisorProps {
@@ -77,6 +93,7 @@ interface StartSitAdvisorProps {
   matchupData?: MatchupProjectionData | null;
   weeklyMatchups?: WeeklyMatchup[];
   leagueTeams?: { name: string }[];
+  customWeights?: CustomCRIWeights;
 }
 
 // Check if a player is OUT (various formats)
@@ -112,7 +129,10 @@ export const StartSitAdvisor = ({
   matchupData,
   weeklyMatchups = [],
   leagueTeams = [],
+  customWeights = DEFAULT_CRI_WEIGHTS,
 }: StartSitAdvisorProps) => {
+  // Use custom weights if provided, else default CRIS_WEIGHTS
+  const weights = customWeights || CRIS_WEIGHTS;
   // Find my team's weekly data if available
   const myWeeklyData = useMemo(() => {
     if (!matchupData || weeklyMatchups.length === 0) return null;
@@ -230,7 +250,7 @@ export const StartSitAdvisor = ({
     });
   }, [matchupData, myWeeklyData]);
 
-  // Identify core players (top 6 by CRI on the team)
+  // Identify core players (top 6 by CRI on the team) - protected from benching
   const corePlayers = useMemo(() => {
     const activePlayers = roster.filter(
       (slot) => slot.slotType !== "ir" && slot.player.minutes > 0
@@ -245,24 +265,27 @@ export const StartSitAdvisor = ({
     return new Set(sorted.slice(0, 6).map(s => s.player.id));
   }, [roster]);
 
-  // Calculate player recommendations with urgency-aware scoring
-  const recommendations = useMemo(() => {
-    // Get active players (starters + bench with stats)
-    const activePlayers = roster.filter(
-      (slot) => slot.slotType !== "ir" && slot.player.minutes > 0
-    );
+  // Check if player can fill a slot based on positions
+  const canFillSlot = (player: Player, slotEligible: string[]): boolean => {
+    const playerPositions = player.positions?.map(p => p.toUpperCase()) || [];
+    return slotEligible.some(eligible => playerPositions.includes(eligible));
+  };
 
-    // Separate by availability
-    const outPlayers: PlayerRecommendation[] = [];
-    const availablePlayers: PlayerRecommendation[] = [];
-    const noGamePlayers: PlayerRecommendation[] = [];
+  // Position-aware lineup optimizer for TODAY
+  const lineupRecommendation = useMemo(() => {
+    // Get players with games today (not OUT)
+    const todayPlayers = roster.filter(slot => {
+      const hasGame = !!slot.player.opponent;
+      const injuryStatus = getInjuryStatus(slot.player.status);
+      return hasGame && injuryStatus !== "OUT" && slot.slotType !== "ir" && slot.player.minutes > 0;
+    });
 
-    activePlayers.forEach((slot) => {
+    // Calculate effective score for each player
+    const playersWithScores = todayPlayers.map(slot => {
       const injuryStatus = getInjuryStatus(slot.player.status);
       const injuryMultiplier = getInjuryMultiplier(injuryStatus);
       const isCore = corePlayers.has(slot.player.id);
-      const hasGameToday = !!slot.player.opponent;
-
+      
       // Calculate impact score based on category urgency
       let impactScore = 0;
       const helps: string[] = [];
@@ -271,106 +294,139 @@ export const StartSitAdvisor = ({
       categoryUrgency.forEach((cat) => {
         const playerVal = slot.player[cat.key as keyof Player] as number || 0;
         
-        // Weight based on urgency
-        const urgencyWeight = cat.urgency === "HIGH" ? 1.0 : cat.urgency === "MED" ? 0.6 : 0.2;
-        const importanceWeight = CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS] || 1;
+        // Weight based on urgency (close categories get boosted +20%, locked get -30%)
+        const urgencyWeight = cat.urgency === "HIGH" ? 1.2 : cat.urgency === "MED" ? 1.0 : 0.7;
+        const importanceWeight = weights[cat.key as keyof typeof weights] || 1;
         
-        // Normalize player contribution (rough estimate)
+        // Normalize player contribution
         let contribution: number;
         if (cat.key === "fgPct" || cat.key === "ftPct") {
-          // Percentages: compare to league average ~0.45-0.50
           contribution = cat.lowerBetter ? (0.45 - playerVal) : (playerVal - 0.45);
         } else if (cat.key === "turnovers") {
-          // TO: lower is better, so negative contribution for high TO
-          contribution = 3 - playerVal; // Assume 3 is average
+          contribution = 3 - playerVal;
         } else {
-          // Counting stats: use raw value scaled
           contribution = playerVal;
         }
 
         const catScore = contribution * urgencyWeight * importanceWeight;
         impactScore += catScore;
 
-        // Track helps/risks for top 2 categories
+        // Track helps/risks for urgent categories
         if (cat.urgency === "HIGH" || cat.urgency === "MED") {
           if (cat.key === "turnovers") {
-            if (playerVal > 2.5) {
-              risks.push(cat.label);
-            } else if (playerVal < 1.5) {
-              helps.push(cat.label);
-            }
+            if (playerVal > 2.5) risks.push(cat.label);
+            else if (playerVal < 1.5) helps.push(cat.label);
           } else if (cat.key === "fgPct" || cat.key === "ftPct") {
-            if (playerVal > 0.50) {
-              helps.push(cat.label);
-            } else if (playerVal < 0.40) {
-              risks.push(cat.label);
-            }
+            if (playerVal > 0.50) helps.push(cat.label);
+            else if (playerVal < 0.40) risks.push(cat.label);
           } else {
             if (playerVal > 5) helps.push(cat.label);
           }
         }
       });
 
-      // Apply injury multiplier
+      // Apply injury multiplier to effective score (DTD players = 0.70 effective)
       impactScore *= injuryMultiplier;
 
       // Add base CRI/wCRI component (50% weight)
       const baseScore = useCris ? (slot.player.cri ?? 0) : (slot.player.wCri ?? 0);
-      impactScore = impactScore * 0.5 + baseScore * 0.5;
+      const finalScore = impactScore * 0.5 + baseScore * 0.5;
 
-      // Add DTD risk if applicable
-      if (injuryStatus === "DTD") {
-        risks.push("DTD");
-      } else if (injuryStatus === "GTD") {
-        risks.push("GTD");
-      }
+      if (injuryStatus === "DTD") risks.push("DTD");
+      else if (injuryStatus === "GTD") risks.push("GTD");
 
-      const recommendation: PlayerRecommendation = {
+      return {
         slot,
-        score: impactScore,
+        score: finalScore,
         helps: helps.slice(0, 2),
         risks: risks.slice(0, 2),
         isCore,
         injuryStatus,
         injuryMultiplier,
-      };
+        assignedSlot: undefined as string | undefined,
+      } as PlayerRecommendation;
+    });
 
-      if (injuryStatus === "OUT") {
-        outPlayers.push(recommendation);
-      } else if (!hasGameToday) {
-        noGamePlayers.push(recommendation);
+    // Sort by score descending
+    playersWithScores.sort((a, b) => b.score - a.score);
+
+    // Greedy slot assignment (position-aware)
+    const usedSlots = new Set<number>();
+    const assignedPlayers = new Set<string>();
+    const startLineup: PlayerRecommendation[] = [];
+    const benchToday: PlayerRecommendation[] = [];
+    const unfilledSlots: string[] = [];
+
+    // Try to fill each slot in order
+    for (let slotIdx = 0; slotIdx < LINEUP_SLOTS.length; slotIdx++) {
+      const slotDef = LINEUP_SLOTS[slotIdx];
+      
+      // Find best available player for this slot
+      const bestPlayer = playersWithScores.find(p => 
+        !assignedPlayers.has(p.slot.player.id) && 
+        canFillSlot(p.slot.player, slotDef.eligible)
+      );
+
+      if (bestPlayer) {
+        bestPlayer.assignedSlot = slotDef.slot;
+        startLineup.push(bestPlayer);
+        assignedPlayers.add(bestPlayer.slot.player.id);
+        usedSlots.add(slotIdx);
       } else {
-        availablePlayers.push(recommendation);
+        unfilledSlots.push(slotDef.slot);
+      }
+    }
+
+    // Remaining players with games today go to bench
+    playersWithScores.forEach(p => {
+      if (!assignedPlayers.has(p.slot.player.id)) {
+        benchToday.push(p);
       }
     });
 
-    // Sort available players by impact score
-    const sortedAvailable = [...availablePlayers].sort((a, b) => b.score - a.score);
+    return { startLineup, benchToday, unfilledSlots };
+  }, [roster, categoryUrgency, corePlayers, useCris, weights]);
 
-    // Count starter slots
-    const starterSlots = roster.filter((s) => s.slotType === "starter").length;
+  // Get OUT players and no-game players
+  const { outPlayers, noGamePlayers, monitorPlayers } = useMemo(() => {
+    const out: PlayerRecommendation[] = [];
+    const noGame: PlayerRecommendation[] = [];
+    const monitor: PlayerRecommendation[] = [];
 
-    // Recommended starters (top N by score)
-    const startThese = sortedAvailable.slice(0, starterSlots);
-    
-    // Consider benching (remaining available players)
-    // Never recommend benching core players unless they're out
-    const considerBenching = sortedAvailable.slice(starterSlots).filter(p => {
-      if (p.isCore) return false; // Core players get "Monitor" instead
-      return true;
+    roster.filter(slot => slot.slotType !== "ir" && slot.player.minutes > 0).forEach(slot => {
+      const injuryStatus = getInjuryStatus(slot.player.status);
+      const isCore = corePlayers.has(slot.player.id);
+      const hasGame = !!slot.player.opponent;
+      
+      const rec: PlayerRecommendation = {
+        slot,
+        score: slot.player.cri ?? 0,
+        helps: [],
+        risks: injuryStatus === "DTD" ? ["DTD"] : injuryStatus === "GTD" ? ["GTD"] : [],
+        isCore,
+        injuryStatus,
+        injuryMultiplier: getInjuryMultiplier(injuryStatus),
+      };
+
+      if (injuryStatus === "OUT") {
+        out.push(rec);
+      } else if (!hasGame) {
+        noGame.push(rec);
+      } else if (isCore && injuryStatus === "DTD") {
+        monitor.push(rec);
+      }
     });
 
-    // Core players that are DTD get "Monitor" treatment
-    const monitorPlayers = sortedAvailable.filter(p => p.isCore && p.injuryStatus === "DTD");
+    return { outPlayers: out, noGamePlayers: noGame, monitorPlayers: monitor };
+  }, [roster, corePlayers]);
 
-    return {
-      startThese,
-      considerBenching,
-      monitorPlayers,
-      outPlayers,
-      noGamePlayers,
-    };
-  }, [roster, categoryUrgency, corePlayers, useCris]);
+  // Get close categories for summary line
+  const closeCategories = useMemo(() => {
+    return categoryUrgency
+      .filter(c => c.urgency === "HIGH" || c.urgency === "MED")
+      .slice(0, 3)
+      .map(c => c.label);
+  }, [categoryUrgency]);
 
   // Determine if we have weekly data
   const hasWeeklyData = !!myWeeklyData;
@@ -381,8 +437,8 @@ export const StartSitAdvisor = ({
   }
 
   const scoreLabel = useCris ? "CRI" : "wCRI";
-  const { startThese, considerBenching, monitorPlayers, outPlayers, noGamePlayers } = recommendations;
-  const hasAnyPlayers = startThese.length > 0 || considerBenching.length > 0 || noGamePlayers.length > 0 || outPlayers.length > 0;
+  const { startLineup, benchToday, unfilledSlots } = lineupRecommendation;
+  const hasAnyPlayers = startLineup.length > 0 || benchToday.length > 0 || noGamePlayers.length > 0 || outPlayers.length > 0;
 
   return (
     <Card className="gradient-card border-border p-4">
@@ -410,16 +466,24 @@ export const StartSitAdvisor = ({
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Start These */}
-          {startThese.length > 0 && (
+          {/* Optimized for close categories notice */}
+          {closeCategories.length > 0 && (
+            <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+              <Target className="w-3 h-3 text-primary" />
+              Optimized for: {closeCategories.join(", ")}
+            </div>
+          )}
+
+          {/* Recommended Lineup (Today) */}
+          {startLineup.length > 0 && (
             <div>
               <div className="flex items-center gap-1.5 mb-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-stat-positive" />
-                <span className="text-xs font-semibold text-stat-positive">Start These</span>
-                <span className="text-[10px] text-muted-foreground">({startThese.length})</span>
+                <span className="text-xs font-semibold text-stat-positive">Recommended Lineup (Today)</span>
+                <span className="text-[10px] text-muted-foreground">({startLineup.length})</span>
               </div>
               <div className="space-y-1.5">
-                {startThese.map((rec) => (
+                {startLineup.map((rec) => (
                   <PlayerRow
                     key={rec.slot.player.id}
                     rec={rec}
@@ -427,6 +491,11 @@ export const StartSitAdvisor = ({
                   />
                 ))}
               </div>
+              {unfilledSlots.length > 0 && (
+                <p className="text-[10px] text-stat-negative mt-1">
+                  Unfilled slots: {unfilledSlots.length} ({unfilledSlots.join(", ")})
+                </p>
+              )}
             </div>
           )}
 
@@ -450,16 +519,16 @@ export const StartSitAdvisor = ({
             </div>
           )}
 
-          {/* Consider Benching */}
-          {considerBenching.length > 0 && (
+          {/* Bench (Today) */}
+          {benchToday.length > 0 && (
             <div>
               <div className="flex items-center gap-1.5 mb-2">
                 <XCircle className="w-3.5 h-3.5 text-stat-negative" />
-                <span className="text-xs font-semibold text-stat-negative">Consider Benching</span>
-                <span className="text-[10px] text-muted-foreground">({considerBenching.length})</span>
+                <span className="text-xs font-semibold text-stat-negative">Bench (Today)</span>
+                <span className="text-[10px] text-muted-foreground">({benchToday.length})</span>
               </div>
               <div className="space-y-1.5">
-                {considerBenching.map((rec) => (
+                {benchToday.map((rec) => (
                   <PlayerRow
                     key={rec.slot.player.id}
                     rec={rec}
