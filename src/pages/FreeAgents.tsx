@@ -1108,8 +1108,46 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </div>
             </div>
             
-            {/* Presets */}
+            {/* Quick Actions + Presets */}
             <div className="flex flex-wrap gap-2">
+              {/* Quick action buttons */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setActivePreset('custom');
+                  setCustomCategories([]);
+                }}
+                className="h-7 text-xs border-destructive/50 hover:bg-destructive/10 text-destructive"
+              >
+                <X className="w-3 h-3 mr-1" />
+                Unselect All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setActivePreset('all');
+                  setCustomCategories(CATEGORY_PRESETS.all.categories);
+                }}
+                className="h-7 text-xs border-primary/50 hover:bg-primary/10"
+              >
+                Select All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setActivePreset('custom');
+                  setCustomCategories(['points', 'rebounds', 'assists', 'steals', 'blocks']);
+                }}
+                className="h-7 text-xs border-amber-500/50 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              >
+                <Trophy className="w-3 h-3 mr-1" />
+                Classic 5
+              </Button>
+              
+              {/* Existing presets */}
               {Object.entries(CATEGORY_PRESETS).map(([key, preset]) => (
                 <Button
                   key={key}
