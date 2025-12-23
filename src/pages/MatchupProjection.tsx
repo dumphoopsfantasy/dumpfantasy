@@ -1191,100 +1191,109 @@ Navigate to their team page and copy the whole page.`}
           </Card>
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-3">
-          <div className="grid md:grid-cols-2 gap-3">
-            {/* My Team Baseline */}
-            <Card className="gradient-card border-border p-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
-                <span className="text-[10px] text-muted-foreground">Avg × 40</span>
-              </div>
-              <div className="grid grid-cols-9 gap-1 text-center">
-                {/* ESPN stat order: FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS */}
-                <div>
-                  <p className="text-[9px] text-muted-foreground">FG%</p>
-                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.myTeam.stats.fgPct)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">FT%</p>
-                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.myTeam.stats.ftPct)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">3PM</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.threepm * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">REB</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.rebounds * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">AST</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.assists * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">STL</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.steals * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">BLK</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.blocks * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">TO</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.turnovers * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">PTS</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.myTeam.stats.points * 40)}</p>
-                </div>
-              </div>
-            </Card>
+          {(() => {
+            // Baseline category comparison logic
+            const baselineCategories = [
+              { key: 'fgPct', label: 'FG%', lowerIsBetter: false, isPct: true },
+              { key: 'ftPct', label: 'FT%', lowerIsBetter: false, isPct: true },
+              { key: 'threepm', label: '3PM', lowerIsBetter: false, isPct: false },
+              { key: 'rebounds', label: 'REB', lowerIsBetter: false, isPct: false },
+              { key: 'assists', label: 'AST', lowerIsBetter: false, isPct: false },
+              { key: 'steals', label: 'STL', lowerIsBetter: false, isPct: false },
+              { key: 'blocks', label: 'BLK', lowerIsBetter: false, isPct: false },
+              { key: 'turnovers', label: 'TO', lowerIsBetter: true, isPct: false },
+              { key: 'points', label: 'PTS', lowerIsBetter: false, isPct: false },
+            ] as const;
 
-            {/* Opponent Baseline */}
-            <Card className="gradient-card border-border p-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
-                <span className="text-[10px] text-muted-foreground">Avg × 40</span>
+            type StatKey = typeof baselineCategories[number]['key'];
+
+            const getBaselineValue = (stats: TeamStats, key: StatKey, isPct: boolean): number => {
+              const val = stats[key as keyof TeamStats];
+              return isPct ? val : val * 40;
+            };
+
+            const determineWinner = (myVal: number, oppVal: number, lowerIsBetter: boolean, isPct: boolean): 'my' | 'opp' | 'tie' | 'missing' => {
+              if (myVal === null || myVal === undefined || oppVal === null || oppVal === undefined) return 'missing';
+              const epsilon = isPct ? 0.0005 : 0.5;
+              const diff = Math.abs(myVal - oppVal);
+              if (diff < epsilon) return 'tie';
+              if (lowerIsBetter) {
+                return myVal < oppVal ? 'my' : 'opp';
+              } else {
+                return myVal > oppVal ? 'my' : 'opp';
+              }
+            };
+
+            const results = baselineCategories.map(cat => {
+              const myVal = getBaselineValue(persistedMatchup.myTeam.stats, cat.key, cat.isPct);
+              const oppVal = getBaselineValue(persistedMatchup.opponent.stats, cat.key, cat.isPct);
+              const winner = determineWinner(myVal, oppVal, cat.lowerIsBetter, cat.isPct);
+              return { ...cat, myVal, oppVal, winner };
+            });
+
+            const myWins = results.filter(r => r.winner === 'my').length;
+            const oppWins = results.filter(r => r.winner === 'opp').length;
+            const ties = results.filter(r => r.winner === 'tie').length;
+
+            const getCellBg = (winner: 'my' | 'opp' | 'tie' | 'missing', forTeam: 'my' | 'opp'): string => {
+              if (winner === 'missing') return '';
+              if (winner === 'tie') return 'bg-muted/50';
+              if (winner === forTeam) return 'bg-stat-positive/15';
+              return 'bg-stat-negative/15';
+            };
+
+            return (
+              <div className="space-y-3">
+                <div className="grid md:grid-cols-2 gap-3">
+                  {/* My Team Baseline */}
+                  <Card className="gradient-card border-border p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
+                      <span className="text-[10px] text-muted-foreground">Avg × 40</span>
+                    </div>
+                    <div className="grid grid-cols-9 gap-1 text-center">
+                      {results.map(cat => (
+                        <div key={cat.key} className={cn("rounded px-0.5 py-1", getCellBg(cat.winner, 'my'))}>
+                          <p className="text-[9px] text-muted-foreground">{cat.label}</p>
+                          <p className="font-display font-bold text-xs">
+                            {cat.isPct ? formatPct(cat.myVal) : Math.round(cat.myVal)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+
+                  {/* Opponent Baseline */}
+                  <Card className="gradient-card border-border p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
+                      <span className="text-[10px] text-muted-foreground">Avg × 40</span>
+                    </div>
+                    <div className="grid grid-cols-9 gap-1 text-center">
+                      {results.map(cat => (
+                        <div key={cat.key} className={cn("rounded px-0.5 py-1", getCellBg(cat.winner, 'opp'))}>
+                          <p className="text-[9px] text-muted-foreground">{cat.label}</p>
+                          <p className="font-display font-bold text-xs">
+                            {cat.isPct ? formatPct(cat.oppVal) : Math.round(cat.oppVal)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                </div>
+
+                {/* Projected Baseline Outcome */}
+                <p className="text-center text-xs text-muted-foreground">
+                  Projected baseline outcome:{' '}
+                  <span className="font-display font-semibold text-foreground">
+                    {persistedMatchup.myTeam.name}{' '}
+                    <span className="text-stat-positive">{myWins}</span>–<span className="text-stat-negative">{oppWins}</span>–<span className="text-muted-foreground">{ties}</span>{' '}
+                    {persistedMatchup.opponent.name}
+                  </span>
+                </p>
               </div>
-              <div className="grid grid-cols-9 gap-1 text-center">
-                <div>
-                  <p className="text-[9px] text-muted-foreground">FG%</p>
-                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.opponent.stats.fgPct)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">FT%</p>
-                  <p className="font-display font-bold text-xs">{formatPct(persistedMatchup.opponent.stats.ftPct)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">3PM</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.threepm * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">REB</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.rebounds * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">AST</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.assists * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">STL</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.steals * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">BLK</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.blocks * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">TO</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.turnovers * 40)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-muted-foreground">PTS</p>
-                  <p className="font-display font-bold text-xs">{Math.round(persistedMatchup.opponent.stats.points * 40)}</p>
-                </div>
-              </div>
-            </Card>
-          </div>
+            );
+          })()}
         </CollapsibleContent>
       </Collapsible>
 
