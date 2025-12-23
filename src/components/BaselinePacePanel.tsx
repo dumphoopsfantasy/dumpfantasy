@@ -2,9 +2,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ChevronDown, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ChevronDown, TrendingUp, TrendingDown, Minus, Clock } from "lucide-react";
 import { formatPct } from "@/lib/crisUtils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 interface TeamStats {
   fgPct: number;
@@ -38,6 +38,7 @@ interface BaselinePacePanelProps {
   myCurrentStats: WeeklyTeamStats | null;
   oppCurrentStats: WeeklyTeamStats | null;
   dayOfWeek: number; // 0 = Sunday, 1 = Monday, etc.
+  nbaGamesStatus?: { hasGamesToday: boolean; gamesStarted: boolean; gamesCompleted: boolean };
 }
 
 // ESPN stat order
@@ -55,6 +56,8 @@ const CATEGORIES = [
 
 type StatKey = typeof CATEGORIES[number]["key"];
 
+type AsOfMode = "through-yesterday" | "through-today" | "live";
+
 export const BaselinePacePanel = ({
   myTeamName,
   opponentName,
@@ -63,13 +66,76 @@ export const BaselinePacePanel = ({
   myCurrentStats,
   oppCurrentStats,
   dayOfWeek,
+  nbaGamesStatus,
 }: BaselinePacePanelProps) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  // Calculate pace factor: Fantasy weeks run Mon-Sun
-  // dayOfWeek: 0 = Sunday (day 7), 1 = Monday (day 1), etc.
-  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek; // Convert to 1-7
-  const paceFactor = dayNumber / 7;
+  // Calculate pace factor with "as-of" cutoff logic
+  // Fantasy weeks run Mon-Sun: dayOfWeek 1=Mon, 2=Tue, ... 0=Sun(day 7)
+  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek;
+  
+  // Determine as-of mode based on current time and game status
+  const { asOfMode, daysCompleted, asOfLabel } = useMemo(() => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    // Default NBA game times: first tip ~12pm ET, last game ends ~1am ET next day
+    // We use local time approximations:
+    // - Before 12pm local: assume pre-tip (through yesterday)
+    // - Between 12pm-1am: check if games are live (if we have status)
+    // - After 1am: through today (if games completed)
+    
+    let mode: AsOfMode;
+    let completed: number;
+    let label: string;
+    
+    if (nbaGamesStatus) {
+      // Use actual game status if available
+      if (!nbaGamesStatus.hasGamesToday) {
+        // No games today - through yesterday makes most sense
+        mode = "through-yesterday";
+        completed = Math.max(0, dayNumber - 1);
+        label = "Through yesterday (no games today)";
+      } else if (!nbaGamesStatus.gamesStarted) {
+        // Games haven't started yet
+        mode = "through-yesterday";
+        completed = Math.max(0, dayNumber - 1);
+        label = "Through yesterday (pre-tip)";
+      } else if (nbaGamesStatus.gamesCompleted) {
+        // All games completed
+        mode = "through-today";
+        completed = dayNumber;
+        label = "Through today";
+      } else {
+        // Games in progress
+        mode = "live";
+        completed = Math.max(0, dayNumber - 1); // Don't count partial day
+        label = "Through yesterday (games live)";
+      }
+    } else {
+      // Fallback: use time-based heuristic
+      if (currentHour < 12) {
+        // Before noon - assume pre-tip
+        mode = "through-yesterday";
+        completed = Math.max(0, dayNumber - 1);
+        label = "Through yesterday";
+      } else if (currentHour >= 12 && currentHour < 24) {
+        // Afternoon/evening - games likely in progress, use through yesterday
+        mode = "live";
+        completed = Math.max(0, dayNumber - 1);
+        label = "Through yesterday (games may be live)";
+      } else {
+        // Late night/early morning after 12am - assume games done
+        mode = "through-today";
+        completed = dayNumber;
+        label = "Through today";
+      }
+    }
+    
+    return { asOfMode: mode, daysCompleted: completed, asOfLabel: label };
+  }, [dayNumber, nbaGamesStatus]);
+
+  const paceFactor = daysCompleted / 7;
 
   const getBaseline = (stats: TeamStats, key: StatKey): number => {
     const value = stats[key];
@@ -242,8 +308,12 @@ export const BaselinePacePanel = ({
           </table>
         </div>
 
-        <div className="mt-2 pt-2 border-t border-border text-[10px] text-muted-foreground text-center">
-          Day {dayNumber}/7 · Pace = Current vs Expected (Baseline × {(paceFactor * 100).toFixed(0)}%)
+        <div className="mt-2 pt-2 border-t border-border text-[10px] text-muted-foreground text-center space-y-0.5">
+          <div className="flex items-center justify-center gap-1">
+            <Clock className="w-3 h-3" />
+            <span>Day {dayNumber}/7 · {asOfLabel}</span>
+          </div>
+          <div>Pace factor: {daysCompleted}/7 ({(paceFactor * 100).toFixed(0)}%)</div>
         </div>
       </Card>
     </div>
@@ -328,8 +398,12 @@ export const BaselinePacePanel = ({
               </div>
             </div>
 
-            <div className="mt-2 pt-2 border-t border-border text-[10px] text-muted-foreground text-center">
-              Day {dayNumber}/7 · Expected = Baseline × {(paceFactor * 100).toFixed(0)}%
+            <div className="mt-2 pt-2 border-t border-border text-[10px] text-muted-foreground text-center space-y-0.5">
+              <div className="flex items-center justify-center gap-1">
+                <Clock className="w-3 h-3" />
+                <span>{asOfLabel}</span>
+              </div>
+              <div>Pace: {daysCompleted}/7 ({(paceFactor * 100).toFixed(0)}%)</div>
             </div>
           </Card>
         </CollapsibleContent>
