@@ -12,10 +12,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowUp, ArrowDown, Minus, TrendingUp, Users, BarChart3, Newspaper, RefreshCw, ArrowUpRight } from "lucide-react";
+import { ArrowUp, ArrowDown, Minus, TrendingUp, Users, BarChart3, Newspaper, RefreshCw, ArrowUpRight, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMemo, useState, useEffect } from "react";
 import { fetchPlayerNews, PlayerNews } from "@/lib/nbaApi";
+import { RosterSwapSimulator } from "@/components/RosterSwapSimulator";
 
 interface FreeAgentImpactSheetProps {
   player: Player | null;
@@ -37,7 +38,7 @@ export const FreeAgentImpactSheet = ({
   const [dropPlayerId, setDropPlayerId] = useState<string | "none">("none");
   const [news, setNews] = useState<PlayerNews[]>([]);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
-  const [activeTab, setActiveTab] = useState<"impact" | "news">("impact");
+  const [activeTab, setActiveTab] = useState<"impact" | "swap" | "news">("impact");
 
   // Load player news when sheet opens
   useEffect(() => {
@@ -279,12 +280,16 @@ export const FreeAgentImpactSheet = ({
           </Card>
         </SheetHeader>
 
-        {/* Tabs for Impact vs News */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "impact" | "news")} className="mt-4">
-          <TabsList className="grid w-full grid-cols-2">
+        {/* Tabs for Impact vs Swap vs News */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "impact" | "swap" | "news")} className="mt-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="impact" className="text-xs font-display">
               <TrendingUp className="w-3 h-3 mr-1" />
-              Team Impact
+              Impact
+            </TabsTrigger>
+            <TabsTrigger value="swap" className="text-xs font-display">
+              <ArrowRightLeft className="w-3 h-3 mr-1" />
+              Swap
             </TabsTrigger>
             <TabsTrigger value="news" className="text-xs font-display">
               <Newspaper className="w-3 h-3 mr-1" />
@@ -402,6 +407,10 @@ export const FreeAgentImpactSheet = ({
                 </div>
               </div>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="swap" className="mt-4">
+            <RosterSwapSimulator freeAgent={player} currentRoster={currentRoster} />
           </TabsContent>
 
           <TabsContent value="news" className="mt-4">
