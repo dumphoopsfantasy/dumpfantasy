@@ -232,26 +232,8 @@ export const BaselinePacePanel = ({
   const DesktopTable = () => (
     <div className="hidden lg:block">
       <Card className="gradient-card border-border p-3">
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-3">
           <h3 className="font-display font-semibold text-sm">Baseline (×40) + Pace</h3>
-          <div className="flex gap-2">
-            {myCurrentStats && (
-              <Badge variant="outline" className={cn(
-                "text-[10px]",
-                myOnPaceCount >= 4 ? "border-stat-positive/50 text-stat-positive" : "border-border"
-              )}>
-                {myTeamName.split(' ')[0]}: {myOnPaceCount}/7
-              </Badge>
-            )}
-            {oppCurrentStats && (
-              <Badge variant="outline" className={cn(
-                "text-[10px]",
-                oppOnPaceCount >= 4 ? "border-stat-negative/50 text-stat-negative" : "border-border"
-              )}>
-                Opp: {oppOnPaceCount}/7
-              </Badge>
-            )}
-          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -331,11 +313,6 @@ export const BaselinePacePanel = ({
                 <span className="font-display font-semibold text-sm">Baseline (×40) + Pace</span>
               </div>
               <div className="flex items-center gap-2">
-                {myCurrentStats && (
-                  <Badge variant="outline" className="text-[9px]">
-                    {myOnPaceCount}/7
-                  </Badge>
-                )}
                 <ChevronDown className={cn(
                   "w-4 h-4 text-muted-foreground transition-transform",
                   isOpen && "rotate-180"
