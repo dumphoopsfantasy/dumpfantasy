@@ -1,10 +1,15 @@
 import { useMemo, useState } from "react";
 import { Player } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, TrendingUp, TrendingDown, Minus, UserPlus, UserMinus, Calendar, Target, AlertTriangle, CheckCircle, Clock, Shield, ChevronDown, ChevronUp } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { 
+  AlertCircle, TrendingUp, TrendingDown, Minus, UserPlus, UserMinus, 
+  Calendar, Target, AlertTriangle, CheckCircle, Clock, Shield, 
+  ChevronDown, ChevronUp, Zap, Eye, EyeOff
+} from "lucide-react";
 
 interface MatchupStats {
   fgPct: number;
@@ -63,7 +68,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   points: "PTS",
 };
 
-// League weights for AddScore calculation
 const CATEGORY_WEIGHTS: Record<string, number> = {
   points: 1.00,
   threepm: 0.90,
@@ -73,50 +77,50 @@ const CATEGORY_WEIGHTS: Record<string, number> = {
   blocks: 0.65,
   ftPct: 0.55,
   steals: 0.50,
-  turnovers: 0.30, // Inverted: lower is better
+  turnovers: 0.30,
 };
 
-const COUNTING_STATS = ["threepm", "rebounds", "assists", "steals", "blocks", "turnovers", "points"];
+type RiskLevel = "low" | "med" | "high";
+type CategoryBucket = "protect" | "attack" | "ignore";
 
-type RiskLevel = "secure" | "at-risk" | "critical";
-
-interface SwingCategory {
+interface CategoryAnalysis {
   key: string;
   label: string;
   myVal: number;
   oppVal: number;
   diff: number;
-  projectedDiff: number;
   isLeading: boolean;
+  bucket: CategoryBucket;
   risk: RiskLevel;
+  isVolatile: boolean;
 }
 
 function classifyRisk(diff: number, isPercentage: boolean): RiskLevel {
   const absMargin = Math.abs(diff);
   if (isPercentage) {
-    if (absMargin >= 0.03) return "secure";
-    if (absMargin >= 0.01) return "at-risk";
-    return "critical";
+    if (absMargin >= 0.025) return "low";
+    if (absMargin >= 0.01) return "med";
+    return "high";
   } else {
-    if (absMargin >= 15) return "secure";
-    if (absMargin >= 5) return "at-risk";
-    return "critical";
+    if (absMargin >= 12) return "low";
+    if (absMargin >= 5) return "med";
+    return "high";
   }
 }
 
-function getRiskBadge(risk: RiskLevel) {
+function getRiskBadgeSmall(risk: RiskLevel) {
   switch (risk) {
-    case "secure":
-      return <Badge className="bg-stat-positive/20 text-stat-positive border-stat-positive/30">Secure</Badge>;
-    case "at-risk":
-      return <Badge className="bg-yellow-500/20 text-yellow-600 border-yellow-500/30">At Risk</Badge>;
-    case "critical":
-      return <Badge className="bg-stat-negative/20 text-stat-negative border-stat-negative/30">Critical</Badge>;
+    case "low":
+      return <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Low</span>;
+    case "med":
+      return <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-600 dark:text-yellow-400">Med</span>;
+    case "high":
+      return <span className="text-xs px-1.5 py-0.5 rounded bg-stat-negative/20 text-stat-negative">High</span>;
   }
 }
 
 export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyMatchups }: GameplanProps) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAllCategories, setShowAllCategories] = useState(false);
 
   // Find my team in weekly matchups for current matchup record
   const myTeamWeekly = useMemo(() => {
@@ -142,74 +146,69 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
     return null;
   }, [weeklyMatchups, matchupData]);
 
-  // PROTECTED PLAYERS LIST (Never Drop)
+  // Parse current matchup record (W-L-T format)
+  const matchupRecord = useMemo(() => {
+    if (!myTeamWeekly?.team?.currentMatchup) return null;
+    const match = myTeamWeekly.team.currentMatchup.match(/(\d+)-(\d+)(?:-(\d+))?/);
+    if (!match) return null;
+    return {
+      wins: parseInt(match[1], 10),
+      losses: parseInt(match[2], 10),
+      ties: match[3] ? parseInt(match[3], 10) : 0,
+    };
+  }, [myTeamWeekly]);
+
+  // PROTECTED PLAYERS (top 6 CRI or wCRI - never drop)
   const protectedPlayers = useMemo(() => {
     if (roster.length === 0) return new Set<string>();
     
     const protectedSet = new Set<string>();
-    
-    // Get active players with CRI
     const activePlayers = roster.filter(r => r.slotType !== "ir" && r.player.cri !== undefined);
     
-    // Sort by CRI descending and protect top 6
+    // Top 6 by CRI
     const sortedByCri = [...activePlayers].sort((a, b) => (b.player.cri || 0) - (a.player.cri || 0));
     sortedByCri.slice(0, 6).forEach(r => protectedSet.add(r.player.id));
     
-    // Also protect any player with playoffRank <= 60 (ADP anchor)
-    roster.forEach(r => {
-      if (r.player.playoffRank && r.player.playoffRank <= 60) {
-        protectedSet.add(r.player.id);
-      }
-    });
+    // Top 6 by wCRI (redundant safety)
+    const sortedByWcri = [...activePlayers].sort((a, b) => (b.player.wCri || 0) - (a.player.wCri || 0));
+    sortedByWcri.slice(0, 6).forEach(r => protectedSet.add(r.player.id));
     
     return protectedSet;
   }, [roster]);
 
-  // Calculate ALL categories with risk classification and projections
-  const allCategories = useMemo((): SwingCategory[] => {
+  // CATEGORY ANALYSIS with buckets: Protect / Attack / Ignore
+  const categoryAnalysis = useMemo((): CategoryAnalysis[] => {
     if (!matchupData) return [];
 
     const categories = Object.keys(CATEGORY_LABELS) as (keyof MatchupStats)[];
-    const results: SwingCategory[] = [];
-
-    // Calculate active roster averages for projection
-    const activePlayers = roster.filter(r => r.slotType !== "ir" && r.player.minutes > 0);
-    const avgGamesRemaining = 3; // Estimate for rest of week
+    const results: CategoryAnalysis[] = [];
 
     categories.forEach((key) => {
       let myVal: number;
       let oppVal: number;
-      let myProjectedAdd = 0;
-      let oppProjectedAdd = 0;
 
       if (myTeamWeekly) {
         myVal = myTeamWeekly.team.stats[key];
         oppVal = myTeamWeekly.opponent.stats[key];
-        
-        // Estimate remaining impact from roster averages
-        if (activePlayers.length > 0 && COUNTING_STATS.includes(key)) {
-          const rosterAvg = activePlayers.reduce((sum, r) => sum + ((r.player as any)[key] || 0), 0) / activePlayers.length;
-          myProjectedAdd = rosterAvg * avgGamesRemaining * 5; // 5 starters playing
-          // Estimate opponent at similar pace
-          oppProjectedAdd = (oppVal / Math.max(1, 7 - avgGamesRemaining)) * avgGamesRemaining;
-        }
       } else {
         myVal = matchupData.myTeam.stats[key];
         oppVal = matchupData.opponent.stats[key];
-        if (COUNTING_STATS.includes(key)) {
-          myVal *= 40;
-          oppVal *= 40;
-        }
       }
 
       const isTurnover = key === "turnovers";
       const isPercentage = key === "fgPct" || key === "ftPct";
       const rawDiff = isTurnover ? oppVal - myVal : myVal - oppVal;
-      const projectedDiff = isTurnover 
-        ? (oppVal + oppProjectedAdd) - (myVal + myProjectedAdd)
-        : (myVal + myProjectedAdd) - (oppVal + oppProjectedAdd);
       const isLeading = rawDiff > 0;
       const risk = classifyRisk(rawDiff, isPercentage);
+      const isVolatile = isPercentage; // FG%/FT% are volatile
+
+      // Determine bucket
+      let bucket: CategoryBucket;
+      if (isLeading) {
+        bucket = risk === "low" ? "ignore" : "protect";
+      } else {
+        bucket = risk === "low" ? "ignore" : "attack";
+      }
 
       results.push({
         key,
@@ -217,643 +216,517 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
         myVal,
         oppVal,
         diff: rawDiff,
-        projectedDiff,
         isLeading,
+        bucket,
         risk,
+        isVolatile,
       });
     });
 
     return results;
-  }, [matchupData, myTeamWeekly, roster]);
+  }, [matchupData, myTeamWeekly]);
 
-  // Swing categories = categories closest to flipping (smallest abs margin)
-  const swingCategories = useMemo(() => {
-    return [...allCategories]
-      .sort((a, b) => Math.abs(a.diff) - Math.abs(b.diff))
-      .slice(0, 3);
-  }, [allCategories]);
+  // Group categories by bucket
+  const protectCats = categoryAnalysis.filter(c => c.bucket === "protect");
+  const attackCats = categoryAnalysis.filter(c => c.bucket === "attack");
+  const ignoreCats = categoryAnalysis.filter(c => c.bucket === "ignore");
 
-  // Categories where we're trailing but could recover
-  const recoverableCategories = useMemo(() => {
-    return allCategories.filter(c => !c.isLeading && (c.risk === "at-risk" || c.risk === "critical"));
-  }, [allCategories]);
+  // Summary line for matchup status
+  const matchupSummary = useMemo(() => {
+    const swingCount = protectCats.length + attackCats.length;
+    const atRiskCount = protectCats.length;
+    if (!matchupRecord) return null;
+    
+    const leadStatus = matchupRecord.wins > matchupRecord.losses 
+      ? "Ahead" 
+      : matchupRecord.wins < matchupRecord.losses 
+        ? "Behind" 
+        : "Tied";
+    
+    return `${leadStatus} ${matchupRecord.wins}–${matchupRecord.losses}–${matchupRecord.ties}${swingCount > 0 ? `, ${attackCats.length} to attack, ${atRiskCount} at risk` : ""}`;
+  }, [matchupRecord, protectCats, attackCats]);
 
-  // Categories where we're leading but at risk
-  const vulnerableCategories = useMemo(() => {
-    return allCategories.filter(c => c.isLeading && (c.risk === "at-risk" || c.risk === "critical"));
-  }, [allCategories]);
-
-  // TODAY'S GAMES - STRICT VALIDATION
+  // TODAY'S GAMES - only active players with valid game info
   const todayGames = useMemo(() => {
-    return roster.filter(r => {
+    const myGames = roster.filter(r => {
       const player = r.player;
-      
       const hasValidOpponent = player.opponent && 
         player.opponent !== "--" && 
         player.opponent.trim() !== "" &&
         (player.opponent.includes("vs") || player.opponent.includes("@"));
-      
       if (!hasValidOpponent) return false;
-      
-      const hasValidGameTime = player.gameTime && 
-        player.gameTime.trim() !== "" && 
-        player.gameTime !== "--";
-      
+      const hasValidGameTime = player.gameTime && player.gameTime.trim() !== "" && player.gameTime !== "--";
       if (!hasValidGameTime) return false;
-      
       const inactiveStatuses = ["O", "IR", "SUSP"];
       if (player.status && inactiveStatuses.includes(player.status)) return false;
-      
       if (r.slotType === "ir") return false;
-      
       return true;
-    }).map(r => ({
-      name: r.player.name,
-      opponent: r.player.opponent || "",
-      gameTime: r.player.gameTime || "",
-      team: r.player.nbaTeam,
-    }));
+    });
+    
+    const outPlayers = roster.filter(r => r.player.status === "O" || r.player.status === "DTD");
+    
+    return { 
+      active: myGames.length, 
+      outPlayers: outPlayers.map(r => ({ name: r.player.name, status: r.player.status })),
+    };
   }, [roster]);
 
-  // Generate ADD/DROP recommendations
-  const recommendations = useMemo(() => {
-    const hasRoster = roster.length > 0;
-    const hasFreeAgents = freeAgents.length === 50;
+  // ACTION ITEMS based on category priorities
+  const actionItems = useMemo(() => {
+    const items: string[] = [];
     
-    if (!hasRoster || !hasFreeAgents) return null;
+    // Attack priorities
+    if (attackCats.length > 0) {
+      const topAttack = attackCats.slice(0, 2).map(c => c.label).join("/");
+      items.push(`Prioritize ${topAttack} streamers`);
+    }
+    
+    // Protect TO if at risk
+    const toProtect = protectCats.find(c => c.key === "turnovers");
+    if (toProtect) {
+      items.push("Bench high-TO guards if possible");
+    }
+    
+    // FG%/FT% volatile warning
+    const volatileCats = [...protectCats, ...attackCats].filter(c => c.isVolatile);
+    if (volatileCats.length > 0) {
+      const labels = volatileCats.map(c => c.label).join("/");
+      items.push(`${labels} volatile — volume dependent`);
+    }
+    
+    return items.slice(0, 3);
+  }, [attackCats, protectCats]);
 
-    // Determine priority categories: recoverable (trailing) + vulnerable (leading at-risk)
-    const priorityCatKeys = [
-      ...recoverableCategories.map(c => c.key),
-      ...vulnerableCategories.map(c => c.key),
-    ].slice(0, 5);
-
-    // If no matchup data, use general counting stats
-    const targetCats = priorityCatKeys.length > 0 
-      ? priorityCatKeys 
-      : ["points", "rebounds", "assists", "steals", "blocks"];
-
-    // Calculate team averages
+  // STREAMING TARGETS (max 5, ranked by matchup fit)
+  const streamingTargets = useMemo(() => {
+    if (freeAgents.length === 0 || !matchupData) return [];
+    
+    const priorityKeys = [...attackCats, ...protectCats].map(c => c.key);
+    const hurtKeys = protectCats.map(c => c.key);
+    
     const activePlayers = roster.filter(r => r.slotType !== "ir" && r.player.minutes > 0);
     const teamAvg: Record<string, number> = {};
-    targetCats.forEach(key => {
+    priorityKeys.forEach(key => {
       const sum = activePlayers.reduce((acc, r) => acc + ((r.player as any)[key] || 0), 0);
       teamAvg[key] = activePlayers.length > 0 ? sum / activePlayers.length : 0;
     });
-
-    // SCORE FREE AGENTS with AddScore formula
-    const scoredFA = freeAgents.map(fa => {
-      let addScore = 0;
-      const helps: { cat: string; gain: number }[] = [];
-      const hurts: { cat: string; loss: number }[] = [];
-      const gamesRemaining = fa.gamesThisWeek || 3;
-
-      targetCats.forEach(key => {
-        const faVal = (fa as any)[key] || 0;
-        const weight = CATEGORY_WEIGHTS[key] || 0.5;
-        const isTurnover = key === "turnovers";
+    
+    const scored = freeAgents
+      .filter(fa => fa.status !== "O" && fa.status !== "IR")
+      .map(fa => {
+        let score = 0;
+        const helps: string[] = [];
+        const hurts: string[] = [];
+        const gamesRemaining = fa.gamesThisWeek || 3;
+        const playsToday = fa.opponent && fa.opponent !== "--" && (fa.opponent.includes("vs") || fa.opponent.includes("@"));
         
-        // Category gain/loss vs team average
-        const diff = isTurnover ? teamAvg[key] - faVal : faVal - teamAvg[key];
-        const impact = diff * weight * gamesRemaining;
-        
-        if (diff > 0.1) {
-          helps.push({ cat: CATEGORY_LABELS[key], gain: diff * gamesRemaining });
-          addScore += impact;
-        } else if (diff < -0.1) {
-          hurts.push({ cat: CATEGORY_LABELS[key], loss: Math.abs(diff) * gamesRemaining });
-          addScore -= Math.abs(impact) * 0.5; // Penalty for hurting categories
-        }
-      });
-
-      // Sort helps/hurts by magnitude
-      helps.sort((a, b) => b.gain - a.gain);
-      hurts.sort((a, b) => b.loss - a.loss);
-
-      // Build "Why now" reason
-      let whyNow = "";
-      const topHelps = helps.slice(0, 2);
-      if (topHelps.length > 0) {
-        const isRecoverable = recoverableCategories.some(c => topHelps.some(h => h.cat === CATEGORY_LABELS[c.key]));
-        const isProtecting = vulnerableCategories.some(c => topHelps.some(h => h.cat === CATEGORY_LABELS[c.key]));
-        
-        if (isRecoverable) {
-          whyNow = `Helps recover ${topHelps[0].cat}`;
-        } else if (isProtecting) {
-          whyNow = `Protects lead in ${topHelps[0].cat}`;
-        } else {
-          whyNow = `Strong ${topHelps.map(h => h.cat).join(" + ")} contributor`;
-        }
-        
-        if (gamesRemaining > 0) {
-          whyNow += ` • ${gamesRemaining} games left`;
-        }
-      }
-
-      return { 
-        player: fa, 
-        addScore, 
-        helps, 
-        hurts,
-        gamesRemaining,
-        whyNow,
-      };
-    });
-
-    scoredFA.sort((a, b) => b.addScore - a.addScore);
-    const adds = scoredFA.slice(0, 5);
-
-    // SCORE ROSTER FOR DROPS with DropScore formula
-    // Only consider: bottom 30% CRI (excluding protected), OR injured without expected return
-    const eligibleForDrop = activePlayers.filter(r => {
-      // Never drop protected players
-      if (protectedPlayers.has(r.player.id)) return false;
-      
-      // Allow injured players only if O/IR status
-      const isInjured = r.player.status === "O" || r.player.status === "IR";
-      if (isInjured) return true; // Can suggest drop for injured non-protected players
-      
-      // Otherwise, check if bottom 30% CRI
-      const criValues = activePlayers
-        .filter(p => p.player.cri !== undefined)
-        .map(p => p.player.cri || 0)
-        .sort((a, b) => a - b);
-      
-      const bottom30Threshold = criValues[Math.floor(criValues.length * 0.3)] || 0;
-      return (r.player.cri || 0) <= bottom30Threshold;
-    });
-
-    const scoredDrops = eligibleForDrop.map(r => {
-      const player = r.player;
-      let dropScore = 0;
-      const reasons: string[] = [];
-
-      // Find best FA upgrade at same position
-      const playerPositions = player.positions || [];
-      const positionMatchingFAs = freeAgents.filter(fa => {
-        const faPositions = fa.positions || [];
-        return playerPositions.some(p => faPositions.includes(p));
-      });
-
-      let bestUpgrade: { fa: Player; netGain: number; topCats: string[] } | null = null;
-      positionMatchingFAs.forEach(fa => {
-        let netGain = 0;
-        const gainByCat: { cat: string; gain: number }[] = [];
-        
-        targetCats.forEach(key => {
+        priorityKeys.forEach(key => {
           const faVal = (fa as any)[key] || 0;
-          const playerVal = (player as any)[key] || 0;
-          const isTurnover = key === "turnovers";
-          const gain = isTurnover ? (playerVal - faVal) : (faVal - playerVal);
           const weight = CATEGORY_WEIGHTS[key] || 0.5;
-          netGain += gain * weight;
-          if (gain > 0.1) {
-            gainByCat.push({ cat: CATEGORY_LABELS[key], gain });
+          const isTurnover = key === "turnovers";
+          const diff = isTurnover ? teamAvg[key] - faVal : faVal - teamAvg[key];
+          
+          // Boost attack categories more
+          const isAttack = attackCats.some(c => c.key === key);
+          const multiplier = isAttack ? 1.5 : 1.0;
+          
+          if (diff > 0.1) {
+            score += diff * weight * multiplier * gamesRemaining;
+            helps.push(CATEGORY_LABELS[key]);
+          } else if (diff < -0.1 && hurtKeys.includes(key)) {
+            score -= Math.abs(diff) * weight * gamesRemaining;
+            hurts.push(CATEGORY_LABELS[key]);
           }
         });
         
-        if (!bestUpgrade || netGain > bestUpgrade.netGain) {
-          bestUpgrade = { 
-            fa, 
-            netGain, 
-            topCats: gainByCat.sort((a, b) => b.gain - a.gain).slice(0, 2).map(g => g.cat) 
-          };
-        }
+        if (playsToday) score += 2;
+        
+        return { player: fa, score, helps: helps.slice(0, 2), hurts: hurts.slice(0, 1), gamesRemaining, playsToday };
       });
+    
+    return scored.sort((a, b) => b.score - a.score).slice(0, 5);
+  }, [freeAgents, matchupData, attackCats, protectCats, roster]);
 
-      // DropScore components
-      // 1. Opportunity cost (how much we gain by swapping)
-      if (bestUpgrade && bestUpgrade.netGain > 0) {
-        dropScore += bestUpgrade.netGain * 2;
-        reasons.push(`Swap for ${bestUpgrade.fa.name} → +${bestUpgrade.topCats.join(", ")}`);
+  // SAFE DROP CANDIDATES (max 3, with hard guardrails)
+  const dropCandidates = useMemo(() => {
+    if (roster.length === 0) return [];
+    
+    const activePlayers = roster.filter(r => r.slotType !== "ir");
+    const priorityKeys = [...attackCats, ...protectCats].map(c => c.key);
+    
+    // Team averages for priority categories
+    const teamAvg: Record<string, number> = {};
+    priorityKeys.forEach(key => {
+      const sum = activePlayers.reduce((acc, r) => acc + ((r.player as any)[key] || 0), 0);
+      teamAvg[key] = activePlayers.length > 0 ? sum / activePlayers.length : 0;
+    });
+    
+    const eligibleDrops = activePlayers.filter(r => {
+      // HARD GUARDRAIL: Never drop protected players (top 6 CRI/wCRI)
+      if (protectedPlayers.has(r.player.id)) return false;
+      // Exclude IR/O unless explicitly wanted
+      if (r.player.status === "IR") return false;
+      return true;
+    });
+    
+    const scored = eligibleDrops.map(r => {
+      const player = r.player;
+      let dropScore = 0;
+      const reasons: string[] = [];
+      
+      // Check how many priority categories they underperform
+      let underperformCount = 0;
+      priorityKeys.forEach(key => {
+        const val = (player as any)[key] || 0;
+        const isTurnover = key === "turnovers";
+        const belowAvg = isTurnover ? val > teamAvg[key] * 1.1 : val < teamAvg[key] * 0.8;
+        if (belowAvg) underperformCount++;
+      });
+      
+      if (underperformCount >= 2) {
+        dropScore += 2;
+        reasons.push(`Underperforms in ${underperformCount} priority cats`);
       }
-
-      // 2. Low CRI percentile
+      
+      // Injured status adds drop score
+      if (player.status === "O") {
+        dropScore += 3;
+        reasons.push(`OUT — roster clog`);
+      } else if (player.status === "DTD") {
+        dropScore += 1;
+        reasons.push(`DTD — uncertain availability`);
+      }
+      
+      // Low CRI ranking (bottom 30%)
       const criValues = activePlayers.map(p => p.player.cri || 0).sort((a, b) => b - a);
       const criRank = criValues.indexOf(player.cri || 0) + 1;
       const criPercentile = criRank / criValues.length;
       if (criPercentile > 0.7) {
         dropScore += 2;
-        reasons.push(`Bottom ${Math.round((1 - criPercentile) * 100)}% CRI on roster`);
+        reasons.push(`Bottom ${Math.round((1 - criPercentile) * 100)}% CRI`);
       }
-
-      // 3. Injured status
-      if (player.status === "O" || player.status === "IR") {
-        dropScore += 3;
-        reasons.push(`Currently ${player.status} — roster clog`);
-      }
-
-      // 4. High TO hurting swing category
-      if (player.turnovers > 3 && targetCats.includes("turnovers")) {
+      
+      // Fewer games remaining this week
+      const gamesRemaining = player.gamesThisWeek || 3;
+      if (gamesRemaining <= 1) {
         dropScore += 1;
-        reasons.push(`High TO (${player.turnovers.toFixed(1)}) hurts swing category`);
+        reasons.push(`Only ${gamesRemaining} game left`);
       }
-
-      // 5. Below average in multiple priority categories
-      const belowAvgCats = targetCats.filter(key => {
-        const val = (player as any)[key] || 0;
-        const isTurnover = key === "turnovers";
-        return isTurnover ? val > teamAvg[key] * 1.1 : val < teamAvg[key] * 0.8;
-      });
-      if (belowAvgCats.length >= 2) {
-        dropScore += 1;
-        reasons.push(`Below avg in ${belowAvgCats.map(k => CATEGORY_LABELS[k]).join(", ")}`);
-      }
-
-      return { 
-        player, 
-        dropScore,
-        reasons,
-        bestUpgrade,
-        isProtected: false,
-        slotType: r.slotType,
-      };
+      
+      return { player, dropScore, reasons, slotType: r.slotType };
     });
-
-    scoredDrops.sort((a, b) => b.dropScore - a.dropScore);
-    const drops = scoredDrops.filter(d => d.dropScore > 0).slice(0, 3);
-
-    // If no safe drops, return empty with message
-    const noSafeDrops = drops.length === 0;
-
-    return { 
-      adds, 
-      drops, 
-      noSafeDrops,
-      targetCats: targetCats.map(k => CATEGORY_LABELS[k]),
-      protectedCount: protectedPlayers.size,
-    };
-  }, [roster, freeAgents, recoverableCategories, vulnerableCategories, protectedPlayers]);
-
-  // URGENCY INDICATOR
-  const urgencyLevel = useMemo(() => {
-    if (!matchupData || allCategories.length === 0) return "green";
     
-    const criticalTrailing = allCategories.filter(c => c.risk === "critical" && !c.isLeading);
-    const atRiskTrailing = allCategories.filter(c => c.risk === "at-risk" && !c.isLeading);
-    
-    if (criticalTrailing.length >= 2) return "red";
-    if (criticalTrailing.length >= 1 && atRiskTrailing.length >= 2) return "red";
-    if (atRiskTrailing.length >= 1 || criticalTrailing.length >= 1) return "yellow";
-    
-    return "green";
-  }, [allCategories, matchupData]);
+    return scored.filter(d => d.dropScore > 0).sort((a, b) => b.dropScore - a.dropScore).slice(0, 3);
+  }, [roster, attackCats, protectCats, protectedPlayers]);
 
-  const urgencyConfig = {
-    green: {
-      icon: CheckCircle,
-      bg: "bg-stat-positive/10 border-stat-positive/30",
-      text: "text-stat-positive",
-      message: "No action needed today",
-    },
-    yellow: {
-      icon: Clock,
-      bg: "bg-yellow-500/10 border-yellow-500/30",
-      text: "text-yellow-600",
-      message: "Optional optimization available",
-    },
-    red: {
-      icon: AlertTriangle,
-      bg: "bg-stat-negative/10 border-stat-negative/30",
-      text: "text-stat-negative",
-      message: "Action recommended today",
-    },
-  };
+  // DATA AVAILABILITY FLAGS
+  const hasMatchupData = !!matchupData?.myTeam?.name;
+  const hasWeeklyData = !!myTeamWeekly;
+  const hasRoster = roster.length > 0;
+  const hasFreeAgents = freeAgents.length > 0;
 
-  const hasMyTeam = matchupData?.myTeam?.name;
-  const hasOpponent = matchupData?.opponent?.name && matchupData.opponent.name !== matchupData.myTeam?.name;
-  const urgency = urgencyConfig[urgencyLevel as keyof typeof urgencyConfig];
-  const UrgencyIcon = urgency.icon;
+  // Empty state
+  if (!hasMatchupData && !hasWeeklyData) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-display font-bold">Gameplan</h2>
+          <p className="text-muted-foreground text-sm">Your matchup strategy at a glance</p>
+        </div>
+        <Card className="p-8">
+          <div className="text-center text-muted-foreground">
+            <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-50" />
+            <p className="font-medium">Missing data</p>
+            <p className="text-sm mt-1">Import Matchup + Weekly to enable matchup-aware strategy.</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="text-center mb-6">
-        <h2 className="text-2xl md:text-3xl font-display font-bold">Gameplan</h2>
-        <p className="text-muted-foreground mt-1">Your matchup strategy at a glance</p>
+    <div className="max-w-4xl mx-auto space-y-4">
+      {/* Header */}
+      <div className="text-center mb-4">
+        <h2 className="text-2xl font-display font-bold">Gameplan</h2>
+        <p className="text-muted-foreground text-sm">Your matchup strategy at a glance</p>
       </div>
 
-      {/* URGENCY INDICATOR BANNER */}
-      {hasMyTeam && (
-        <div className={`border rounded-lg p-4 flex items-center justify-center gap-3 ${urgency.bg}`}>
-          <UrgencyIcon className={`w-5 h-5 ${urgency.text}`} />
-          <span className={`font-semibold text-lg ${urgency.text}`}>{urgency.message}</span>
-        </div>
-      )}
-
-      {/* 1) MATCHUP SNAPSHOT */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-display flex items-center gap-2">
-            <Target className="w-5 h-5 text-primary" />
-            Matchup Snapshot
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {hasMyTeam ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="text-center space-y-2 p-4 bg-accent/20 rounded-lg">
-                <Badge variant="default" className="text-sm px-3 py-1">MY TEAM</Badge>
-                <h3 className="text-xl md:text-2xl font-display font-bold">{matchupData!.myTeam.name}</h3>
-                <p className="text-lg text-muted-foreground">
-                  Season: <span className="text-foreground font-semibold">{matchupData!.myTeam.record || "—"}</span>
-                </p>
-                <p className="text-lg">
-                  {myTeamWeekly ? (
-                    <>Current: <span className="font-bold text-primary">{myTeamWeekly.team.currentMatchup || "—"}</span></>
-                  ) : (
-                    <span className="text-sm text-muted-foreground italic">Import Weekly Scoreboard for current record</span>
-                  )}
-                </p>
-              </div>
-
-              <div className="text-center space-y-2 p-4 bg-accent/20 rounded-lg">
-                <Badge variant="outline" className="text-sm px-3 py-1">OPPONENT</Badge>
-                {hasOpponent ? (
-                  <>
-                    <h3 className="text-xl md:text-2xl font-display font-bold">{matchupData!.opponent.name}</h3>
-                    <p className="text-lg text-muted-foreground">
-                      Season: <span className="text-foreground font-semibold">{matchupData!.opponent.record || "—"}</span>
-                    </p>
-                    <p className="text-lg">
-                      {myTeamWeekly ? (
-                        <>Current: <span className="font-bold">{myTeamWeekly.opponent.currentMatchup || "—"}</span></>
-                      ) : (
-                        <span className="text-sm text-muted-foreground italic">Current matchup unavailable</span>
-                      )}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-muted-foreground italic py-4">Import Matchup data to see opponent</p>
-                )}
-              </div>
+      {/* 2-column layout: desktop side-by-side, mobile stacked */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        
+        {/* === COLUMN A === */}
+        <div className="space-y-4">
+          
+          {/* Matchup At-a-Glance (compact) */}
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Target className="w-4 h-4 text-primary" />
+              <span className="font-display font-semibold">Matchup At-a-Glance</span>
             </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>Import Matchup data to see your matchup snapshot</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 2) SWING CATEGORIES */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-display flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" />
-            Swing Categories
-            <span className="text-sm font-normal text-muted-foreground ml-2">
-              {myTeamWeekly ? "(weekly totals)" : "(projected)"}
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {swingCategories.length > 0 ? (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {swingCategories.map((cat) => {
-                  const isPercentage = cat.key === "fgPct" || cat.key === "ftPct";
-                  const displayDiff = isPercentage ? Math.abs(cat.diff).toFixed(3) : Math.round(Math.abs(cat.diff));
-                  
-                  return (
-                    <div key={cat.key} className="bg-accent/30 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-2xl font-display font-bold">{cat.label}</span>
-                        {getRiskBadge(cat.risk)}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {cat.diff === 0 ? (
-                          <>
-                            <Minus className="w-4 h-4 text-muted-foreground" />
-                            <span className="text-muted-foreground font-semibold">Tied</span>
-                          </>
-                        ) : cat.isLeading ? (
-                          <>
-                            <TrendingUp className="w-4 h-4 text-stat-positive" />
-                            <span className="text-stat-positive font-semibold">
-                              Leading by {displayDiff}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <TrendingDown className="w-4 h-4 text-stat-negative" />
-                            <span className="text-stat-negative font-semibold">
-                              Trailing by {displayDiff}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+            
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1 text-center">
+                <div className="text-xs text-muted-foreground uppercase">My Team</div>
+                <div className="font-semibold truncate">{matchupData?.myTeam?.name?.split(' ').slice(0, 2).join(' ') || "—"}</div>
+                <div className="text-xs text-muted-foreground">{matchupData?.myTeam?.record || "—"}</div>
               </div>
-
-              {/* Advanced toggle for projected margins */}
-              <div className="mt-4">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="text-muted-foreground"
-                >
-                  {showAdvanced ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-                  {showAdvanced ? "Hide" : "Show"} all category margins
-                </Button>
-
-                {showAdvanced && (
-                  <div className="mt-3 bg-accent/20 rounded-lg p-4">
-                    <div className="grid grid-cols-3 md:grid-cols-5 gap-3 text-sm">
-                      {allCategories.map((cat) => {
-                        const isPercentage = cat.key === "fgPct" || cat.key === "ftPct";
-                        const displayDiff = isPercentage ? cat.diff.toFixed(3) : Math.round(cat.diff);
-                        const sign = cat.diff > 0 ? "+" : "";
-
-                        return (
-                          <div key={cat.key} className="text-center">
-                            <div className="font-semibold">{cat.label}</div>
-                            <div className={cat.isLeading ? "text-stat-positive" : cat.diff === 0 ? "text-muted-foreground" : "text-stat-negative"}>
-                              {sign}{displayDiff}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+              
+              <div className="text-center px-3">
+                <div className="text-lg font-bold text-primary">vs</div>
+                {matchupRecord && (
+                  <div className="text-xs font-mono font-semibold">
+                    {matchupRecord.wins}–{matchupRecord.losses}–{matchupRecord.ties}
                   </div>
                 )}
               </div>
-            </>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>Import Matchup data to see swing categories</p>
+              
+              <div className="flex-1 text-center">
+                <div className="text-xs text-muted-foreground uppercase">Opponent</div>
+                <div className="font-semibold truncate">{matchupData?.opponent?.name?.split(' ').slice(0, 2).join(' ') || "—"}</div>
+                <div className="text-xs text-muted-foreground">{matchupData?.opponent?.record || "—"}</div>
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 3) WHAT TO DO (ADDS / DROPS) */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-display flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-primary" />
-            What To Do
-            {recommendations?.protectedCount && (
-              <Badge variant="outline" className="ml-2 text-xs">
-                <Shield className="w-3 h-3 mr-1" />
-                {recommendations.protectedCount} protected
-              </Badge>
+            
+            {matchupSummary && (
+              <div className="mt-3 text-center">
+                <Badge variant="outline" className="text-xs">
+                  {matchupSummary}
+                </Badge>
+              </div>
             )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recommendations ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* ADD Candidates */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <UserPlus className="w-4 h-4 text-stat-positive" />
-                  <h4 className="font-display font-semibold text-stat-positive text-lg">Top Add Candidates</h4>
+          </Card>
+
+          {/* Category Priorities (core of Gameplan) */}
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-primary" />
+                <span className="font-display font-semibold">Category Priorities</span>
+              </div>
+              <span className="text-xs text-muted-foreground">{hasWeeklyData ? "weekly" : "projected"}</span>
+            </div>
+
+            {/* PROTECT bucket */}
+            {protectCats.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Shield className="w-3 h-3 text-yellow-500" />
+                  <span className="text-xs font-semibold text-yellow-600 dark:text-yellow-400 uppercase">Protect</span>
+                  <span className="text-xs text-muted-foreground">(close leads)</span>
                 </div>
-                <div className="space-y-3">
-                  {recommendations.adds.map((rec, idx) => (
-                    <div key={rec.player.id} className="bg-accent/20 rounded-lg p-4">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <span className="font-semibold text-lg">{rec.player.name}</span>
-                          <span className="text-sm text-muted-foreground ml-2">
-                            {rec.player.nbaTeam} · {rec.player.positions?.join("/") || "—"}
-                          </span>
-                        </div>
-                        <Badge variant="outline" className="text-xs">#{idx + 1}</Badge>
-                      </div>
-                      
-                      {/* Helps / Hurts */}
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {rec.helps.slice(0, 2).map(h => (
-                          <Badge key={h.cat} variant="secondary" className="text-xs bg-stat-positive/20 text-stat-positive">
-                            Helps: {h.cat} (+{h.gain.toFixed(1)})
-                          </Badge>
-                        ))}
-                        {rec.hurts.length > 0 && (
-                          <Badge variant="secondary" className="text-xs bg-stat-negative/20 text-stat-negative">
-                            Hurts: {rec.hurts[0].cat}
-                          </Badge>
-                        )}
-                      </div>
-                      
-                      <p className="text-sm text-muted-foreground">{rec.whyNow}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {protectCats.map(cat => (
+                    <div key={cat.key} className="flex items-center gap-1 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1">
+                      <span className="text-sm font-medium">{cat.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        +{cat.key === "fgPct" || cat.key === "ftPct" ? cat.diff.toFixed(3) : Math.round(cat.diff)}
+                      </span>
+                      {getRiskBadgeSmall(cat.risk)}
+                      {cat.isVolatile && <span className="text-xs text-muted-foreground">(vol)</span>}
                     </div>
                   ))}
                 </div>
               </div>
+            )}
 
-              {/* DROP Candidates */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <UserMinus className="w-4 h-4 text-stat-negative" />
-                  <h4 className="font-display font-semibold text-stat-negative text-lg">Top Drop Candidates</h4>
+            {/* ATTACK bucket */}
+            {attackCats.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <TrendingUp className="w-3 h-3 text-stat-positive" />
+                  <span className="text-xs font-semibold text-stat-positive uppercase">Attack</span>
+                  <span className="text-xs text-muted-foreground">(winnable deficits)</span>
                 </div>
-                
-                {recommendations.noSafeDrops ? (
-                  <div className="bg-accent/20 rounded-lg p-4 text-center">
-                    <Shield className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
-                    <p className="text-muted-foreground font-medium">No safe drops found</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      All roster players are either protected (top CRI) or provide value.<br />
-                      Add candidates above if you have an open slot.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {recommendations.drops.map((rec, idx) => (
-                      <div key={rec.player.id} className="bg-accent/20 rounded-lg p-4">
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <span className="font-semibold text-lg">{rec.player.name}</span>
-                            <span className="text-sm text-muted-foreground ml-2">
-                              {rec.player.nbaTeam} · {rec.player.positions?.join("/") || "—"}
-                            </span>
-                          </div>
-                          <Badge variant="outline" className="text-xs">#{idx + 1}</Badge>
-                        </div>
-                        
-                        {/* Context badges */}
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {rec.bestUpgrade && (
-                            <Badge variant="secondary" className="text-xs bg-stat-positive/20 text-stat-positive">
-                              Upgrade: {rec.bestUpgrade.fa.name}
-                            </Badge>
-                          )}
-                          {rec.player.status === "O" && (
-                            <Badge variant="secondary" className="text-xs bg-stat-negative/20 text-stat-negative">OUT</Badge>
-                          )}
-                          {rec.player.status === "IR" && (
-                            <Badge variant="secondary" className="text-xs bg-stat-negative/20 text-stat-negative">IR</Badge>
-                          )}
-                          {rec.slotType === "bench" && (
-                            <Badge variant="secondary" className="text-xs">Bench</Badge>
-                          )}
-                        </div>
-                        
-                        <p className="text-sm text-muted-foreground">{rec.reasons[0] || "Lower priority in current matchup context"}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {attackCats.map(cat => (
+                    <div key={cat.key} className="flex items-center gap-1 bg-stat-positive/10 border border-stat-positive/20 rounded px-2 py-1">
+                      <span className="text-sm font-medium">{cat.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {cat.key === "fgPct" || cat.key === "ftPct" ? cat.diff.toFixed(3) : Math.round(cat.diff)}
+                      </span>
+                      {getRiskBadgeSmall(cat.risk)}
+                      {cat.isVolatile && <span className="text-xs text-muted-foreground">(vol)</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* IGNORE bucket (collapsible) */}
+            {ignoreCats.length > 0 && (
+              <Collapsible defaultOpen={false}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="w-full justify-between text-muted-foreground h-7 px-2">
+                    <div className="flex items-center gap-1.5">
+                      <EyeOff className="w-3 h-3" />
+                      <span className="text-xs font-semibold uppercase">Ignore</span>
+                      <span className="text-xs">({ignoreCats.length} locked/low ROI)</span>
+                    </div>
+                    <ChevronDown className="w-3 h-3" />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {ignoreCats.map(cat => (
+                      <div key={cat.key} className="flex items-center gap-1 bg-muted/50 border border-border rounded px-2 py-1">
+                        <span className="text-sm font-medium text-muted-foreground">{cat.label}</span>
+                        <span className={`text-xs ${cat.isLeading ? "text-stat-positive" : "text-stat-negative"}`}>
+                          {cat.isLeading ? "+" : ""}{cat.key === "fgPct" || cat.key === "ftPct" ? cat.diff.toFixed(3) : Math.round(cat.diff)}
+                        </span>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>
-                {roster.length === 0 
-                  ? "Import your Roster to see recommendations" 
-                  : freeAgents.length !== 50 
-                    ? "Import exactly 50 Free Agents to see recommendations"
-                    : "Unable to generate recommendations"}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
 
-      {/* 4) SCHEDULE / GAMES */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-display flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-primary" />
-            Today's Games
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {todayGames.length > 0 ? (
-            <div>
-              <div className="bg-accent/30 rounded-lg p-4 mb-4">
-                <p className="text-lg text-center">
-                  <span className="font-semibold">Today:</span>{" "}
-                  <span className="text-primary font-bold">{todayGames.length}</span> of your players have games
-                </p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {todayGames.map((game, idx) => (
-                  <div key={idx} className="bg-accent/20 rounded-lg p-3">
-                    <div className="font-semibold text-lg">{game.name}</div>
-                    <div className="text-sm text-muted-foreground">{game.opponent}</div>
-                    {game.gameTime && (
-                      <div className="text-xs text-primary mt-1">{game.gameTime}</div>
-                    )}
+            {categoryAnalysis.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">No category data available.</p>
+            )}
+          </Card>
+        </div>
+
+        {/* === COLUMN B === */}
+        <div className="space-y-4">
+          
+          {/* Today's Execution Checklist */}
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Calendar className="w-4 h-4 text-primary" />
+              <span className="font-display font-semibold">Today's Checklist</span>
+            </div>
+            
+            {/* Player game counts */}
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="text-muted-foreground">Players with games today:</span>
+              <span className="font-semibold">{todayGames.active}</span>
+            </div>
+            
+            {/* OUT/DTD callouts */}
+            {todayGames.outPlayers.length > 0 && (
+              <div className="mb-3 space-y-1">
+                {todayGames.outPlayers.slice(0, 2).map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs bg-stat-negative/10 rounded px-2 py-1">
+                    <AlertTriangle className="w-3 h-3 text-stat-negative" />
+                    <span>{p.name}</span>
+                    <Badge variant="destructive" className="text-xs px-1 py-0 h-4">{p.status}</Badge>
+                    <span className="text-muted-foreground">— remove from start pool</span>
                   </div>
                 ))}
               </div>
+            )}
+            
+            {/* Action items */}
+            {actionItems.length > 0 ? (
+              <div className="space-y-1.5">
+                <div className="text-xs text-muted-foreground font-semibold uppercase mb-1">Do This Now</div>
+                {actionItems.map((item, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm">
+                    <CheckCircle className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground text-center py-2">
+                <CheckCircle className="w-4 h-4 mx-auto mb-1 text-stat-positive" />
+                No urgent actions today
+              </div>
+            )}
+          </Card>
+
+          {/* Streaming Targets (compact) */}
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <UserPlus className="w-4 h-4 text-stat-positive" />
+              <span className="font-display font-semibold">Streaming Targets</span>
+              <span className="text-xs text-muted-foreground">(max 5)</span>
             </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>None of your players have games today.</p>
+            
+            {streamingTargets.length > 0 ? (
+              <div className="space-y-2">
+                {streamingTargets.map((t, i) => (
+                  <div key={t.player.id} className="flex items-center justify-between text-sm bg-accent/30 rounded px-2 py-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-medium truncate">{t.player.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {t.player.nbaTeam}/{t.player.positions?.slice(0, 2).join("")}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {t.helps.length > 0 && (
+                        <span className="text-xs bg-stat-positive/20 text-stat-positive px-1 rounded">
+                          +{t.helps.join(",")}
+                        </span>
+                      )}
+                      {t.hurts.length > 0 && (
+                        <span className="text-xs bg-stat-negative/20 text-stat-negative px-1 rounded">
+                          −{t.hurts[0]}
+                        </span>
+                      )}
+                      {t.playsToday && (
+                        <Badge variant="secondary" className="text-xs px-1 py-0 h-4 bg-primary/20 text-primary">
+                          Today
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : hasFreeAgents ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No streaming targets based on current priorities.</p>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">Import Free Agents to see streaming targets.</p>
+            )}
+          </Card>
+
+          {/* Safe Drop Candidates */}
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <UserMinus className="w-4 h-4 text-stat-negative" />
+              <span className="font-display font-semibold">Safe Drop Candidates</span>
+              {protectedPlayers.size > 0 && (
+                <Badge variant="outline" className="text-xs px-1.5 py-0">
+                  <Shield className="w-2.5 h-2.5 mr-0.5" />
+                  {protectedPlayers.size} protected
+                </Badge>
+              )}
             </div>
-          )}
-        </CardContent>
-      </Card>
+            
+            {dropCandidates.length > 0 ? (
+              <div className="space-y-2">
+                {dropCandidates.map((d, i) => (
+                  <div key={d.player.id} className="flex items-center justify-between text-sm bg-accent/30 rounded px-2 py-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-medium truncate">{d.player.name}</span>
+                      {d.player.status && (
+                        <Badge variant="destructive" className="text-xs px-1 py-0 h-4">{d.player.status}</Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground truncate max-w-[140px]">
+                      {d.reasons[0]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : hasRoster ? (
+              <div className="text-center py-4">
+                <Shield className="w-5 h-5 mx-auto mb-1 text-muted-foreground opacity-50" />
+                <p className="text-sm text-muted-foreground">No safe drops found.</p>
+                <p className="text-xs text-muted-foreground">All players are protected or provide value.</p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">Import Roster to see drop candidates.</p>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {/* Footer explanation */}
+      <div className="text-center text-xs text-muted-foreground pt-2">
+        Built from {hasWeeklyData ? "Weekly totals" : "Matchup projections"} + {hasRoster ? "Roster data" : "—"} + {hasFreeAgents ? "Free Agents" : "—"}
+      </div>
     </div>
   );
 }
