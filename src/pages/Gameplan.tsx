@@ -246,28 +246,53 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
     return `${leadStatus} ${matchupRecord.wins}–${matchupRecord.losses}–${matchupRecord.ties}${swingCount > 0 ? `, ${attackCats.length} to attack, ${atRiskCount} at risk` : ""}`;
   }, [matchupRecord, protectCats, attackCats]);
 
-  // TODAY'S GAMES - only active players with valid game info
+  // Helper: check if player has a game today
+  const hasGameToday = (player: Player): boolean => {
+    const hasValidOpponent = player.opponent && 
+      player.opponent !== "--" && 
+      player.opponent.trim() !== "" &&
+      (player.opponent.includes("vs") || player.opponent.includes("@"));
+    const hasValidGameTime = player.gameTime && player.gameTime.trim() !== "" && player.gameTime !== "--";
+    return hasValidOpponent && hasValidGameTime;
+  };
+
+  // TODAY'S GAMES - properly scoped to "has game today" first
   const todayGames = useMemo(() => {
-    const myGames = roster.filter(r => {
-      const player = r.player;
-      const hasValidOpponent = player.opponent && 
-        player.opponent !== "--" && 
-        player.opponent.trim() !== "" &&
-        (player.opponent.includes("vs") || player.opponent.includes("@"));
-      if (!hasValidOpponent) return false;
-      const hasValidGameTime = player.gameTime && player.gameTime.trim() !== "" && player.gameTime !== "--";
-      if (!hasValidGameTime) return false;
+    // Check if we have any schedule data at all
+    const anyPlayerHasGameData = roster.some(r => hasGameToday(r.player));
+    if (!anyPlayerHasGameData) {
+      return { hasScheduleData: false, eligible: 0, unavailable: [], unavailableCount: 0 };
+    }
+
+    // Build todayEligible: hasGameToday AND not O/IR
+    const todayEligible = roster.filter(r => {
+      if (!hasGameToday(r.player)) return false;
       const inactiveStatuses = ["O", "IR", "SUSP"];
-      if (player.status && inactiveStatuses.includes(player.status)) return false;
+      if (r.player.status && inactiveStatuses.includes(r.player.status)) return false;
       if (r.slotType === "ir") return false;
       return true;
     });
-    
-    const outPlayers = roster.filter(r => r.player.status === "O" || r.player.status === "DTD");
-    
+
+    // Build todayUnavailable: hasGameToday AND is O/IR
+    const todayUnavailable = roster.filter(r => {
+      if (!hasGameToday(r.player)) return false;
+      const status = r.player.status;
+      return status === "O" || status === "IR";
+    });
+
+    // Players in starting slots with DTD status (action items)
+    const dtdInStartingSlots = roster.filter(r => {
+      if (!hasGameToday(r.player)) return false;
+      if (r.player.status !== "DTD") return false;
+      return r.slotType === "starter";
+    });
+
     return { 
-      active: myGames.length, 
-      outPlayers: outPlayers.map(r => ({ name: r.player.name, status: r.player.status })),
+      hasScheduleData: true,
+      eligible: todayEligible.length, 
+      unavailable: todayUnavailable.map(r => ({ name: r.player.name, status: r.player.status })),
+      unavailableCount: todayUnavailable.length,
+      dtdStarters: dtdInStartingSlots.map(r => ({ name: r.player.name, status: r.player.status })),
     };
   }, [roster]);
 
@@ -590,51 +615,73 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
         {/* === COLUMN B === */}
         <div className="space-y-4">
           
-          {/* Today's Execution Checklist */}
-          <Card className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Calendar className="w-4 h-4 text-primary" />
-              <span className="font-display font-semibold">Today's Checklist</span>
-            </div>
-            
-            {/* Player game counts */}
-            <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-muted-foreground">Players with games today:</span>
-              <span className="font-semibold">{todayGames.active}</span>
-            </div>
-            
-            {/* OUT/DTD callouts */}
-            {todayGames.outPlayers.length > 0 && (
-              <div className="mb-3 space-y-1">
-                {todayGames.outPlayers.slice(0, 2).map((p, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs bg-stat-negative/10 rounded px-2 py-1">
-                    <AlertTriangle className="w-3 h-3 text-stat-negative" />
-                    <span>{p.name}</span>
-                    <Badge variant="destructive" className="text-xs px-1 py-0 h-4">{p.status}</Badge>
-                    <span className="text-muted-foreground">— remove from start pool</span>
-                  </div>
-                ))}
+          {/* Today's Execution Checklist - only show if schedule data exists */}
+          {todayGames.hasScheduleData ? (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Calendar className="w-4 h-4 text-primary" />
+                <span className="font-display font-semibold">Today's Checklist</span>
               </div>
-            )}
-            
-            {/* Action items */}
-            {actionItems.length > 0 ? (
-              <div className="space-y-1.5">
-                <div className="text-xs text-muted-foreground font-semibold uppercase mb-1">Do This Now</div>
-                {actionItems.map((item, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm">
-                    <CheckCircle className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
-                    <span>{item}</span>
-                  </div>
-                ))}
+              
+              {/* Player game counts */}
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-muted-foreground">Players with games today:</span>
+                <span className="font-semibold">{todayGames.eligible}</span>
               </div>
-            ) : (
-              <div className="text-sm text-muted-foreground text-center py-2">
-                <CheckCircle className="w-4 h-4 mx-auto mb-1 text-stat-positive" />
-                No urgent actions today
+
+              {/* Unavailable today (O/IR with games) */}
+              {todayGames.unavailableCount > 0 && (
+                <div className="flex items-center justify-between text-sm mb-2 text-muted-foreground">
+                  <span>Unavailable today (O/IR):</span>
+                  <span className="font-semibold text-stat-negative">{todayGames.unavailableCount}</span>
+                </div>
+              )}
+              
+              {/* DTD in starting slots - action items */}
+              {todayGames.dtdStarters && todayGames.dtdStarters.length > 0 && (
+                <div className="mb-3 space-y-1">
+                  {todayGames.dtdStarters.slice(0, 2).map((p, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs bg-yellow-500/10 rounded px-2 py-1">
+                      <AlertTriangle className="w-3 h-3 text-yellow-500" />
+                      <span>{p.name}</span>
+                      <Badge variant="outline" className="text-xs px-1 py-0 h-4 border-yellow-500 text-yellow-600">{p.status}</Badge>
+                      <span className="text-muted-foreground">— monitor before lock</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Action items */}
+              {actionItems.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="text-xs text-muted-foreground font-semibold uppercase mb-1">Do This Now</div>
+                  {actionItems.map((item, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <CheckCircle className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground text-center py-2">
+                  <CheckCircle className="w-4 h-4 mx-auto mb-1 text-stat-positive" />
+                  No urgent actions today
+                </div>
+              )}
+            </Card>
+          ) : (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Calendar className="w-4 h-4 text-muted-foreground" />
+                <span className="font-display font-semibold text-muted-foreground">Today's Checklist</span>
               </div>
-            )}
-          </Card>
+              <div className="text-sm text-muted-foreground text-center py-4">
+                <Clock className="w-5 h-5 mx-auto mb-2 opacity-50" />
+                <p>No schedule data available.</p>
+                <p className="text-xs mt-1">Import today's games to see checklist.</p>
+              </div>
+            </Card>
+          )}
 
           {/* Streaming Targets (compact) */}
           <Card className="p-4">
