@@ -125,6 +125,8 @@ export function useDraftState(): UseDraftStateReturn {
           avgPick: null,
           rostPct: null,
           valueDelta: null,
+          deltaCRI: null,
+          deltaWCRI: null,
           tier: 6,
           drafted: false,
           draftedBy: null,
@@ -151,18 +153,27 @@ export function useDraftState(): UseDraftStateReturn {
     const result: DraftPlayer[] = [];
     playerMap.forEach(player => {
       const valueDelta = calculateValueDelta(player.adpRank, player.crisRank);
+      const deltaCRI = valueDelta; // Explicit naming
+      const deltaWCRI = calculateValueDelta(player.adpRank, player.crisRank); // For now same as CRI, can add wcriRank later
       const primaryRank = player.crisRank ?? player.adpRank ?? player.lastYearRank ?? 999;
       const tier = getTierFromRank(primaryRank);
       
       result.push({
         ...player,
         valueDelta,
+        deltaCRI,
+        deltaWCRI,
         tier,
       });
     });
     
-    // Sort by primary rank
+    // Sort by deltaCRI descending (best value first) when available, else by primary rank
     result.sort((a, b) => {
+      // If both have deltaCRI, sort by that (higher = better value)
+      if (a.deltaCRI !== null && b.deltaCRI !== null) {
+        return b.deltaCRI - a.deltaCRI;
+      }
+      // Fallback to primary rank
       const aRank = a.crisRank ?? a.adpRank ?? a.lastYearRank ?? 999;
       const bRank = b.crisRank ?? b.adpRank ?? b.lastYearRank ?? 999;
       return aRank - bRank;
