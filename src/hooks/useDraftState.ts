@@ -1,6 +1,6 @@
 // Draft State Hook - Manages unified player list, import, and draft
 
-import { useState, useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { usePersistedState } from './usePersistedState';
 import {
   UnifiedPlayer,
@@ -24,6 +24,7 @@ import {
 } from '@/types/draft';
 
 const STORAGE_KEY = 'dumphoops-draft-v2';
+const IMPORT_STORAGE_KEY = 'dumphoops-import-v2';
 
 interface UseDraftStateReturn {
   // State
@@ -82,7 +83,8 @@ const initialDraftState: DraftState = {
 
 export function useDraftState(): UseDraftStateReturn {
   const [state, setState] = usePersistedState<DraftState>(STORAGE_KEY, initialDraftState);
-  const [importState, setImportState] = useState<ImportState>(initialImportState);
+  // Persist import state so users don't lose pasted data on refresh
+  const [importState, setImportState] = usePersistedState<ImportState>(IMPORT_STORAGE_KEY, initialImportState);
   
   // Ensure backwards compatibility
   const currentStep = state.currentStep ?? 'import';
@@ -332,7 +334,7 @@ export function useDraftState(): UseDraftStateReturn {
   const clearAllData = useCallback(() => {
     setState(initialDraftState);
     setImportState(initialImportState);
-  }, [setState]);
+  }, [setState, setImportState]);
 
   // ============ WIZARD ============
   const setCurrentStep = useCallback((step: WizardStep) => {

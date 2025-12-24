@@ -1,89 +1,8 @@
-// ESPN Draft Data Parsers - Robust noise filtering and stat extraction
+// ESPN Draft Data Parsers - HTML Table Parsing with Text Fallback
 
 import { ParsedPlayer, PlayerStats, normalizePlayerName } from '@/types/draft';
 
-// ============ NOISE FILTERING ============
-const NOISE_PATTERNS = [
-  'fantasy chat',
-  'fantasy basketball',
-  'espn live draft',
-  'copyright',
-  'terms of use',
-  'privacy policy',
-  'do not sell',
-  'fantasy support',
-  'search the full library',
-  'apollo',
-  'hsb.accessibility',
-  'free agents',
-  'waiver report',
-  'watch list',
-  'espn bet',
-  'lm tools',
-  'reset all',
-  '1 2 3 4 5',
-  'opposing teams',
-  'officially licensed',
-  'skip to main',
-  'skip to navigation',
-  'sign up',
-  'log in',
-  'create account',
-  'advertisement',
-  'ad choices',
-  'espn sites',
-  'espn apps',
-  'follow espn',
-  'quick links',
-  'favorites',
-  'customized bracket',
-  'nba teams',
-  'fantasy games',
-  'more sports',
-  'espn+',
-  'soccer scores',
-  'fantasy tools',
-  'players add',
-  'filter',
-  'action add',
-  'add watch',
-  'total adds',
-  'showing',
-  'table settings',
-];
-
-const HEADER_PATTERNS = [
-  /^rank$/i,
-  /^player$/i,
-  /^team$/i,
-  /^pos$/i,
-  /^position$/i,
-  /^min$/i,
-  /^fgm$/i,
-  /^fga$/i,
-  /^fg%$/i,
-  /^ftm$/i,
-  /^fta$/i,
-  /^ft%$/i,
-  /^3pm$/i,
-  /^reb$/i,
-  /^ast$/i,
-  /^stl$/i,
-  /^blk$/i,
-  /^to$/i,
-  /^pts$/i,
-  /^status$/i,
-  /^avg pick$/i,
-  /^rost %$/i,
-  /^avg$/i,
-  /^pick$/i,
-  /^rost$/i,
-  /^gp$/i,
-  /^mpg$/i,
-  /^fgm\/fga$/i,
-  /^ftm\/fta$/i,
-];
-
+// ============ CONSTANTS ============
 const NBA_TEAMS = new Set([
   'ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET',
   'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL',
@@ -94,23 +13,23 @@ const NBA_TEAMS = new Set([
 const POSITIONS = new Set(['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F']);
 const STATUSES = new Set(['O', 'DTD', 'IR', 'Q', 'SUSP', 'GTD', 'INJ', 'OUT', 'D']);
 
+const NOISE_WORDS = [
+  'fantasy', 'chat', 'espn', 'copyright', 'privacy', 'terms', 
+  'advertisement', 'sign up', 'log in', 'follow', 'favorites'
+];
+
+// ============ PARSE RESULT ============
+export interface ParseResult {
+  players: ParsedPlayer[];
+  errors: string[];
+  stats: {
+    linesProcessed: number;
+    playersFound: number;
+    duplicatesRemoved: number;
+  };
+}
+
 // ============ HELPER FUNCTIONS ============
-
-function isNoiseLine(line: string): boolean {
-  const lower = line.toLowerCase().trim();
-  if (lower.length < 3) return true;
-  if (lower.length > 500) return true; // Very long lines are usually noise
-  
-  return NOISE_PATTERNS.some(pattern => lower.includes(pattern));
-}
-
-function isHeaderLine(line: string): boolean {
-  const tokens = line.split(/\s+/);
-  const headerCount = tokens.filter(t => 
-    HEADER_PATTERNS.some(p => p.test(t))
-  ).length;
-  return headerCount >= 2;
-}
 
 function extractTeam(text: string): string | null {
   const upper = text.toUpperCase().trim();
@@ -120,7 +39,7 @@ function extractTeam(text: string): string | null {
 
 function extractPositions(text: string): string[] {
   const upper = text.toUpperCase().replace(/,/g, ' ');
-  const tokens = upper.split(/\s+/).filter(Boolean);
+  const tokens = upper.split(/[\s,]+/).filter(Boolean);
   return tokens.filter(t => POSITIONS.has(t));
 }
 
@@ -133,14 +52,12 @@ function extractStatus(text: string): string | null {
 /**
  * Fix ESPN copy/paste name duplication issues.
  * e.g., "Giannis AntetokounmpoGiannis Antetokounmpo" → "Giannis Antetokounmpo"
- * e.g., "Joel Embiid Joel Embiid" → "Joel Embiid"
  */
 function fixDuplicatePlayerName(name: string): string {
   const trimmed = name.trim();
   if (trimmed.length < 4) return trimmed;
   
   // Check for exact two identical halves (no space between)
-  // e.g., "LeBron JamesLeBron James"
   for (let splitPoint = Math.floor(trimmed.length / 2) - 2; splitPoint <= Math.ceil(trimmed.length / 2) + 2; splitPoint++) {
     if (splitPoint > 2 && splitPoint < trimmed.length - 2) {
       const firstHalf = trimmed.slice(0, splitPoint);
@@ -151,8 +68,7 @@ function fixDuplicatePlayerName(name: string): string {
     }
   }
   
-  // Check for immediate duplicate tokens with space
-  // e.g., "Joel Embiid Joel Embiid"
+  // Check for space-separated duplicates
   const tokens = trimmed.split(/\s+/);
   if (tokens.length >= 4 && tokens.length % 2 === 0) {
     const half = tokens.length / 2;
@@ -163,424 +79,440 @@ function fixDuplicatePlayerName(name: string): string {
     }
   }
   
-  // Check for partial repeats like "LeBron James James"
-  if (tokens.length >= 3) {
-    const lastToken = tokens[tokens.length - 1].toLowerCase();
-    const secondLastToken = tokens[tokens.length - 2]?.toLowerCase();
-    if (lastToken === secondLastToken) {
-      return tokens.slice(0, -1).join(' ');
-    }
-  }
-  
   return trimmed;
 }
 
 /**
- * Parse stats from a sequence of numeric tokens.
- * Expected order (ESPN typical): MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
+ * Check if a name is valid (not noise)
  */
-function parseStatsFromTokens(tokens: string[]): PlayerStats | null {
-  // Filter to only numeric tokens
-  const nums: number[] = [];
+function isValidPlayerName(name: string): boolean {
+  const cleaned = name.trim().toLowerCase();
+  if (cleaned.length < 3) return false;
   
-  for (const t of tokens) {
-    // Handle FGM/FGA format
-    const slashMatch = t.match(/^(\d+)\/(\d+)$/);
-    if (slashMatch) {
-      nums.push(parseFloat(slashMatch[1]), parseFloat(slashMatch[2]));
-      continue;
-    }
-    
-    // Handle percentages like .456 or 45.6% or 0.456
-    if (t.match(/^\.?\d+\.?\d*%?$/)) {
-      let val = parseFloat(t.replace('%', ''));
-      // If it looks like a decimal percentage (0.456), convert
-      if (val < 1 && val > 0) {
-        val = val; // Keep as decimal
-      } else if (val > 1) {
-        val = val / 100; // Convert percentage
-      }
-      nums.push(val);
-      continue;
-    }
-    
-    // Regular numbers
-    if (t.match(/^\d+\.?\d*$/)) {
-      nums.push(parseFloat(t));
-    }
+  // Must contain at least one space (first + last name)
+  if (!cleaned.includes(' ')) return false;
+  
+  // Must have at least 2 letters
+  const letters = cleaned.replace(/[^a-z]/g, '');
+  if (letters.length < 2) return false;
+  
+  // Reject noise patterns
+  for (const noise of NOISE_WORDS) {
+    if (cleaned.includes(noise)) return false;
   }
   
-  // Need at least a few stats to be meaningful
-  if (nums.length < 5) return null;
+  // Reject if mostly numbers
+  const nums = cleaned.replace(/[^0-9]/g, '');
+  if (nums.length > letters.length) return false;
   
-  // Try to map to stats based on typical order
-  // MIN, FGM, FGA, FG%, FTM, FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS
-  const stats: PlayerStats = {};
-  
-  // Heuristic: find the pattern
-  let idx = 0;
-  
-  // Look for MIN (usually 15-40)
-  if (nums[idx] >= 10 && nums[idx] <= 42) {
-    stats.min = nums[idx++];
-  }
-  
-  // FGM (usually 2-15)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 15) {
-    stats.fgm = nums[idx++];
-  }
-  
-  // FGA (usually 5-25)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 30) {
-    stats.fga = nums[idx++];
-  }
-  
-  // FG% (usually 0.35-0.65 or already normalized)
-  if (idx < nums.length && ((nums[idx] >= 0.3 && nums[idx] <= 0.7) || (nums[idx] >= 30 && nums[idx] <= 70))) {
-    stats.fgPct = nums[idx] > 1 ? nums[idx] / 100 : nums[idx];
-    idx++;
-  }
-  
-  // FTM (usually 1-12)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 15) {
-    stats.ftm = nums[idx++];
-  }
-  
-  // FTA (usually 1-15)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 18) {
-    stats.fta = nums[idx++];
-  }
-  
-  // FT% (usually 0.6-0.95)
-  if (idx < nums.length && ((nums[idx] >= 0.5 && nums[idx] <= 1) || (nums[idx] >= 50 && nums[idx] <= 100))) {
-    stats.ftPct = nums[idx] > 1 ? nums[idx] / 100 : nums[idx];
-    idx++;
-  }
-  
-  // 3PM (usually 0-5)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 8) {
-    stats.threes = nums[idx++];
-  }
-  
-  // REB (usually 2-15)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 18) {
-    stats.reb = nums[idx++];
-  }
-  
-  // AST (usually 1-12)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 15) {
-    stats.ast = nums[idx++];
-  }
-  
-  // STL (usually 0.3-2.5)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 4) {
-    stats.stl = nums[idx++];
-  }
-  
-  // BLK (usually 0.1-3)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 5) {
-    stats.blk = nums[idx++];
-  }
-  
-  // TO (usually 0.5-5)
-  if (idx < nums.length && nums[idx] >= 0 && nums[idx] <= 6) {
-    stats.to = nums[idx++];
-  }
-  
-  // PTS (usually 5-35)
-  if (idx < nums.length && nums[idx] >= 3 && nums[idx] <= 40) {
-    stats.pts = nums[idx++];
-  }
-  
-  // If we didn't get pts but have a high number at the end, that's probably pts
-  if (!stats.pts && nums.length > 0) {
-    const lastNum = nums[nums.length - 1];
-    if (lastNum >= 5 && lastNum <= 40) {
-      stats.pts = lastNum;
-    }
-  }
-  
-  return Object.keys(stats).length >= 3 ? stats : null;
-}
-
-// ============ MAIN PARSERS ============
-
-export interface ParseResult {
-  players: ParsedPlayer[];
-  errors: string[];
-  stats: {
-    linesProcessed: number;
-    playersFound: number;
-    duplicatesRemoved: number;
-  };
+  return true;
 }
 
 /**
- * Parse ESPN ADP Trends data
- * Format: Rank Player Team Pos AvgPick RostPct
+ * Parse stats from column values using header mapping
  */
-export function parseEspnAdp(rawData: string, rankOffset = 0): ParseResult {
-  const lines = rawData.split('\n');
+function parseStatsFromColumns(
+  headerMap: Map<string, number>,
+  cells: string[]
+): PlayerStats | null {
+  const stats: PlayerStats = {};
+  
+  const getNum = (headers: string[]): number | undefined => {
+    for (const h of headers) {
+      const idx = headerMap.get(h.toLowerCase());
+      if (idx !== undefined && cells[idx]) {
+        const val = parseFloat(cells[idx].replace('%', '').trim());
+        if (!isNaN(val)) return val;
+      }
+    }
+    return undefined;
+  };
+  
+  stats.min = getNum(['min', 'mpg', 'mins']);
+  stats.fgPct = getNum(['fg%', 'fgpct']);
+  stats.ftPct = getNum(['ft%', 'ftpct']);
+  stats.threes = getNum(['3pm', '3pt', 'threes', '3s']);
+  stats.reb = getNum(['reb', 'rebs', 'rebounds']);
+  stats.ast = getNum(['ast', 'asts', 'assists']);
+  stats.stl = getNum(['stl', 'stls', 'steals']);
+  stats.blk = getNum(['blk', 'blks', 'blocks']);
+  stats.to = getNum(['to', 'tos', 'turnovers']);
+  stats.pts = getNum(['pts', 'points']);
+  
+  // Convert percentages if they're whole numbers
+  if (stats.fgPct && stats.fgPct > 1) stats.fgPct = stats.fgPct / 100;
+  if (stats.ftPct && stats.ftPct > 1) stats.ftPct = stats.ftPct / 100;
+  
+  return Object.keys(stats).length >= 2 ? stats : null;
+}
+
+// ============ HTML TABLE PARSER ============
+
+/**
+ * Parse HTML table from clipboard - PRIMARY method
+ */
+export function parseHtmlTable(
+  html: string, 
+  sourceType: 'projections' | 'adp' | 'lastYear',
+  rankOffset = 0
+): ParseResult {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  
+  // Find the largest table (most rows)
+  const tables = Array.from(doc.querySelectorAll('table'));
+  if (tables.length === 0) {
+    return { 
+      players: [], 
+      errors: ['No HTML table found in pasted content'],
+      stats: { linesProcessed: 0, playersFound: 0, duplicatesRemoved: 0 }
+    };
+  }
+  
+  // Sort by row count, take the largest
+  tables.sort((a, b) => b.querySelectorAll('tr').length - a.querySelectorAll('tr').length);
+  const table = tables[0];
+  
+  const rows = Array.from(table.querySelectorAll('tr'));
+  if (rows.length < 2) {
+    return { 
+      players: [], 
+      errors: ['Table has too few rows'],
+      stats: { linesProcessed: rows.length, playersFound: 0, duplicatesRemoved: 0 }
+    };
+  }
+  
+  // Build header map from first row (or thead)
+  const headerMap = new Map<string, number>();
+  const headerRow = table.querySelector('thead tr') || rows[0];
+  const headerCells = Array.from(headerRow.querySelectorAll('th, td'));
+  
+  headerCells.forEach((cell, idx) => {
+    const text = cell.textContent?.toLowerCase().trim() || '';
+    if (text) headerMap.set(text, idx);
+    
+    // Also map common variations
+    if (text.includes('player')) headerMap.set('player', idx);
+    if (text.includes('rank') || text === '#') headerMap.set('rank', idx);
+    if (text.includes('team')) headerMap.set('team', idx);
+    if (text.includes('pos')) headerMap.set('pos', idx);
+    if (text.includes('avg') && text.includes('pick')) headerMap.set('avgpick', idx);
+    if (text.includes('rost')) headerMap.set('rost', idx);
+  });
+  
   const players: ParsedPlayer[] = [];
   const errors: string[] = [];
-  let linesProcessed = 0;
+  const seenKeys = new Set<string>();
+  let duplicatesRemoved = 0;
   
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (isNoiseLine(trimmed)) continue;
-    if (isHeaderLine(trimmed)) continue;
+  // Determine start row (skip header)
+  const startIdx = headerRow === rows[0] ? 1 : 0;
+  
+  for (let i = startIdx; i < rows.length; i++) {
+    const row = rows[i];
+    const cells = Array.from(row.querySelectorAll('td'));
+    if (cells.length < 2) continue;
     
-    linesProcessed++;
+    // Get cell text content
+    const cellTexts = cells.map(c => c.textContent?.trim() || '');
     
-    const tokens = trimmed.split(/\t|\s{2,}|\s/).filter(Boolean);
-    if (tokens.length < 2) continue;
-    
-    // Look for rank at start
-    const rankMatch = tokens[0].match(/^(\d+)\.?$/);
-    if (!rankMatch) continue;
-    
-    const rank = parseInt(rankMatch[1], 10) + rankOffset;
+    // Extract player name - try multiple strategies
     let playerName = '';
     let team: string | null = null;
-    const positions: string[] = [];
+    let positions: string[] = [];
     let status: string | null = null;
+    let rank = rankOffset + players.length + 1;
     let avgPick: number | undefined;
     let rostPct: number | undefined;
     
-    // Process remaining tokens
-    for (let i = 1; i < tokens.length; i++) {
-      const token = tokens[i];
+    // Strategy 1: Use header map
+    const playerIdx = headerMap.get('player');
+    if (playerIdx !== undefined && cells[playerIdx]) {
+      // Get just the first anchor or main text
+      const playerCell = cells[playerIdx];
+      const anchor = playerCell.querySelector('a');
       
-      // Status
-      const statusMatch = extractStatus(token);
-      if (statusMatch && !status) {
-        status = statusMatch;
-        continue;
+      if (anchor) {
+        playerName = anchor.textContent?.trim() || '';
+      } else {
+        // Get first significant text node
+        const textContent = playerCell.textContent?.trim() || '';
+        // Split by common delimiters and take first part
+        playerName = textContent.split(/[,\n\t]|(?=[A-Z]{2,3}$)/)[0].trim();
       }
-      
-      // Team
-      const teamMatch = extractTeam(token);
-      if (teamMatch && !team) {
-        team = teamMatch;
-        continue;
-      }
-      
-      // Positions
-      const posMatches = extractPositions(token);
-      if (posMatches.length > 0) {
-        positions.push(...posMatches);
-        continue;
-      }
-      
-      // Numeric: avg pick or rost %
-      const numMatch = token.match(/^(\d+\.?\d*)%?$/);
-      if (numMatch) {
-        const val = parseFloat(numMatch[1]);
-        if (!avgPick && val > 0 && val < 300) {
-          avgPick = val;
-        } else if (!rostPct && val >= 0 && val <= 100) {
-          rostPct = val;
+    }
+    
+    // Strategy 2: First cell with reasonable text
+    if (!playerName) {
+      for (let j = 0; j < Math.min(cells.length, 3); j++) {
+        const text = cellTexts[j];
+        // Skip if it looks like a rank number
+        if (/^\d+$/.test(text)) {
+          const parsed = parseInt(text, 10);
+          if (parsed >= 1 && parsed <= 300) {
+            rank = parsed + rankOffset;
+            continue;
+          }
         }
-        continue;
-      }
-      
-      // Skip known headers/noise
-      if (token.match(/^(Rank|Player|Team|Pos|Avg|Pick|Rost|%|Add|Watch)$/i)) {
-        continue;
-      }
-      
-      // Accumulate player name
-      if (token.length > 1 && !token.match(/^\d+$/)) {
-        playerName += (playerName ? ' ' : '') + token;
+        // Check if this looks like a name
+        if (text.length > 3 && text.includes(' ') && /[a-zA-Z]/.test(text)) {
+          playerName = text.split(/[,\n\t]/)[0].trim();
+          break;
+        }
       }
     }
     
     // Clean up player name
-    playerName = playerName.replace(/^\d+\s*\.?\s*/, '').trim();
     playerName = fixDuplicatePlayerName(playerName);
     
-    if (playerName && playerName.length > 2) {
-      players.push({
-        rank,
-        playerName,
-        team,
-        positions: [...new Set(positions)],
-        status,
-        avgPick,
-        rostPct,
-      });
+    // Skip invalid names
+    if (!isValidPlayerName(playerName)) continue;
+    
+    // Extract rank from first numeric cell or header
+    const rankIdx = headerMap.get('rank');
+    if (rankIdx !== undefined && cellTexts[rankIdx]) {
+      const r = parseInt(cellTexts[rankIdx], 10);
+      if (r >= 1 && r <= 300) rank = r + rankOffset;
     }
-  }
-  
-  // Dedupe by name+team
-  const dedupedPlayers = dedupeByNameAndTeam(players);
-  
-  return {
-    players: dedupedPlayers,
-    errors,
-    stats: {
-      linesProcessed,
-      playersFound: dedupedPlayers.length,
-      duplicatesRemoved: players.length - dedupedPlayers.length,
-    },
-  };
-}
-
-/**
- * Parse ESPN Stats Table (projections or last year)
- * Format: Player Team Pos Stats...
- */
-export function parseEspnStatsTable(rawData: string, rankOffset = 0): ParseResult {
-  const lines = rawData.split('\n');
-  const players: ParsedPlayer[] = [];
-  const errors: string[] = [];
-  let linesProcessed = 0;
-  let lineRank = rankOffset;
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (isNoiseLine(trimmed)) continue;
-    if (isHeaderLine(trimmed)) continue;
     
-    linesProcessed++;
-    
-    // Split by tabs or multiple spaces
-    const segments = trimmed.split(/\t|\s{3,}/).filter(Boolean);
-    if (segments.length === 0) continue;
-    
-    let playerName = '';
-    let team: string | null = null;
-    const positions: string[] = [];
-    let status: string | null = null;
-    let statsTokens: string[] = [];
-    let foundPlayer = false;
-    
-    for (const segment of segments) {
-      const tokens = segment.split(/\s+/).filter(Boolean);
+    // Extract team and positions from remaining cells
+    for (let j = 0; j < cells.length; j++) {
+      const text = cellTexts[j];
+      if (!text || text === playerName) continue;
       
-      for (const token of tokens) {
-        // Check if we've hit stats (lots of numbers)
-        if (token.match(/^\d+\.?\d*$/) || token.match(/^\d+\/\d+$/) || token.match(/^\.?\d+%?$/)) {
-          statsTokens.push(token);
-          continue;
-        }
-        
-        // Status
-        const statusMatch = extractStatus(token);
-        if (statusMatch && !status) {
-          status = statusMatch;
-          continue;
-        }
-        
-        // Team
-        const teamMatch = extractTeam(token);
-        if (teamMatch && !team) {
-          team = teamMatch;
-          foundPlayer = true;
-          continue;
-        }
-        
-        // Positions
-        const posMatches = extractPositions(token);
-        if (posMatches.length > 0) {
-          positions.push(...posMatches);
-          continue;
-        }
-        
-        // Skip headers and noise
-        if (token.match(/^(Rank|Player|Team|Pos|MIN|FGM|FGA|FG%|FTM|FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|GP|MPG|#|Action|Add|Watch)$/i)) {
-          continue;
-        }
-        
-        // Accumulate player name (before we see stats)
-        if (statsTokens.length === 0 && token.length > 1 && !token.match(/^\d+\.?$/)) {
-          playerName += (playerName ? ' ' : '') + token;
-          foundPlayer = true;
-        }
+      // Team
+      if (!team) {
+        const t = extractTeam(text);
+        if (t) { team = t; continue; }
+      }
+      
+      // Positions
+      const pos = extractPositions(text);
+      if (pos.length > 0) {
+        positions = [...new Set([...positions, ...pos])];
+        continue;
+      }
+      
+      // Status
+      if (!status) {
+        const s = extractStatus(text);
+        if (s) { status = s; continue; }
       }
     }
     
-    // Clean up name
-    playerName = playerName.replace(/^\d+\s*\.?\s*/, '').trim();
-    playerName = fixDuplicatePlayerName(playerName);
-    
-    // Parse stats
-    const stats = parseStatsFromTokens(statsTokens);
-    
-    if (playerName && playerName.length > 2 && foundPlayer) {
-      lineRank++;
-      players.push({
-        rank: lineRank,
-        playerName,
-        team,
-        positions: [...new Set(positions)],
-        status,
-        stats: stats || undefined,
-      });
+    // ADP-specific fields
+    if (sourceType === 'adp') {
+      const avgIdx = headerMap.get('avgpick') ?? headerMap.get('avg pick') ?? headerMap.get('avg');
+      if (avgIdx !== undefined && cellTexts[avgIdx]) {
+        avgPick = parseFloat(cellTexts[avgIdx]);
+        if (isNaN(avgPick)) avgPick = undefined;
+      }
+      
+      const rostIdx = headerMap.get('rost') ?? headerMap.get('rost%') ?? headerMap.get('% rost');
+      if (rostIdx !== undefined && cellTexts[rostIdx]) {
+        rostPct = parseFloat(cellTexts[rostIdx].replace('%', ''));
+        if (isNaN(rostPct)) rostPct = undefined;
+      }
     }
+    
+    // Extract stats for projections/lastYear
+    let stats: PlayerStats | undefined;
+    if (sourceType !== 'adp') {
+      stats = parseStatsFromColumns(headerMap, cellTexts) || undefined;
+    }
+    
+    // Dedup by key
+    const key = `${normalizePlayerName(playerName)}|${team || ''}`.toLowerCase();
+    if (seenKeys.has(key)) {
+      duplicatesRemoved++;
+      continue;
+    }
+    seenKeys.add(key);
+    
+    players.push({
+      rank,
+      playerName,
+      team,
+      positions,
+      status,
+      stats,
+      avgPick,
+      rostPct,
+    });
   }
   
-  // Dedupe
-  const dedupedPlayers = dedupeByNameAndTeam(players);
-  
   return {
-    players: dedupedPlayers,
+    players,
     errors,
     stats: {
-      linesProcessed,
-      playersFound: dedupedPlayers.length,
-      duplicatesRemoved: players.length - dedupedPlayers.length,
+      linesProcessed: rows.length - startIdx,
+      playersFound: players.length,
+      duplicatesRemoved,
     },
   };
 }
 
+// ============ TEXT FALLBACK PARSER ============
+
 /**
- * Deduplicate players by normalized name + team
+ * Fallback text parser when no HTML table is available
  */
-function dedupeByNameAndTeam(players: ParsedPlayer[]): ParsedPlayer[] {
-  const seen = new Map<string, ParsedPlayer>();
+export function parseTextFallback(
+  text: string,
+  sourceType: 'projections' | 'adp' | 'lastYear',
+  rankOffset = 0
+): ParseResult {
+  const lines = text.split('\n').filter(l => l.trim());
+  const players: ParsedPlayer[] = [];
+  const errors: string[] = [];
+  const seenKeys = new Set<string>();
+  let duplicatesRemoved = 0;
   
-  for (const player of players) {
-    const normalized = normalizePlayerName(player.playerName);
-    const key = player.team 
-      ? `${normalized}_${player.team.toLowerCase()}`
-      : normalized;
+  // Pattern: Look for lines with player-like data
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.length < 5) continue;
     
-    if (!seen.has(key)) {
-      seen.set(key, player);
+    // Skip obvious noise
+    const lower = line.toLowerCase();
+    if (NOISE_WORDS.some(n => lower.includes(n))) continue;
+    if (/^(rank|player|team|pos|min|fgm|action|add|watch)/i.test(line)) continue;
+    
+    // Split by tabs or multiple spaces
+    const parts = line.split(/\t|\s{2,}/).map(p => p.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    
+    let rank = rankOffset + players.length + 1;
+    let playerName = '';
+    let team: string | null = null;
+    let positions: string[] = [];
+    let status: string | null = null;
+    let avgPick: number | undefined;
+    let rostPct: number | undefined;
+    
+    for (const part of parts) {
+      // Rank at start
+      if (!playerName && /^\d+\.?$/.test(part)) {
+        const r = parseInt(part, 10);
+        if (r >= 1 && r <= 300) rank = r + rankOffset;
+        continue;
+      }
+      
+      // Team
+      if (!team) {
+        const t = extractTeam(part);
+        if (t) { team = t; continue; }
+      }
+      
+      // Positions
+      const pos = extractPositions(part);
+      if (pos.length > 0) {
+        positions = [...new Set([...positions, ...pos])];
+        continue;
+      }
+      
+      // Status
+      if (!status) {
+        const s = extractStatus(part);
+        if (s) { status = s; continue; }
+      }
+      
+      // Numbers for ADP
+      if (sourceType === 'adp' && /^\d+\.?\d*%?$/.test(part)) {
+        const val = parseFloat(part.replace('%', ''));
+        if (!avgPick && val > 0 && val < 300) avgPick = val;
+        else if (!rostPct && val >= 0 && val <= 100) rostPct = val;
+        continue;
+      }
+      
+      // Accumulate player name (text before we see team/numbers)
+      if (!team && part.length > 2 && /[a-zA-Z]/.test(part) && !/^\d+$/.test(part)) {
+        playerName += (playerName ? ' ' : '') + part;
+      }
+    }
+    
+    playerName = fixDuplicatePlayerName(playerName);
+    if (!isValidPlayerName(playerName)) continue;
+    
+    // Dedup
+    const key = `${normalizePlayerName(playerName)}|${team || ''}`.toLowerCase();
+    if (seenKeys.has(key)) {
+      duplicatesRemoved++;
+      continue;
+    }
+    seenKeys.add(key);
+    
+    players.push({
+      rank,
+      playerName,
+      team,
+      positions,
+      status,
+      avgPick,
+      rostPct,
+    });
+  }
+  
+  return {
+    players,
+    errors,
+    stats: {
+      linesProcessed: lines.length,
+      playersFound: players.length,
+      duplicatesRemoved,
+    },
+  };
+}
+
+// ============ MAIN ENTRY POINT ============
+
+/**
+ * Parse clipboard data - prefers HTML, falls back to text
+ */
+export function parseClipboardData(
+  html: string | null,
+  text: string,
+  sourceType: 'projections' | 'adp' | 'lastYear',
+  rankOffset = 0
+): ParseResult {
+  // Try HTML first if it contains a table
+  if (html && html.includes('<table')) {
+    const result = parseHtmlTable(html, sourceType, rankOffset);
+    if (result.players.length >= 10) {
+      return result;
     }
   }
   
-  return Array.from(seen.values());
+  // Fall back to text parsing
+  return parseTextFallback(text, sourceType, rankOffset);
 }
 
 /**
- * Auto-detect format and parse
+ * Validate parse result for ESPN data (expects 30-70 players per segment)
  */
+export function validateParseResult(result: ParseResult): { valid: boolean; error?: string } {
+  if (result.players.length < 20) {
+    return { 
+      valid: false, 
+      error: `Only ${result.players.length} players found. Expected ~50 per segment. Make sure you copied the entire ESPN table.` 
+    };
+  }
+  
+  if (result.players.length > 80) {
+    return { 
+      valid: false, 
+      error: `Found ${result.players.length} players, which is too many for one segment. Copy only 50 rows at a time.` 
+    };
+  }
+  
+  return { valid: true };
+}
+
+// ============ LEGACY EXPORT (for backwards compatibility) ============
 export function parseRankingData(
   rawData: string,
   sourceType: 'projections' | 'adp' | 'lastYear',
   rankOffset = 0
 ): ParseResult {
-  const lower = rawData.toLowerCase();
-  
-  // Detect ADP format
-  if (lower.includes('avg pick') || lower.includes('rost %') || lower.includes('espn live draft')) {
-    return parseEspnAdp(rawData, rankOffset);
-  }
-  
-  // Detect stats table format
-  if (lower.includes('fgm') || lower.includes('fg%') || lower.includes('ftm') || 
-      (lower.includes('min') && lower.includes('pts'))) {
-    return parseEspnStatsTable(rawData, rankOffset);
-  }
-  
-  // Default based on source type
-  if (sourceType === 'adp') {
-    return parseEspnAdp(rawData, rankOffset);
-  }
-  
-  return parseEspnStatsTable(rawData, rankOffset);
+  return parseTextFallback(rawData, sourceType, rankOffset);
 }
