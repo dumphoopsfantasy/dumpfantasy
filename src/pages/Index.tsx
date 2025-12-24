@@ -9,6 +9,7 @@ import { MatchupProjection } from "@/pages/MatchupProjection";
 import { StartSitAdvisor } from "@/components/StartSitAdvisor";
 import { Settings } from "@/pages/Settings";
 import { Gameplan } from "@/pages/Gameplan";
+import { DraftStrategy } from "@/pages/DraftStrategy";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentSuggestions";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
@@ -35,6 +36,7 @@ import {
   Clipboard,
   Trash2,
   ChevronDown,
+  Target,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -512,7 +514,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full max-w-5xl mx-auto grid-cols-7 bg-accent/30 border border-primary/20 mb-6">
+          <TabsList className="grid w-full max-w-5xl mx-auto grid-cols-8 bg-accent/30 border border-primary/20 mb-6">
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
@@ -536,6 +538,10 @@ const Index = () => {
             <TabsTrigger value="gameplan" className="font-display font-semibold text-xs md:text-sm">
               <Clipboard className="w-4 h-4 mr-1 hidden md:inline" />
               Gameplan
+            </TabsTrigger>
+            <TabsTrigger value="draft" className="font-display font-semibold text-xs md:text-sm">
+              <Target className="w-4 h-4 mr-1 hidden md:inline" />
+              Draft
             </TabsTrigger>
             <TabsTrigger value="settings" className="font-display font-semibold text-xs md:text-sm">
               <SettingsIcon className="w-4 h-4 mr-1 hidden md:inline" />
@@ -784,6 +790,10 @@ const Index = () => {
               matchupData={matchupData}
               weeklyMatchups={weeklyMatchups}
             />
+          </TabsContent>
+
+          <TabsContent value="draft">
+            <DraftStrategy />
           </TabsContent>
 
           <TabsContent value="settings">
