@@ -56,6 +56,9 @@ export function useDraftState(): UseDraftStateReturn {
     pickHistory: [],
   });
 
+  // Ensure pickHistory exists (for backwards compatibility with old localStorage data)
+  const pickHistory = state.pickHistory ?? [];
+
   const updateSettings = useCallback((newSettings: Partial<DraftSettings>) => {
     setState(prev => ({
       ...prev,
@@ -337,7 +340,7 @@ export function useDraftState(): UseDraftStateReturn {
     players: state.players,
     currentPick: state.currentPick,
     draftStarted: state.draftStarted,
-    pickHistory: state.pickHistory,
+    pickHistory,
     updateSettings,
     importCrisRankings,
     importAdpRankings,

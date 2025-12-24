@@ -118,7 +118,7 @@ export function DraftBoardGrid({
             variant="outline"
             size="sm"
             onClick={onUndoLastPick}
-            disabled={pickHistory.length === 0}
+            disabled={!pickHistory || pickHistory.length === 0}
             className="h-8 text-xs gap-1"
           >
             <Undo2 className="w-3 h-3" />
