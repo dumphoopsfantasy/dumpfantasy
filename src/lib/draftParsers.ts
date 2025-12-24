@@ -32,6 +32,23 @@ const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F'];
 // Valid statuses
 const STATUSES = ['O', 'DTD', 'IR', 'Q', 'SUSP', 'GTD', 'INJ'];
 
+export interface PlayerStats {
+  min?: number;
+  fgm?: number;
+  fga?: number;
+  fgPct?: number;
+  ftm?: number;
+  fta?: number;
+  ftPct?: number;
+  threes?: number;
+  reb?: number;
+  ast?: number;
+  stl?: number;
+  blk?: number;
+  to?: number;
+  pts?: number;
+}
+
 export interface ParsedPlayer {
   rank: number;
   playerName: string;
@@ -40,6 +57,7 @@ export interface ParsedPlayer {
   status: string | null;
   avgPick?: number;
   rostPct?: number;
+  stats?: PlayerStats;
 }
 
 export interface ParseResult {

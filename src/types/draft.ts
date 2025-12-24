@@ -1,7 +1,26 @@
 // Draft Strategy Types
 
+export interface PlayerStats {
+  min?: number;
+  fgm?: number;
+  fga?: number;
+  fgPct?: number;
+  ftm?: number;
+  fta?: number;
+  ftPct?: number;
+  threes?: number;
+  reb?: number;
+  ast?: number;
+  stl?: number;
+  blk?: number;
+  to?: number;
+  pts?: number;
+}
+
 export interface DraftPlayer {
+  playerId: string;
   playerName: string;
+  normalizedName: string;
   team: string | null;
   position: string | null;
   status: string | null;
@@ -11,15 +30,22 @@ export interface DraftPlayer {
   adpRank: number | null;
   lastYearRank: number | null;
   
+  // Stats from sources
+  crisStats: PlayerStats | null;
+  lastYearStats: PlayerStats | null;
+  
+  // ADP-specific
+  avgPick: number | null;
+  rostPct: number | null;
+  
   // Computed values
   valueDelta: number | null; // adpRank - crisRank (positive = value pick)
-  reachDelta: number | null; // crisRank - adpRank (positive = reach pick)
   tier: number;
   
   // Draft state
   drafted: boolean;
-  draftedBy: string | null; // team name if drafted
-  draftedAt: number | null; // pick number
+  draftedBy: 'me' | 'other' | null;
+  draftedAt: number | null;
 }
 
 export interface DraftSettings {
@@ -38,24 +64,32 @@ export interface TierRange {
 export const DEFAULT_TIER_RANGES: TierRange[] = [
   { tier: 1, min: 1, max: 12 },
   { tier: 2, min: 13, max: 24 },
-  { tier: 3, min: 25, max: 48 },
-  { tier: 4, min: 49, max: 84 },
-  { tier: 5, min: 85, max: 120 },
-  { tier: 6, min: 121, max: 999 },
+  { tier: 3, min: 25, max: 50 },
+  { tier: 4, min: 51, max: 100 },
+  { tier: 5, min: 101, max: 150 },
+  { tier: 6, min: 151, max: 999 },
 ];
+
+export interface PickHistoryEntry {
+  pickNumber: number;
+  playerId: string;
+  playerName: string;
+  draftedBy: 'me' | 'other';
+}
 
 export interface DraftState {
   settings: DraftSettings;
   players: DraftPlayer[];
   currentPick: number;
   draftStarted: boolean;
+  pickHistory: PickHistoryEntry[];
 }
 
 export const DEFAULT_DRAFT_SETTINGS: DraftSettings = {
   format: 'snake',
   teams: 10,
   myPickSlot: 1,
-  rounds: 15,
+  rounds: 14,
 };
 
 // Parse input types
@@ -65,6 +99,9 @@ export interface ParsedRankingPlayer {
   team: string | null;
   position: string | null;
   status: string | null;
+  stats?: PlayerStats;
+  avgPick?: number;
+  rostPct?: number;
 }
 
 // Tier colors for visual display
@@ -93,19 +130,47 @@ export function calculateValueDelta(adpRank: number | null, crisRank: number | n
   return adpRank - crisRank;
 }
 
-// Calculate reach delta: positive means CRIS is later than ADP (reach pick)
-export function calculateReachDelta(crisRank: number | null, adpRank: number | null): number | null {
-  if (adpRank === null || crisRank === null) return null;
-  return crisRank - adpRank;
-}
+// Name normalization for matching
+const NAME_VARIANTS: Record<string, string> = {
+  "d'angelo": "dangelo",
+  "de'aaron": "deaaron",
+  "p.j.": "pj",
+  "d.j.": "dj",
+  "o.g.": "og",
+  "c.j.": "cj",
+  "a.j.": "aj",
+  "t.j.": "tj",
+  "j.r.": "jr",
+};
+
+const NAME_SUFFIXES = ['jr', 'sr', 'ii', 'iii', 'iv', 'v'];
 
 // Normalize player name for matching
 export function normalizePlayerName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z\s]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let normalized = name.toLowerCase();
+  
+  // Apply known variants
+  for (const [variant, replacement] of Object.entries(NAME_VARIANTS)) {
+    normalized = normalized.replace(new RegExp(variant, 'g'), replacement);
+  }
+  
+  // Remove punctuation
+  normalized = normalized.replace(/[^a-z\s]/g, '');
+  
+  // Remove suffixes
+  for (const suffix of NAME_SUFFIXES) {
+    normalized = normalized.replace(new RegExp(`\\s+${suffix}$`), '');
+  }
+  
+  // Collapse spaces
+  normalized = normalized.replace(/\s+/g, ' ').trim();
+  
+  return normalized;
+}
+
+// Generate player ID from normalized name
+export function generatePlayerId(name: string): string {
+  return normalizePlayerName(name).replace(/\s/g, '_');
 }
 
 // Get my picks based on snake draft logic

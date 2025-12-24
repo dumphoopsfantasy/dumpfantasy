@@ -8,8 +8,10 @@ import {
   ParsedRankingPlayer,
   normalizePlayerName,
   calculateValueDelta,
-  calculateReachDelta,
   getTierFromRank,
+  generatePlayerId,
+  PickHistoryEntry,
+  PlayerStats,
 } from '@/types/draft';
 
 const STORAGE_KEY = 'dumphoops-draft';
@@ -20,6 +22,7 @@ interface UseDraftStateReturn {
   players: DraftPlayer[];
   currentPick: number;
   draftStarted: boolean;
+  pickHistory: PickHistoryEntry[];
   
   // Settings actions
   updateSettings: (settings: Partial<DraftSettings>) => void;
@@ -33,7 +36,8 @@ interface UseDraftStateReturn {
   // Draft actions
   startDraft: () => void;
   resetDraft: () => void;
-  markDrafted: (playerName: string, draftedBy?: string) => void;
+  markDrafted: (playerName: string, draftedBy: 'me' | 'other') => void;
+  undoLastPick: () => void;
   undoDraft: (playerName: string) => void;
   advancePick: () => void;
   
@@ -49,6 +53,7 @@ export function useDraftState(): UseDraftStateReturn {
     players: [],
     currentPick: 1,
     draftStarted: false,
+    pickHistory: [],
   });
 
   const updateSettings = useCallback((newSettings: Partial<DraftSettings>) => {
@@ -62,49 +67,80 @@ export function useDraftState(): UseDraftStateReturn {
   const mergeRankings = useCallback((
     existingPlayers: DraftPlayer[],
     newData: ParsedRankingPlayer[],
-    rankField: 'crisRank' | 'adpRank' | 'lastYearRank'
+    rankField: 'crisRank' | 'adpRank' | 'lastYearRank',
+    statsField?: 'crisStats' | 'lastYearStats'
   ): DraftPlayer[] => {
     const playerMap = new Map<string, DraftPlayer>();
     
     // Add existing players
     existingPlayers.forEach(p => {
-      playerMap.set(normalizePlayerName(p.playerName), p);
+      playerMap.set(p.normalizedName, p);
     });
     
     // Merge new data
     newData.forEach(p => {
-      const key = normalizePlayerName(p.playerName);
-      const existing = playerMap.get(key);
+      const normalized = normalizePlayerName(p.playerName);
+      const existing = playerMap.get(normalized);
       
       if (existing) {
         // Update existing player
-        playerMap.set(key, {
+        const updated: DraftPlayer = {
           ...existing,
           [rankField]: p.rank,
           // Update team/position if we have new data
           team: p.team || existing.team,
           position: p.position || existing.position,
           status: p.status || existing.status,
-        });
+        };
+        
+        // Add stats if provided
+        if (statsField && p.stats) {
+          updated[statsField] = p.stats;
+        }
+        
+        // Add ADP-specific fields
+        if (rankField === 'adpRank') {
+          updated.avgPick = p.avgPick ?? existing.avgPick;
+          updated.rostPct = p.rostPct ?? existing.rostPct;
+        }
+        
+        playerMap.set(normalized, updated);
       } else {
         // Create new player
         const newPlayer: DraftPlayer = {
+          playerId: generatePlayerId(p.playerName),
           playerName: p.playerName,
+          normalizedName: normalized,
           team: p.team,
           position: p.position,
           status: p.status,
           crisRank: null,
           adpRank: null,
           lastYearRank: null,
+          crisStats: null,
+          lastYearStats: null,
+          avgPick: null,
+          rostPct: null,
           valueDelta: null,
-          reachDelta: null,
           tier: 6,
           drafted: false,
           draftedBy: null,
           draftedAt: null,
           [rankField]: p.rank,
         };
-        playerMap.set(key, newPlayer);
+        
+        // Add stats if provided
+        if (statsField && p.stats) {
+          newPlayer[statsField] = p.stats;
+        }
+        
+        // Add ADP-specific fields
+        if (rankField === 'adpRank') {
+          newPlayer.avgPick = p.avgPick ?? null;
+          newPlayer.rostPct = p.rostPct ?? null;
+        }
+        
+        playerMap.set(normalized, newPlayer);
       }
     });
     
@@ -112,14 +148,12 @@ export function useDraftState(): UseDraftStateReturn {
     const result: DraftPlayer[] = [];
     playerMap.forEach(player => {
       const valueDelta = calculateValueDelta(player.adpRank, player.crisRank);
-      const reachDelta = calculateReachDelta(player.crisRank, player.adpRank);
       const primaryRank = player.crisRank ?? player.adpRank ?? player.lastYearRank ?? 999;
       const tier = getTierFromRank(primaryRank);
       
       result.push({
         ...player,
         valueDelta,
-        reachDelta,
         tier,
       });
     });
@@ -137,7 +171,7 @@ export function useDraftState(): UseDraftStateReturn {
   const importCrisRankings = useCallback((data: ParsedRankingPlayer[]) => {
     setState(prev => ({
       ...prev,
-      players: mergeRankings(prev.players, data, 'crisRank'),
+      players: mergeRankings(prev.players, data, 'crisRank', 'crisStats'),
     }));
   }, [setState, mergeRankings]);
 
@@ -151,7 +185,7 @@ export function useDraftState(): UseDraftStateReturn {
   const importLastYearRankings = useCallback((data: ParsedRankingPlayer[]) => {
     setState(prev => ({
       ...prev,
-      players: mergeRankings(prev.players, data, 'lastYearRank'),
+      players: mergeRankings(prev.players, data, 'lastYearRank', 'lastYearStats'),
     }));
   }, [setState, mergeRankings]);
 
@@ -161,6 +195,7 @@ export function useDraftState(): UseDraftStateReturn {
       players: [],
       currentPick: 1,
       draftStarted: false,
+      pickHistory: [],
     });
   }, [setState]);
 
@@ -169,6 +204,7 @@ export function useDraftState(): UseDraftStateReturn {
       ...prev,
       draftStarted: true,
       currentPick: 1,
+      pickHistory: [],
       players: prev.players.map(p => ({
         ...p,
         drafted: false,
@@ -183,6 +219,7 @@ export function useDraftState(): UseDraftStateReturn {
       ...prev,
       draftStarted: false,
       currentPick: 1,
+      pickHistory: [],
       players: prev.players.map(p => ({
         ...p,
         drafted: false,
@@ -192,36 +229,84 @@ export function useDraftState(): UseDraftStateReturn {
     }));
   }, [setState]);
 
-  const markDrafted = useCallback((playerName: string, draftedBy?: string) => {
-    setState(prev => ({
-      ...prev,
-      players: prev.players.map(p =>
-        normalizePlayerName(p.playerName) === normalizePlayerName(playerName)
-          ? {
-              ...p,
-              drafted: true,
-              draftedBy: draftedBy || null,
-              draftedAt: prev.currentPick,
-            }
-          : p
-      ),
-    }));
+  const markDrafted = useCallback((playerName: string, draftedBy: 'me' | 'other') => {
+    setState(prev => {
+      const normalized = normalizePlayerName(playerName);
+      const player = prev.players.find(p => p.normalizedName === normalized);
+      
+      if (!player) return prev;
+      
+      const historyEntry: PickHistoryEntry = {
+        pickNumber: prev.currentPick,
+        playerId: player.playerId,
+        playerName: player.playerName,
+        draftedBy,
+      };
+      
+      return {
+        ...prev,
+        pickHistory: [...prev.pickHistory, historyEntry],
+        players: prev.players.map(p =>
+          p.normalizedName === normalized
+            ? {
+                ...p,
+                drafted: true,
+                draftedBy,
+                draftedAt: prev.currentPick,
+              }
+            : p
+        ),
+      };
+    });
+  }, [setState]);
+
+  const undoLastPick = useCallback(() => {
+    setState(prev => {
+      if (prev.pickHistory.length === 0) return prev;
+      
+      const lastPick = prev.pickHistory[prev.pickHistory.length - 1];
+      const newHistory = prev.pickHistory.slice(0, -1);
+      
+      return {
+        ...prev,
+        currentPick: Math.max(1, prev.currentPick - 1),
+        pickHistory: newHistory,
+        players: prev.players.map(p =>
+          p.playerId === lastPick.playerId
+            ? {
+                ...p,
+                drafted: false,
+                draftedBy: null,
+                draftedAt: null,
+              }
+            : p
+        ),
+      };
+    });
   }, [setState]);
 
   const undoDraft = useCallback((playerName: string) => {
-    setState(prev => ({
-      ...prev,
-      players: prev.players.map(p =>
-        normalizePlayerName(p.playerName) === normalizePlayerName(playerName)
-          ? {
-              ...p,
-              drafted: false,
-              draftedBy: null,
-              draftedAt: null,
-            }
-          : p
-      ),
-    }));
+    setState(prev => {
+      const normalized = normalizePlayerName(playerName);
+      const player = prev.players.find(p => p.normalizedName === normalized);
+      
+      if (!player) return prev;
+      
+      return {
+        ...prev,
+        pickHistory: prev.pickHistory.filter(h => h.playerId !== player.playerId),
+        players: prev.players.map(p =>
+          p.normalizedName === normalized
+            ? {
+                ...p,
+                drafted: false,
+                draftedBy: null,
+                draftedAt: null,
+              }
+            : p
+        ),
+      };
+    });
   }, [setState]);
 
   const advancePick = useCallback(() => {
@@ -252,6 +337,7 @@ export function useDraftState(): UseDraftStateReturn {
     players: state.players,
     currentPick: state.currentPick,
     draftStarted: state.draftStarted,
+    pickHistory: state.pickHistory,
     updateSettings,
     importCrisRankings,
     importAdpRankings,
@@ -260,6 +346,7 @@ export function useDraftState(): UseDraftStateReturn {
     startDraft,
     resetDraft,
     markDrafted,
+    undoLastPick,
     undoDraft,
     advancePick,
     availablePlayers,

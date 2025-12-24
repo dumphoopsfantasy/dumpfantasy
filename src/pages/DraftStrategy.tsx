@@ -14,6 +14,7 @@ export function DraftStrategy() {
     players,
     currentPick,
     draftStarted,
+    pickHistory,
     updateSettings,
     importCrisRankings,
     importAdpRankings,
@@ -22,6 +23,7 @@ export function DraftStrategy() {
     startDraft,
     resetDraft,
     markDrafted,
+    undoLastPick,
     undoDraft,
     advancePick,
   } = useDraftState();
@@ -32,13 +34,8 @@ export function DraftStrategy() {
     lastYear: players.filter(p => p.lastYearRank !== null).length,
   }), [players]);
 
-  const handleMarkDrafted = (playerName: string) => {
-    markDrafted(playerName, 'other');
-    advancePick();
-  };
-
-  const handleMarkDraftedByMe = (playerName: string) => {
-    markDrafted(playerName, 'me');
+  const handleMarkDrafted = (playerName: string, draftedBy: 'me' | 'other') => {
+    markDrafted(playerName, draftedBy);
     advancePick();
   };
 
@@ -112,7 +109,9 @@ export function DraftStrategy() {
               settings={settings}
               currentPick={currentPick}
               draftStarted={draftStarted}
+              pickHistory={pickHistory}
               onMarkDrafted={handleMarkDrafted}
+              onUndoLastPick={undoLastPick}
             />
           </TabsContent>
         </Tabs>

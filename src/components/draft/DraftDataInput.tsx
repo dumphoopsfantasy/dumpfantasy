@@ -115,6 +115,9 @@ export function DraftDataInput({
     team: parsed.team,
     position: parsed.position,
     status: parsed.status,
+    stats: parsed.stats,
+    avgPick: parsed.avgPick,
+    rostPct: parsed.rostPct,
   });
 
   const handleImportSegment = useCallback((
