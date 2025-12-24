@@ -1,12 +1,76 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileSpreadsheet, TrendingUp, History, Target, Check } from 'lucide-react';
+import { 
+  Upload, FileSpreadsheet, TrendingUp, History, Target, 
+  Check, ChevronDown, ChevronUp, AlertCircle 
+} from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ParsedRankingPlayer } from '@/types/draft';
+import { parseRankingData, ParsedPlayer } from '@/lib/draftParsers';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+
+interface PasteBox {
+  id: string;
+  label: string;
+  range: [number, number];
+}
+
+interface SourceConfig {
+  id: 'cris' | 'adp' | 'lastYear';
+  label: string;
+  helpText: string;
+  icon: typeof Target;
+  pasteBoxes: PasteBox[];
+}
+
+const SOURCES: SourceConfig[] = [
+  {
+    id: 'cris',
+    label: 'CRIS Projections',
+    helpText: 'Paste ESPN projections (50 at a time). Import 1–200 via 4 boxes.',
+    icon: Target,
+    pasteBoxes: [
+      { id: 'cris_1_50', label: 'Players 1–50', range: [1, 50] },
+      { id: 'cris_51_100', label: 'Players 51–100', range: [51, 100] },
+      { id: 'cris_101_150', label: 'Players 101–150', range: [101, 150] },
+      { id: 'cris_151_200', label: 'Players 151–200', range: [151, 200] },
+    ],
+  },
+  {
+    id: 'adp',
+    label: 'ADP Trends',
+    helpText: 'Paste ESPN Live Draft Trends table. Import 1–200 via 4 boxes.',
+    icon: TrendingUp,
+    pasteBoxes: [
+      { id: 'adp_1_50', label: 'Players 1–50', range: [1, 50] },
+      { id: 'adp_51_100', label: 'Players 51–100', range: [51, 100] },
+      { id: 'adp_101_150', label: 'Players 101–150', range: [101, 150] },
+      { id: 'adp_151_200', label: 'Players 151–200', range: [151, 200] },
+    ],
+  },
+  {
+    id: 'lastYear',
+    label: 'Last Year',
+    helpText: 'Paste ESPN season totals/averages table rows. Import 1–200 via 4 boxes.',
+    icon: History,
+    pasteBoxes: [
+      { id: 'ly_1_50', label: 'Players 1–50', range: [1, 50] },
+      { id: 'ly_51_100', label: 'Players 51–100', range: [51, 100] },
+      { id: 'ly_101_150', label: 'Players 101–150', range: [101, 150] },
+      { id: 'ly_151_200', label: 'Players 151–200', range: [151, 200] },
+    ],
+  },
+];
+
+interface SegmentState {
+  raw: string;
+  parsedCount: number;
+  errors: string[];
+}
 
 interface DraftDataInputProps {
   onImportCris: (data: ParsedRankingPlayer[]) => void;
@@ -15,111 +79,51 @@ interface DraftDataInputProps {
   playerCount: { cris: number; adp: number; lastYear: number };
 }
 
-// Known NBA team codes
-const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
-
-// Known positions
-const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F'];
-
-// Known statuses
-const STATUSES = ['O', 'DTD', 'IR', 'SUSP', 'GTD', 'INJ'];
-
 export function DraftDataInput({ 
   onImportCris, 
   onImportAdp, 
   onImportLastYear,
   playerCount 
 }: DraftDataInputProps) {
-  const [activeTab, setActiveTab] = useState('cris');
-  const [crisData, setCrisData] = useState('');
-  const [adpData, setAdpData] = useState('');
-  const [lastYearData, setLastYearData] = useState('');
+  const [activeTab, setActiveTab] = useState<'cris' | 'adp' | 'lastYear'>('cris');
+  const [expandedBoxes, setExpandedBoxes] = useState<Record<string, boolean>>({});
+  const [segments, setSegments] = useState<Record<string, SegmentState>>({});
   const [isParsing, setIsParsing] = useState(false);
   const { toast } = useToast();
 
-  // Parse multi-column paste data
-  const parseRankingData = (data: string): ParsedRankingPlayer[] => {
-    const lines = data.split('\n').map(l => l.trim()).filter(l => l);
-    const result: ParsedRankingPlayer[] = [];
-    
-    for (const line of lines) {
-      // Split by tabs or multiple spaces
-      const parts = line.split(/\t|\s{2,}/).map(p => p.trim()).filter(p => p);
-      
-      if (parts.length === 0) continue;
-      
-      // Try to find rank (first number)
-      let rank: number | null = null;
-      let playerName = '';
-      let team: string | null = null;
-      let position: string | null = null;
-      let status: string | null = null;
-      
-      for (const part of parts) {
-        // Check if it's a rank number
-        const numMatch = part.match(/^(\d+)\.?$/);
-        if (numMatch && rank === null) {
-          rank = parseInt(numMatch[1], 10);
-          continue;
-        }
-        
-        // Check if it's a team code
-        const upperPart = part.toUpperCase();
-        if (NBA_TEAMS.includes(upperPart) && team === null) {
-          team = upperPart;
-          continue;
-        }
-        
-        // Check if it's a position
-        const posMatch = part.toUpperCase().match(/^(PG|SG|SF|PF|C|G|F)(,?\s*(PG|SG|SF|PF|C|G|F))*$/);
-        if (posMatch && position === null) {
-          position = part.toUpperCase();
-          continue;
-        }
-        
-        // Check if it's a status
-        if (STATUSES.includes(upperPart) && status === null) {
-          status = upperPart;
-          continue;
-        }
-        
-        // Otherwise it might be a player name
-        // Filter out column headers and non-name content
-        if (!part.match(/^(Rank|Player|Team|Pos|Status|ADP|CRIS|wCRI|Last|Year|#|\d+\.\d+)$/i)) {
-          if (playerName === '') {
-            playerName = part;
-          } else {
-            // Could be a multi-word name
-            playerName += ' ' + part;
-          }
-        }
-      }
-      
-      // Clean up player name
-      playerName = playerName
-        .replace(/\s+/g, ' ')
-        .replace(/^\d+\s*\.?\s*/, '') // Remove leading rank if attached
-        .trim();
-      
-      // Validate we have minimum data
-      if (playerName && playerName.length > 2 && rank !== null) {
-        result.push({
-          rank,
-          playerName,
-          team,
-          position,
-          status,
-        });
-      }
-    }
-    
-    return result;
+  const getSegmentState = (boxId: string): SegmentState => {
+    return segments[boxId] || { raw: '', parsedCount: 0, errors: [] };
   };
 
-  const handleImport = (type: 'cris' | 'adp' | 'lastYear') => {
-    const data = type === 'cris' ? crisData : type === 'adp' ? adpData : lastYearData;
-    
-    if (!data.trim()) {
+  const updateSegment = (boxId: string, updates: Partial<SegmentState>) => {
+    setSegments(prev => ({
+      ...prev,
+      [boxId]: { ...getSegmentState(boxId), ...updates },
+    }));
+  };
+
+  const toggleBox = (boxId: string) => {
+    setExpandedBoxes(prev => ({
+      ...prev,
+      [boxId]: !prev[boxId],
+    }));
+  };
+
+  const convertToRankingPlayer = (parsed: ParsedPlayer): ParsedRankingPlayer => ({
+    rank: parsed.rank,
+    playerName: parsed.playerName,
+    team: parsed.team,
+    position: parsed.position,
+    status: parsed.status,
+  });
+
+  const handleImportSegment = useCallback((
+    sourceId: 'cris' | 'adp' | 'lastYear',
+    boxId: string,
+    rankOffset: number
+  ) => {
+    const segment = getSegmentState(boxId);
+    if (!segment.raw.trim()) {
       toast({
         title: 'No data',
         description: 'Please paste your ranking data first',
@@ -131,9 +135,13 @@ export function DraftDataInput({
     setIsParsing(true);
 
     try {
-      const parsed = parseRankingData(data);
+      const result = parseRankingData(segment.raw, sourceId, rankOffset);
       
-      if (parsed.length === 0) {
+      if (result.players.length === 0) {
+        updateSegment(boxId, { 
+          parsedCount: 0, 
+          errors: ['No players found. Check your data format.'] 
+        });
         toast({
           title: 'No players found',
           description: 'Could not parse any player rankings. Check your data format.',
@@ -143,20 +151,31 @@ export function DraftDataInput({
         return;
       }
 
-      if (type === 'cris') {
-        onImportCris(parsed);
-      } else if (type === 'adp') {
-        onImportAdp(parsed);
+      const converted = result.players.map(convertToRankingPlayer);
+      updateSegment(boxId, { 
+        parsedCount: converted.length, 
+        errors: result.errors 
+      });
+
+      // Import based on source
+      if (sourceId === 'cris') {
+        onImportCris(converted);
+      } else if (sourceId === 'adp') {
+        onImportAdp(converted);
       } else {
-        onImportLastYear(parsed);
+        onImportLastYear(converted);
       }
 
       toast({
         title: 'Success!',
-        description: `Imported ${parsed.length} players`,
+        description: `Imported ${converted.length} players`,
       });
     } catch (error) {
       console.error('Parse error:', error);
+      updateSegment(boxId, { 
+        parsedCount: 0, 
+        errors: ['Parse error. Check the console for details.'] 
+      });
       toast({
         title: 'Parse error',
         description: 'Could not parse the data. Please check the format.',
@@ -165,40 +184,70 @@ export function DraftDataInput({
     } finally {
       setIsParsing(false);
     }
-  };
+  }, [segments, onImportCris, onImportAdp, onImportLastYear, toast]);
 
-  const tabs = [
-    { 
-      id: 'cris', 
-      label: 'CRIS Projections', 
-      icon: Target, 
-      count: playerCount.cris,
-      data: crisData,
-      setData: setCrisData,
-      onImport: () => handleImport('cris'),
-      description: 'Paste CRIS/wCRI rankings (Rank, Player, Team, Pos)',
-    },
-    { 
-      id: 'adp', 
-      label: 'ADP Trends', 
-      icon: TrendingUp, 
-      count: playerCount.adp,
-      data: adpData,
-      setData: setAdpData,
-      onImport: () => handleImport('adp'),
-      description: 'Paste ADP rankings from your platform',
-    },
-    { 
-      id: 'lastYear', 
-      label: 'Last Year', 
-      icon: History, 
-      count: playerCount.lastYear,
-      data: lastYearData,
-      setData: setLastYearData,
-      onImport: () => handleImport('lastYear'),
-      description: 'Paste last season final rankings',
-    },
-  ];
+  const handleImportAll = useCallback((source: SourceConfig) => {
+    setIsParsing(true);
+    let totalImported = 0;
+    const allPlayers: ParsedRankingPlayer[] = [];
+
+    try {
+      for (const box of source.pasteBoxes) {
+        const segment = getSegmentState(box.id);
+        if (!segment.raw.trim()) continue;
+
+        const rankOffset = box.range[0] - 1;
+        const result = parseRankingData(segment.raw, source.id, rankOffset);
+        
+        if (result.players.length > 0) {
+          const converted = result.players.map(convertToRankingPlayer);
+          allPlayers.push(...converted);
+          updateSegment(box.id, { 
+            parsedCount: converted.length, 
+            errors: result.errors 
+          });
+          totalImported += converted.length;
+        }
+      }
+
+      if (allPlayers.length === 0) {
+        toast({
+          title: 'No data',
+          description: 'Please paste data in at least one box',
+          variant: 'destructive',
+        });
+        setIsParsing(false);
+        return;
+      }
+
+      // Import all at once
+      if (source.id === 'cris') {
+        onImportCris(allPlayers);
+      } else if (source.id === 'adp') {
+        onImportAdp(allPlayers);
+      } else {
+        onImportLastYear(allPlayers);
+      }
+
+      toast({
+        title: 'Success!',
+        description: `Imported ${totalImported} players from ${source.label}`,
+      });
+    } catch (error) {
+      console.error('Import all error:', error);
+      toast({
+        title: 'Import error',
+        description: 'Some data could not be parsed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsParsing(false);
+    }
+  }, [segments, onImportCris, onImportAdp, onImportLastYear, toast]);
+
+  const getSourceCount = (sourceId: 'cris' | 'adp' | 'lastYear'): number => {
+    return playerCount[sourceId];
+  };
 
   return (
     <Card className="gradient-card shadow-card p-4 border-border">
@@ -209,47 +258,117 @@ export function DraftDataInput({
         <div>
           <h3 className="text-lg font-display font-bold">Import Rankings</h3>
           <p className="text-xs text-muted-foreground">
-            Paste ranking data from spreadsheets or websites
+            Paste ESPN data in 50-player segments (4 boxes per source)
           </p>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
         <TabsList className="grid grid-cols-3 mb-4">
-          {tabs.map(tab => (
-            <TabsTrigger key={tab.id} value={tab.id} className="text-xs gap-1">
-              <tab.icon className="w-3 h-3" />
-              <span className="hidden sm:inline">{tab.label}</span>
-              {tab.count > 0 && (
+          {SOURCES.map(source => (
+            <TabsTrigger key={source.id} value={source.id} className="text-xs gap-1">
+              <source.icon className="w-3 h-3" />
+              <span className="hidden sm:inline">{source.label}</span>
+              {getSourceCount(source.id) > 0 && (
                 <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">
                   <Check className="w-2 h-2 mr-0.5" />
-                  {tab.count}
+                  {getSourceCount(source.id)}
                 </Badge>
               )}
             </TabsTrigger>
           ))}
         </TabsList>
 
-        {tabs.map(tab => (
-          <TabsContent key={tab.id} value={tab.id}>
+        {SOURCES.map(source => (
+          <TabsContent key={source.id} value={source.id}>
             <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">{tab.description}</p>
+              <p className="text-xs text-muted-foreground">{source.helpText}</p>
               
-              <Textarea
-                placeholder="Paste data here (columns: Rank, Player Name, Team, Position, Status)..."
-                value={tab.data}
-                onChange={(e) => tab.setData(e.target.value)}
-                className="min-h-[120px] font-mono text-xs bg-muted/50"
-              />
+              {/* Paste boxes */}
+              <div className="space-y-2">
+                {source.pasteBoxes.map((box) => {
+                  const segment = getSegmentState(box.id);
+                  const isExpanded = expandedBoxes[box.id] ?? false;
+                  const hasData = segment.raw.trim().length > 0;
+                  const hasErrors = segment.errors.length > 0;
+                  
+                  return (
+                    <Collapsible 
+                      key={box.id} 
+                      open={isExpanded} 
+                      onOpenChange={() => toggleBox(box.id)}
+                    >
+                      <div className="border border-border rounded-lg overflow-hidden">
+                        <CollapsibleTrigger asChild>
+                          <button className="w-full flex items-center justify-between p-2 hover:bg-muted/50 transition-colors text-left">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium">{box.label}</span>
+                              {segment.parsedCount > 0 && (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                  <Check className="w-2 h-2 mr-0.5" />
+                                  {segment.parsedCount}
+                                </Badge>
+                              )}
+                              {hasErrors && segment.parsedCount === 0 && (
+                                <AlertCircle className="w-3 h-3 text-destructive" />
+                              )}
+                            </div>
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                            )}
+                          </button>
+                        </CollapsibleTrigger>
+                        
+                        <CollapsibleContent>
+                          <div className="p-2 pt-0 space-y-2">
+                            <Textarea
+                              placeholder={`Paste players ${box.range[0]}–${box.range[1]} here...`}
+                              value={segment.raw}
+                              onChange={(e) => updateSegment(box.id, { raw: e.target.value })}
+                              className="min-h-[100px] font-mono text-xs bg-muted/50"
+                            />
+                            
+                            {hasErrors && (
+                              <div className="text-xs text-destructive">
+                                {segment.errors.map((err, i) => (
+                                  <p key={i}>{err}</p>
+                                ))}
+                              </div>
+                            )}
+                            
+                            <Button
+                              onClick={() => handleImportSegment(
+                                source.id, 
+                                box.id, 
+                                box.range[0] - 1
+                              )}
+                              disabled={isParsing || !hasData}
+                              size="sm"
+                              variant="outline"
+                              className="w-full text-xs"
+                            >
+                              <Upload className="w-3 h-3 mr-1" />
+                              Import {box.label}
+                            </Button>
+                          </div>
+                        </CollapsibleContent>
+                      </div>
+                    </Collapsible>
+                  );
+                })}
+              </div>
 
+              {/* Import All Button */}
               <Button
-                onClick={tab.onImport}
+                onClick={() => handleImportAll(source)}
                 disabled={isParsing}
                 size="sm"
                 className="w-full gradient-primary shadow-glow font-display font-semibold"
               >
                 <Upload className="w-4 h-4 mr-2" />
-                {isParsing ? 'Parsing...' : 'Import Data'}
+                {isParsing ? 'Parsing...' : `Import All ${source.label}`}
               </Button>
             </div>
           </TabsContent>
@@ -257,11 +376,11 @@ export function DraftDataInput({
       </Tabs>
 
       <div className="mt-4 p-3 bg-muted/30 rounded-lg border border-border text-xs">
-        <h4 className="font-semibold mb-1">Supported formats:</h4>
+        <h4 className="font-semibold mb-1">ESPN Data Tips:</h4>
         <ul className="text-muted-foreground space-y-0.5 list-disc list-inside">
-          <li>Tab-separated columns from spreadsheets</li>
-          <li>Space-separated data from websites</li>
-          <li>Format: Rank, Player Name, Team (optional), Position (optional)</li>
+          <li>Copy directly from ESPN tables (Ctrl/Cmd+A then Ctrl/Cmd+C)</li>
+          <li>Each box accepts 50 players — matches ESPN's page size</li>
+          <li>Noise lines (ads, footers) are automatically filtered</li>
         </ul>
       </div>
     </Card>
