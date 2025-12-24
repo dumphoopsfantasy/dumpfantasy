@@ -40,6 +40,8 @@ export interface DraftPlayer {
   
   // Computed values
   valueDelta: number | null; // adpRank - crisRank (positive = value pick)
+  deltaCRI: number | null;   // adpRank - crisRank (same as valueDelta, explicit naming)
+  deltaWCRI: number | null;  // adpRank - wcriRank (for weighted builds)
   tier: number;
   
   // Draft state
@@ -47,6 +49,8 @@ export interface DraftPlayer {
   draftedBy: 'me' | 'other' | null;
   draftedAt: number | null;
 }
+
+export type StatView = 'projections' | 'lastYear';
 
 export interface DraftSettings {
   format: 'snake' | 'linear';

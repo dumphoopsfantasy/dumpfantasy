@@ -16,6 +16,14 @@ const NOISE_PATTERNS = [
   'Standings',
   'Waiver Report',
   'Watch List',
+  'ESPN BET',
+  'LM Tools',
+  'Reset All',
+  '1 2 3 4 5 ...',
+  'My Team',
+  'League',
+  'Opposing Teams',
+  'Officially Licensed Product',
 ];
 
 // NBA team codes
@@ -30,7 +38,7 @@ const NBA_TEAMS = [
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F'];
 
 // Valid statuses
-const STATUSES = ['O', 'DTD', 'IR', 'Q', 'SUSP', 'GTD', 'INJ'];
+const STATUSES = ['O', 'DTD', 'IR', 'Q', 'SUSP', 'GTD', 'INJ', 'OUT'];
 
 export interface PlayerStats {
   min?: number;
@@ -78,6 +86,39 @@ function normalizeLine(line: string): string {
   return line.trim().replace(/\s+/g, ' ');
 }
 
+/**
+ * Fix ESPN copy/paste doubling issues
+ * e.g., "Giannis AntetokounmpoGiannis Antetokounmpo" or "Joel Embiid Joel Embiid"
+ */
+function fixDuplicatePlayerName(name: string): string {
+  const trimmed = name.trim();
+  
+  // Check if the string is exactly two identical halves (no space between)
+  // e.g., "Giannis AntetokounmpoGiannis Antetokounmpo"
+  if (trimmed.length % 2 === 0) {
+    const half = trimmed.length / 2;
+    const firstHalf = trimmed.slice(0, half);
+    const secondHalf = trimmed.slice(half);
+    if (firstHalf.toLowerCase() === secondHalf.toLowerCase()) {
+      return firstHalf;
+    }
+  }
+  
+  // Check for immediate duplicate tokens
+  // e.g., "Joel Embiid Joel Embiid"
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length >= 4 && tokens.length % 2 === 0) {
+    const half = tokens.length / 2;
+    const firstHalf = tokens.slice(0, half).join(' ').toLowerCase();
+    const secondHalf = tokens.slice(half).join(' ').toLowerCase();
+    if (firstHalf === secondHalf) {
+      return tokens.slice(0, half).join(' ');
+    }
+  }
+  
+  return trimmed;
+}
+
 // Extract team code from text
 function extractTeam(text: string): string | null {
   const upper = text.toUpperCase();
@@ -99,6 +140,22 @@ function extractPosition(text: string): string | null {
 function extractStatus(text: string): string | null {
   const upper = text.toUpperCase();
   return STATUSES.includes(upper) ? upper : null;
+}
+
+/**
+ * Deduplicate players within a parsed result (same name + team = keep first)
+ */
+export function dedupePlayersByNameAndTeam(players: ParsedPlayer[]): ParsedPlayer[] {
+  const seen = new Map<string, ParsedPlayer>();
+  
+  for (const player of players) {
+    const key = `${player.playerName.toLowerCase().replace(/\s+/g, '_')}_${(player.team || 'unknown').toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.set(key, player);
+    }
+  }
+  
+  return Array.from(seen.values());
 }
 
 /**
@@ -179,8 +236,9 @@ export function parseEspnAdp(rawData: string, rankOffset = 0): ParseResult {
       }
     }
     
-    // Clean up player name
+    // Clean up player name and fix duplicates
     playerName = playerName.replace(/^\d+\s*/, '').trim();
+    playerName = fixDuplicatePlayerName(playerName);
     
     if (playerName && playerName.length > 2) {
       players.push({
@@ -271,8 +329,9 @@ export function parseEspnStatsTable(rawData: string, rankOffset = 0): ParseResul
       }
     }
     
-    // Clean player name
+    // Clean player name and fix duplicates
     playerName = playerName.replace(/^\d+\s*\.?\s*/, '').trim();
+    playerName = fixDuplicatePlayerName(playerName);
     
     if (playerName && playerName.length > 2) {
       lineRank++;
@@ -286,7 +345,8 @@ export function parseEspnStatsTable(rawData: string, rankOffset = 0): ParseResul
     }
   }
   
-  return { players, errors };
+  // Dedupe within source
+  return { players: dedupePlayersByNameAndTeam(players), errors };
 }
 
 /**
