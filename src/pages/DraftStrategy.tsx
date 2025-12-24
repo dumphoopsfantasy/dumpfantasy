@@ -1,12 +1,15 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Trash2, Table, Grid3X3 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Trash2, Upload, Play, Settings, List } from 'lucide-react';
 import { useDraftState } from '@/hooks/useDraftState';
-import { DraftDataInput } from '@/components/draft/DraftDataInput';
+import { DraftImportWizard } from '@/components/draft/DraftImportWizard';
 import { DraftSettingsPanel } from '@/components/draft/DraftSettingsPanel';
-import { DraftRankingsTable } from '@/components/draft/DraftRankingsTable';
+import { DraftAvailableTable } from '@/components/draft/DraftAvailableTable';
 import { DraftBoardGrid } from '@/components/draft/DraftBoardGrid';
+import { WizardStep } from '@/types/draft';
 
 export function DraftStrategy() {
   const {
@@ -14,30 +17,30 @@ export function DraftStrategy() {
     players,
     currentPick,
     draftStarted,
-    pickHistory,
+    picks,
+    currentStep,
+    importState,
     updateSettings,
-    importCrisRankings,
-    importAdpRankings,
-    importLastYearRankings,
+    setActiveSegment,
+    updateSegmentRaw,
+    importSegment,
+    clearSegment,
+    clearSource,
     clearAllData,
+    setCurrentStep,
     startDraft,
     resetDraft,
-    markDrafted,
+    draftPlayer,
     undoLastPick,
     undoDraft,
-    advancePick,
+    availablePlayers,
+    myDraftedPlayers,
+    teamCompositions,
+    getSourceCounts,
   } = useDraftState();
 
-  const playerCount = useMemo(() => ({
-    cris: players.filter(p => p.crisRank !== null).length,
-    adp: players.filter(p => p.adpRank !== null).length,
-    lastYear: players.filter(p => p.lastYearRank !== null).length,
-  }), [players]);
-
-  const handleMarkDrafted = (playerName: string, draftedBy: 'me' | 'other') => {
-    markDrafted(playerName, draftedBy);
-    advancePick();
-  };
+  const sourceCounts = getSourceCounts();
+  const hasData = players.length > 0;
 
   return (
     <div className="space-y-6">
@@ -46,60 +49,109 @@ export function DraftStrategy() {
         <div>
           <h2 className="text-2xl font-display font-bold">Draft Strategy</h2>
           <p className="text-sm text-muted-foreground">
-            Import rankings, plan your draft, and track picks
+            {currentStep === 'import' && 'Step 1: Import your ESPN data'}
+            {currentStep === 'resolve' && 'Step 2: Resolve unmatched players'}
+            {currentStep === 'draft' && 'Step 3: Draft day!'}
           </p>
         </div>
-        {players.length > 0 && (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={clearAllData}
-            className="font-display"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Clear All
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {hasData && (
+            <Badge variant="outline" className="font-mono">
+              {players.length} players
+            </Badge>
+          )}
+          {hasData && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={clearAllData}
+              className="font-display"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Clear All
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Setup Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <DraftDataInput
-          onImportCris={importCrisRankings}
-          onImportAdp={importAdpRankings}
-          onImportLastYear={importLastYearRankings}
-          playerCount={playerCount}
-        />
-        <DraftSettingsPanel
-          settings={settings}
-          onUpdateSettings={updateSettings}
-          draftStarted={draftStarted}
-          onStartDraft={startDraft}
-          onResetDraft={resetDraft}
-          playerCount={players.length}
-        />
+      {/* Step Navigation */}
+      <div className="flex gap-2">
+        <Button
+          variant={currentStep === 'import' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setCurrentStep('import')}
+          className="gap-2"
+        >
+          <Upload className="w-4 h-4" />
+          1. Import
+          {sourceCounts.projections > 0 && (
+            <Badge variant="secondary" className="ml-1 text-xs">
+              {sourceCounts.projections + sourceCounts.adp + sourceCounts.lastYear}
+            </Badge>
+          )}
+        </Button>
+        <Button
+          variant={currentStep === 'draft' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setCurrentStep('draft')}
+          disabled={!hasData}
+          className="gap-2"
+        >
+          <List className="w-4 h-4" />
+          2. Draft
+        </Button>
       </div>
 
-      {/* Main Content */}
-      {players.length > 0 && (
+      {/* Step Content */}
+      {currentStep === 'import' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2">
+            <DraftImportWizard
+              importState={importState}
+              onSetActiveSegment={setActiveSegment}
+              onUpdateSegmentRaw={updateSegmentRaw}
+              onImportSegment={importSegment}
+              onClearSegment={clearSegment}
+              onClearSource={clearSource}
+              sourceCounts={sourceCounts}
+            />
+          </div>
+          <div>
+            <DraftSettingsPanel
+              settings={settings}
+              onUpdateSettings={updateSettings}
+              draftStarted={draftStarted}
+              onStartDraft={startDraft}
+              onResetDraft={resetDraft}
+              playerCount={players.length}
+            />
+          </div>
+        </div>
+      )}
+
+      {currentStep === 'draft' && hasData && (
         <Tabs defaultValue="table" className="w-full">
           <TabsList className="mb-4">
             <TabsTrigger value="table" className="gap-2">
-              <Table className="w-4 h-4" />
-              Rankings Table
+              <List className="w-4 h-4" />
+              Available Players
             </TabsTrigger>
             <TabsTrigger value="board" className="gap-2">
-              <Grid3X3 className="w-4 h-4" />
+              <Settings className="w-4 h-4" />
               Draft Board
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="table">
-            <DraftRankingsTable
+            <DraftAvailableTable
               players={players}
-              onMarkDrafted={handleMarkDrafted}
-              onUndoDraft={undoDraft}
+              availablePlayers={availablePlayers}
               draftStarted={draftStarted}
+              currentPick={currentPick}
+              settings={settings}
+              onDraftPlayer={draftPlayer}
+              onUndoDraft={undoDraft}
+              onStartDraft={startDraft}
             />
           </TabsContent>
 
@@ -109,19 +161,29 @@ export function DraftStrategy() {
               settings={settings}
               currentPick={currentPick}
               draftStarted={draftStarted}
-              pickHistory={pickHistory}
-              onMarkDrafted={handleMarkDrafted}
+              picks={picks}
+              onDraftPlayer={draftPlayer}
               onUndoLastPick={undoLastPick}
+              teamCompositions={teamCompositions}
             />
           </TabsContent>
         </Tabs>
       )}
 
-      {players.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground">
-          <p className="text-lg font-display">Import player rankings to get started</p>
-          <p className="text-sm mt-1">Paste CRIS projections, ADP trends, or last year's results</p>
-        </div>
+      {currentStep === 'draft' && !hasData && (
+        <Card className="p-8 text-center">
+          <p className="text-muted-foreground">
+            Import player rankings first to start drafting.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentStep('import')}
+            className="mt-4"
+          >
+            Go to Import
+          </Button>
+        </Card>
       )}
     </div>
   );

@@ -1,64 +1,94 @@
+// Draft State Hook - Manages unified player list, import, and draft
+
 import { useState, useCallback, useMemo } from 'react';
 import { usePersistedState } from './usePersistedState';
 import {
-  DraftPlayer,
+  UnifiedPlayer,
   DraftSettings,
   DraftState,
   DEFAULT_DRAFT_SETTINGS,
-  ParsedRankingPlayer,
+  ParsedPlayer,
+  SourceType,
+  WizardStep,
+  PickEntry,
+  ImportState,
+  ImportSegment,
+  SEGMENT_RANGES,
+  getSegmentKey,
   normalizePlayerName,
-  calculateValueDelta,
-  getTierFromRank,
   generatePlayerId,
-  PickHistoryEntry,
-  PlayerStats,
+  generateCanonicalKey,
+  calculateValueDelta,
+  getTeamForPick,
+  TeamComposition,
 } from '@/types/draft';
 
-const STORAGE_KEY = 'dumphoops-draft';
+const STORAGE_KEY = 'dumphoops-draft-v2';
 
 interface UseDraftStateReturn {
   // State
   settings: DraftSettings;
-  players: DraftPlayer[];
+  players: UnifiedPlayer[];
   currentPick: number;
   draftStarted: boolean;
-  pickHistory: PickHistoryEntry[];
+  picks: PickEntry[];
+  currentStep: WizardStep;
+  importState: ImportState;
   
   // Settings actions
   updateSettings: (settings: Partial<DraftSettings>) => void;
   
-  // Player data actions
-  importCrisRankings: (data: ParsedRankingPlayer[]) => void;
-  importAdpRankings: (data: ParsedRankingPlayer[]) => void;
-  importLastYearRankings: (data: ParsedRankingPlayer[]) => void;
+  // Import actions
+  setActiveSegment: (key: string | null) => void;
+  updateSegmentRaw: (key: string, raw: string) => void;
+  importSegment: (key: string, parsed: ParsedPlayer[], sourceType: SourceType) => ImportSegment;
+  clearSegment: (key: string) => void;
+  clearSource: (sourceType: SourceType) => void;
   clearAllData: () => void;
+  
+  // Wizard actions
+  setCurrentStep: (step: WizardStep) => void;
   
   // Draft actions
   startDraft: () => void;
   resetDraft: () => void;
-  markDrafted: (playerName: string, draftedBy: 'me' | 'other') => void;
+  draftPlayer: (playerId: string, draftedBy: 'me' | number) => void;
   undoLastPick: () => void;
-  undoDraft: (playerName: string) => void;
+  undoDraft: (playerId: string) => void;
   advancePick: () => void;
   
   // Computed
-  availablePlayers: DraftPlayer[];
-  draftedPlayers: DraftPlayer[];
-  myDraftedPlayers: DraftPlayer[];
+  availablePlayers: UnifiedPlayer[];
+  draftedPlayers: UnifiedPlayer[];
+  myDraftedPlayers: UnifiedPlayer[];
+  teamCompositions: TeamComposition[];
+  getPlayerById: (id: string) => UnifiedPlayer | undefined;
+  getSourceCounts: () => { projections: number; adp: number; lastYear: number };
 }
 
+const initialImportState: ImportState = {
+  segments: {},
+  activeSegmentKey: null,
+};
+
+const initialDraftState: DraftState = {
+  settings: DEFAULT_DRAFT_SETTINGS,
+  players: [],
+  currentPick: 1,
+  draftStarted: false,
+  picks: [],
+  currentStep: 'import',
+};
+
 export function useDraftState(): UseDraftStateReturn {
-  const [state, setState] = usePersistedState<DraftState>(STORAGE_KEY, {
-    settings: DEFAULT_DRAFT_SETTINGS,
-    players: [],
-    currentPick: 1,
-    draftStarted: false,
-    pickHistory: [],
-  });
+  const [state, setState] = usePersistedState<DraftState>(STORAGE_KEY, initialDraftState);
+  const [importState, setImportState] = useState<ImportState>(initialImportState);
+  
+  // Ensure backwards compatibility
+  const currentStep = state.currentStep ?? 'import';
+  const picks = state.picks ?? [];
 
-  // Ensure pickHistory exists (for backwards compatibility with old localStorage data)
-  const pickHistory = state.pickHistory ?? [];
-
+  // ============ SETTINGS ============
   const updateSettings = useCallback((newSettings: Partial<DraftSettings>) => {
     setState(prev => ({
       ...prev,
@@ -66,159 +96,257 @@ export function useDraftState(): UseDraftStateReturn {
     }));
   }, [setState]);
 
-  // Merge new rankings into existing players
-  const mergeRankings = useCallback((
-    existingPlayers: DraftPlayer[],
-    newData: ParsedRankingPlayer[],
-    rankField: 'crisRank' | 'adpRank' | 'lastYearRank',
-    statsField?: 'crisStats' | 'lastYearStats'
-  ): DraftPlayer[] => {
-    const playerMap = new Map<string, DraftPlayer>();
-    
-    // Add existing players
-    existingPlayers.forEach(p => {
-      playerMap.set(p.normalizedName, p);
-    });
-    
-    // Merge new data
-    newData.forEach(p => {
-      const normalized = normalizePlayerName(p.playerName);
-      const existing = playerMap.get(normalized);
-      
-      if (existing) {
-        // Update existing player
-        const updated: DraftPlayer = {
-          ...existing,
-          [rankField]: p.rank,
-          // Update team/position if we have new data
-          team: p.team || existing.team,
-          position: p.position || existing.position,
-          status: p.status || existing.status,
-        };
-        
-        // Add stats if provided
-        if (statsField && p.stats) {
-          updated[statsField] = p.stats;
-        }
-        
-        // Add ADP-specific fields
-        if (rankField === 'adpRank') {
-          updated.avgPick = p.avgPick ?? existing.avgPick;
-          updated.rostPct = p.rostPct ?? existing.rostPct;
-        }
-        
-        playerMap.set(normalized, updated);
-      } else {
-        // Create new player
-        const newPlayer: DraftPlayer = {
-          playerId: generatePlayerId(p.playerName),
-          playerName: p.playerName,
-          normalizedName: normalized,
-          team: p.team,
-          position: p.position,
-          status: p.status,
-          crisRank: null,
-          adpRank: null,
-          lastYearRank: null,
-          crisStats: null,
-          lastYearStats: null,
-          avgPick: null,
-          rostPct: null,
-          valueDelta: null,
-          deltaCRI: null,
-          deltaWCRI: null,
-          tier: 6,
-          drafted: false,
-          draftedBy: null,
-          draftedAt: null,
-          [rankField]: p.rank,
-        };
-        
-        // Add stats if provided
-        if (statsField && p.stats) {
-          newPlayer[statsField] = p.stats;
-        }
-        
-        // Add ADP-specific fields
-        if (rankField === 'adpRank') {
-          newPlayer.avgPick = p.avgPick ?? null;
-          newPlayer.rostPct = p.rostPct ?? null;
-        }
-        
-        playerMap.set(normalized, newPlayer);
-      }
-    });
-    
-    // Recalculate derived fields for all players
-    const result: DraftPlayer[] = [];
-    playerMap.forEach(player => {
-      const valueDelta = calculateValueDelta(player.adpRank, player.crisRank);
-      const deltaCRI = valueDelta; // Explicit naming
-      const deltaWCRI = calculateValueDelta(player.adpRank, player.crisRank); // For now same as CRI, can add wcriRank later
-      const primaryRank = player.crisRank ?? player.adpRank ?? player.lastYearRank ?? 999;
-      const tier = getTierFromRank(primaryRank);
-      
-      result.push({
-        ...player,
-        valueDelta,
-        deltaCRI,
-        deltaWCRI,
-        tier,
-      });
-    });
-    
-    // Sort by deltaCRI descending (best value first) when available, else by primary rank
-    result.sort((a, b) => {
-      // If both have deltaCRI, sort by that (higher = better value)
-      if (a.deltaCRI !== null && b.deltaCRI !== null) {
-        return b.deltaCRI - a.deltaCRI;
-      }
-      // Fallback to primary rank
-      const aRank = a.crisRank ?? a.adpRank ?? a.lastYearRank ?? 999;
-      const bRank = b.crisRank ?? b.adpRank ?? b.lastYearRank ?? 999;
-      return aRank - bRank;
-    });
-    
-    return result;
+  // ============ IMPORT ============
+  const setActiveSegment = useCallback((key: string | null) => {
+    setImportState(prev => ({ ...prev, activeSegmentKey: key }));
   }, []);
 
-  const importCrisRankings = useCallback((data: ParsedRankingPlayer[]) => {
-    setState(prev => ({
+  const updateSegmentRaw = useCallback((key: string, raw: string) => {
+    setImportState(prev => ({
       ...prev,
-      players: mergeRankings(prev.players, data, 'crisRank', 'crisStats'),
+      segments: {
+        ...prev.segments,
+        [key]: {
+          ...prev.segments[key],
+          raw,
+          status: raw.trim() ? 'empty' : 'empty',
+        } as ImportSegment,
+      },
     }));
-  }, [setState, mergeRankings]);
+  }, []);
 
-  const importAdpRankings = useCallback((data: ParsedRankingPlayer[]) => {
-    setState(prev => ({
-      ...prev,
-      players: mergeRankings(prev.players, data, 'adpRank'),
-    }));
-  }, [setState, mergeRankings]);
-
-  const importLastYearRankings = useCallback((data: ParsedRankingPlayer[]) => {
-    setState(prev => ({
-      ...prev,
-      players: mergeRankings(prev.players, data, 'lastYearRank', 'lastYearStats'),
-    }));
-  }, [setState, mergeRankings]);
-
-  const clearAllData = useCallback(() => {
-    setState({
-      settings: DEFAULT_DRAFT_SETTINGS,
-      players: [],
-      currentPick: 1,
-      draftStarted: false,
-      pickHistory: [],
+  const importSegment = useCallback((
+    key: string,
+    parsed: ParsedPlayer[],
+    sourceType: SourceType
+  ): ImportSegment => {
+    let matchedCount = 0;
+    let newCount = 0;
+    
+    setState(prevState => {
+      const playerMap = new Map<string, UnifiedPlayer>();
+      
+      // Add existing players to map
+      prevState.players.forEach(p => {
+        playerMap.set(p.id, p);
+      });
+      
+      // Merge new players
+      for (const p of parsed) {
+        const normalized = normalizePlayerName(p.playerName);
+        const canonicalKey = generateCanonicalKey(p.playerName, p.team);
+        const id = generatePlayerId(p.playerName);
+        
+        // Try to find existing player
+        let existing = playerMap.get(id);
+        if (!existing) {
+          // Try by canonical key
+          for (const [_, player] of playerMap) {
+            if (generateCanonicalKey(player.name, player.team) === canonicalKey ||
+                player.nameNormalized === normalized) {
+              existing = player;
+              break;
+            }
+          }
+        }
+        
+        if (existing) {
+          matchedCount++;
+          // Update existing player with new source data
+          const updated = { ...existing };
+          
+          if (sourceType === 'projections') {
+            updated.sources = {
+              ...updated.sources,
+              projections: {
+                rank: p.rank,
+                stats: p.stats || null,
+              },
+            };
+            updated.crisRank = p.rank;
+          } else if (sourceType === 'adp') {
+            updated.sources = {
+              ...updated.sources,
+              adp: {
+                rank: p.rank,
+                avgPick: p.avgPick ?? null,
+                rostPct: p.rostPct ?? null,
+              },
+            };
+            updated.adpRank = p.rank;
+          } else if (sourceType === 'lastYear') {
+            updated.sources = {
+              ...updated.sources,
+              lastYear: {
+                rank: p.rank,
+                stats: p.stats || null,
+              },
+            };
+            updated.lastYearRank = p.rank;
+          }
+          
+          // Update team/positions if we have new data
+          if (p.team && !updated.team) updated.team = p.team;
+          if (p.positions.length > 0) {
+            updated.positions = [...new Set([...updated.positions, ...p.positions])];
+          }
+          if (p.status) updated.status = p.status;
+          
+          // Recalculate value deltas
+          updated.valueVsAdp = calculateValueDelta(updated.adpRank, updated.crisRank);
+          updated.valueVsLastYear = calculateValueDelta(updated.adpRank, updated.lastYearRank);
+          
+          playerMap.set(updated.id, updated);
+        } else {
+          newCount++;
+          // Create new player
+          const newPlayer: UnifiedPlayer = {
+            id,
+            name: p.playerName,
+            nameNormalized: normalized,
+            team: p.team,
+            positions: p.positions,
+            status: p.status,
+            sources: {
+              projections: sourceType === 'projections' ? { rank: p.rank, stats: p.stats || null } : null,
+              adp: sourceType === 'adp' ? { rank: p.rank, avgPick: p.avgPick ?? null, rostPct: p.rostPct ?? null } : null,
+              lastYear: sourceType === 'lastYear' ? { rank: p.rank, stats: p.stats || null } : null,
+            },
+            crisRank: sourceType === 'projections' ? p.rank : null,
+            adpRank: sourceType === 'adp' ? p.rank : null,
+            lastYearRank: sourceType === 'lastYear' ? p.rank : null,
+            valueVsAdp: null,
+            valueVsLastYear: null,
+            drafted: false,
+            draftedBy: null,
+            draftedAt: null,
+          };
+          
+          playerMap.set(id, newPlayer);
+        }
+      }
+      
+      // Convert back to array and sort by value
+      const players = Array.from(playerMap.values());
+      players.sort((a, b) => {
+        // Sort by valueVsAdp descending (best value first)
+        if (a.valueVsAdp !== null && b.valueVsAdp !== null) {
+          return b.valueVsAdp - a.valueVsAdp;
+        }
+        // Fallback to CRIS rank
+        const aRank = a.crisRank ?? a.adpRank ?? a.lastYearRank ?? 999;
+        const bRank = b.crisRank ?? b.adpRank ?? b.lastYearRank ?? 999;
+        return aRank - bRank;
+      });
+      
+      return { ...prevState, players };
     });
+    
+    const segment: ImportSegment = {
+      sourceType,
+      segmentIndex: parseInt(key.split('_')[1]) || 0,
+      raw: importState.segments[key]?.raw || '',
+      status: 'parsed',
+      parsedCount: parsed.length,
+      matchedCount,
+      newCount,
+      dupeCount: 0,
+      errors: [],
+    };
+    
+    setImportState(prev => ({
+      ...prev,
+      segments: { ...prev.segments, [key]: segment },
+    }));
+    
+    return segment;
+  }, [setState, importState.segments]);
+
+  const clearSegment = useCallback((key: string) => {
+    setImportState(prev => ({
+      ...prev,
+      segments: {
+        ...prev.segments,
+        [key]: {
+          ...prev.segments[key],
+          raw: '',
+          status: 'empty',
+          parsedCount: 0,
+          matchedCount: 0,
+          newCount: 0,
+          dupeCount: 0,
+          errors: [],
+        } as ImportSegment,
+      },
+    }));
+  }, []);
+
+  const clearSource = useCallback((sourceType: SourceType) => {
+    // Clear all segments for this source
+    setImportState(prev => {
+      const newSegments = { ...prev.segments };
+      for (let i = 0; i < 4; i++) {
+        const key = getSegmentKey(sourceType, i);
+        if (newSegments[key]) {
+          newSegments[key] = {
+            ...newSegments[key],
+            raw: '',
+            status: 'empty',
+            parsedCount: 0,
+            matchedCount: 0,
+            newCount: 0,
+            dupeCount: 0,
+            errors: [],
+          };
+        }
+      }
+      return { ...prev, segments: newSegments };
+    });
+    
+    // Remove source data from players
+    setState(prev => ({
+      ...prev,
+      players: prev.players.map(p => {
+        const updated = { ...p };
+        if (sourceType === 'projections') {
+          updated.sources = { ...updated.sources, projections: null };
+          updated.crisRank = null;
+        } else if (sourceType === 'adp') {
+          updated.sources = { ...updated.sources, adp: null };
+          updated.adpRank = null;
+        } else if (sourceType === 'lastYear') {
+          updated.sources = { ...updated.sources, lastYear: null };
+          updated.lastYearRank = null;
+        }
+        updated.valueVsAdp = calculateValueDelta(updated.adpRank, updated.crisRank);
+        updated.valueVsLastYear = calculateValueDelta(updated.adpRank, updated.lastYearRank);
+        return updated;
+      }).filter(p => 
+        p.sources.projections !== null || 
+        p.sources.adp !== null || 
+        p.sources.lastYear !== null
+      ),
+    }));
   }, [setState]);
 
+  const clearAllData = useCallback(() => {
+    setState(initialDraftState);
+    setImportState(initialImportState);
+  }, [setState]);
+
+  // ============ WIZARD ============
+  const setCurrentStep = useCallback((step: WizardStep) => {
+    setState(prev => ({ ...prev, currentStep: step }));
+  }, [setState]);
+
+  // ============ DRAFT ============
   const startDraft = useCallback(() => {
     setState(prev => ({
       ...prev,
       draftStarted: true,
       currentPick: 1,
-      pickHistory: [],
+      picks: [],
+      currentStep: 'draft',
       players: prev.players.map(p => ({
         ...p,
         drafted: false,
@@ -233,7 +361,7 @@ export function useDraftState(): UseDraftStateReturn {
       ...prev,
       draftStarted: false,
       currentPick: 1,
-      pickHistory: [],
+      picks: [],
       players: prev.players.map(p => ({
         ...p,
         drafted: false,
@@ -243,31 +371,31 @@ export function useDraftState(): UseDraftStateReturn {
     }));
   }, [setState]);
 
-  const markDrafted = useCallback((playerName: string, draftedBy: 'me' | 'other') => {
+  const draftPlayer = useCallback((playerId: string, draftedBy: 'me' | number) => {
     setState(prev => {
-      const normalized = normalizePlayerName(playerName);
-      const player = prev.players.find(p => p.normalizedName === normalized);
+      const player = prev.players.find(p => p.id === playerId);
+      if (!player || player.drafted) return prev;
       
-      if (!player) return prev;
+      const { teams, myPickSlot } = prev.settings;
+      const round = Math.ceil(prev.currentPick / teams);
+      const teamIndex = draftedBy === 'me' ? myPickSlot : draftedBy;
       
-      const historyEntry: PickHistoryEntry = {
-        pickNumber: prev.currentPick,
-        playerId: player.playerId,
-        playerName: player.playerName,
-        draftedBy,
+      const pickEntry: PickEntry = {
+        overallPick: prev.currentPick,
+        round,
+        teamIndex,
+        playerId,
+        playerName: player.name,
+        timestamp: Date.now(),
       };
       
       return {
         ...prev,
-        pickHistory: [...prev.pickHistory, historyEntry],
+        currentPick: prev.currentPick + 1,
+        picks: [...prev.picks, pickEntry],
         players: prev.players.map(p =>
-          p.normalizedName === normalized
-            ? {
-                ...p,
-                drafted: true,
-                draftedBy,
-                draftedAt: prev.currentPick,
-              }
+          p.id === playerId
+            ? { ...p, drafted: true, draftedBy, draftedAt: prev.currentPick }
             : p
         ),
       };
@@ -276,47 +404,35 @@ export function useDraftState(): UseDraftStateReturn {
 
   const undoLastPick = useCallback(() => {
     setState(prev => {
-      if (prev.pickHistory.length === 0) return prev;
+      if (prev.picks.length === 0) return prev;
       
-      const lastPick = prev.pickHistory[prev.pickHistory.length - 1];
-      const newHistory = prev.pickHistory.slice(0, -1);
+      const lastPick = prev.picks[prev.picks.length - 1];
+      const newPicks = prev.picks.slice(0, -1);
       
       return {
         ...prev,
         currentPick: Math.max(1, prev.currentPick - 1),
-        pickHistory: newHistory,
+        picks: newPicks,
         players: prev.players.map(p =>
-          p.playerId === lastPick.playerId
-            ? {
-                ...p,
-                drafted: false,
-                draftedBy: null,
-                draftedAt: null,
-              }
+          p.id === lastPick.playerId
+            ? { ...p, drafted: false, draftedBy: null, draftedAt: null }
             : p
         ),
       };
     });
   }, [setState]);
 
-  const undoDraft = useCallback((playerName: string) => {
+  const undoDraft = useCallback((playerId: string) => {
     setState(prev => {
-      const normalized = normalizePlayerName(playerName);
-      const player = prev.players.find(p => p.normalizedName === normalized);
-      
+      const player = prev.players.find(p => p.id === playerId);
       if (!player) return prev;
       
       return {
         ...prev,
-        pickHistory: prev.pickHistory.filter(h => h.playerId !== player.playerId),
+        picks: prev.picks.filter(p => p.playerId !== playerId),
         players: prev.players.map(p =>
-          p.normalizedName === normalized
-            ? {
-                ...p,
-                drafted: false,
-                draftedBy: null,
-                draftedAt: null,
-              }
+          p.id === playerId
+            ? { ...p, drafted: false, draftedBy: null, draftedAt: null }
             : p
         ),
       };
@@ -324,47 +440,98 @@ export function useDraftState(): UseDraftStateReturn {
   }, [setState]);
 
   const advancePick = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      currentPick: prev.currentPick + 1,
-    }));
+    setState(prev => ({ ...prev, currentPick: prev.currentPick + 1 }));
   }, [setState]);
 
-  // Computed values
-  const availablePlayers = useMemo(() => 
+  // ============ COMPUTED ============
+  const availablePlayers = useMemo(() =>
     state.players.filter(p => !p.drafted),
     [state.players]
   );
 
-  const draftedPlayers = useMemo(() => 
-    state.players.filter(p => p.drafted).sort((a, b) => (a.draftedAt ?? 0) - (b.draftedAt ?? 0)),
+  const draftedPlayers = useMemo(() =>
+    state.players
+      .filter(p => p.drafted)
+      .sort((a, b) => (a.draftedAt ?? 0) - (b.draftedAt ?? 0)),
     [state.players]
   );
 
-  const myDraftedPlayers = useMemo(() => 
+  const myDraftedPlayers = useMemo(() =>
     state.players.filter(p => p.drafted && p.draftedBy === 'me'),
     [state.players]
   );
+
+  const teamCompositions = useMemo((): TeamComposition[] => {
+    const { teams } = state.settings;
+    const compositions: TeamComposition[] = [];
+    
+    for (let teamIndex = 1; teamIndex <= teams; teamIndex++) {
+      const teamPicks = picks.filter(p => p.teamIndex === teamIndex);
+      const playerIds = teamPicks.map(p => p.playerId).filter(Boolean) as string[];
+      const teamPlayers = playerIds.map(id => state.players.find(p => p.id === id)).filter(Boolean) as UnifiedPlayer[];
+      
+      const positionCounts: Record<string, number> = {};
+      let totalCRI = 0;
+      
+      for (const player of teamPlayers) {
+        for (const pos of player.positions) {
+          positionCounts[pos] = (positionCounts[pos] || 0) + 1;
+        }
+        if (player.crisRank) {
+          totalCRI += player.crisRank;
+        }
+      }
+      
+      compositions.push({
+        teamIndex,
+        playerIds,
+        positionCounts,
+        totalCRI,
+        avgCRI: teamPlayers.length > 0 ? totalCRI / teamPlayers.length : 0,
+      });
+    }
+    
+    return compositions.sort((a, b) => a.avgCRI - b.avgCRI);
+  }, [state.players, state.settings, picks]);
+
+  const getPlayerById = useCallback((id: string) => 
+    state.players.find(p => p.id === id),
+    [state.players]
+  );
+
+  const getSourceCounts = useCallback(() => ({
+    projections: state.players.filter(p => p.sources.projections !== null).length,
+    adp: state.players.filter(p => p.sources.adp !== null).length,
+    lastYear: state.players.filter(p => p.sources.lastYear !== null).length,
+  }), [state.players]);
 
   return {
     settings: state.settings,
     players: state.players,
     currentPick: state.currentPick,
     draftStarted: state.draftStarted,
-    pickHistory,
+    picks,
+    currentStep,
+    importState,
     updateSettings,
-    importCrisRankings,
-    importAdpRankings,
-    importLastYearRankings,
+    setActiveSegment,
+    updateSegmentRaw,
+    importSegment,
+    clearSegment,
+    clearSource,
     clearAllData,
+    setCurrentStep,
     startDraft,
     resetDraft,
-    markDrafted,
+    draftPlayer,
     undoLastPick,
     undoDraft,
     advancePick,
     availablePlayers,
     draftedPlayers,
     myDraftedPlayers,
+    teamCompositions,
+    getPlayerById,
+    getSourceCounts,
   };
 }

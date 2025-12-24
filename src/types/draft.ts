@@ -1,5 +1,6 @@
-// Draft Strategy Types
+// Draft Strategy Types - Rebuilt for 3-Step Wizard
 
+// ============ PLAYER STATS ============
 export interface PlayerStats {
   min?: number;
   fgm?: number;
@@ -17,76 +18,49 @@ export interface PlayerStats {
   pts?: number;
 }
 
-export interface DraftPlayer {
-  playerId: string;
-  playerName: string;
-  normalizedName: string;
+// ============ SOURCE DATA ============
+export interface SourceStats {
+  rank: number | null;
+  stats: PlayerStats | null;
+  avgPick?: number;
+  rostPct?: number;
+}
+
+// ============ UNIFIED PLAYER ============
+export interface UnifiedPlayer {
+  id: string;
+  name: string;
+  nameNormalized: string;
   team: string | null;
-  position: string | null;
+  positions: string[];
   status: string | null;
   
-  // Rankings from different sources
+  // Source data
+  sources: {
+    projections: SourceStats | null;
+    adp: { rank: number | null; avgPick: number | null; rostPct: number | null } | null;
+    lastYear: SourceStats | null;
+  };
+  
+  // Computed values
   crisRank: number | null;
   adpRank: number | null;
   lastYearRank: number | null;
-  
-  // Stats from sources
-  crisStats: PlayerStats | null;
-  lastYearStats: PlayerStats | null;
-  
-  // ADP-specific
-  avgPick: number | null;
-  rostPct: number | null;
-  
-  // Computed values
-  valueDelta: number | null; // adpRank - crisRank (positive = value pick)
-  deltaCRI: number | null;   // adpRank - crisRank (same as valueDelta, explicit naming)
-  deltaWCRI: number | null;  // adpRank - wcriRank (for weighted builds)
-  tier: number;
+  valueVsAdp: number | null;      // adpRank - crisRank (positive = undervalued)
+  valueVsLastYear: number | null; // adpRank - lastYearRank
   
   // Draft state
   drafted: boolean;
-  draftedBy: 'me' | 'other' | null;
-  draftedAt: number | null;
+  draftedBy: 'me' | number | null; // 'me' or team index (1-N)
+  draftedAt: number | null;        // Overall pick number
 }
 
-export type StatView = 'projections' | 'lastYear';
-
+// ============ DRAFT STATE ============
 export interface DraftSettings {
   format: 'snake' | 'linear';
   teams: number;
   myPickSlot: number;
   rounds: number;
-}
-
-export interface TierRange {
-  tier: number;
-  min: number;
-  max: number;
-}
-
-export const DEFAULT_TIER_RANGES: TierRange[] = [
-  { tier: 1, min: 1, max: 12 },
-  { tier: 2, min: 13, max: 24 },
-  { tier: 3, min: 25, max: 50 },
-  { tier: 4, min: 51, max: 100 },
-  { tier: 5, min: 101, max: 150 },
-  { tier: 6, min: 151, max: 999 },
-];
-
-export interface PickHistoryEntry {
-  pickNumber: number;
-  playerId: string;
-  playerName: string;
-  draftedBy: 'me' | 'other';
-}
-
-export interface DraftState {
-  settings: DraftSettings;
-  players: DraftPlayer[];
-  currentPick: number;
-  draftStarted: boolean;
-  pickHistory: PickHistoryEntry[];
 }
 
 export const DEFAULT_DRAFT_SETTINGS: DraftSettings = {
@@ -96,45 +70,103 @@ export const DEFAULT_DRAFT_SETTINGS: DraftSettings = {
   rounds: 14,
 };
 
-// Parse input types
-export interface ParsedRankingPlayer {
+export interface PickEntry {
+  overallPick: number;
+  round: number;
+  teamIndex: number;
+  playerId: string | null;
+  playerName: string | null;
+  timestamp: number;
+}
+
+export interface DraftState {
+  settings: DraftSettings;
+  players: UnifiedPlayer[];
+  currentPick: number;
+  draftStarted: boolean;
+  picks: PickEntry[];
+  currentStep: WizardStep;
+}
+
+export type WizardStep = 'import' | 'resolve' | 'draft';
+
+// ============ IMPORT SEGMENT ============
+export type SourceType = 'projections' | 'adp' | 'lastYear';
+
+export interface ImportSegment {
+  sourceType: SourceType;
+  segmentIndex: number; // 0-3 for ranges 1-50, 51-100, 101-150, 151-200
+  raw: string;
+  status: 'empty' | 'parsed' | 'error';
+  parsedCount: number;
+  matchedCount: number;
+  newCount: number;
+  dupeCount: number;
+  errors: string[];
+}
+
+export interface ImportState {
+  segments: Record<string, ImportSegment>;
+  activeSegmentKey: string | null;
+}
+
+export const SEGMENT_RANGES: Array<{ label: string; range: [number, number] }> = [
+  { label: 'Players 1–50', range: [1, 50] },
+  { label: 'Players 51–100', range: [51, 100] },
+  { label: 'Players 101–150', range: [101, 150] },
+  { label: 'Players 151–200', range: [151, 200] },
+];
+
+export const SOURCE_CONFIGS: Array<{ id: SourceType; label: string; description: string }> = [
+  { id: 'projections', label: 'CRIS Projections', description: 'This year\'s projected stats from ESPN' },
+  { id: 'adp', label: 'ADP Trends', description: 'ESPN Live Draft Trends (average pick position)' },
+  { id: 'lastYear', label: 'Last Year', description: 'Last season\'s actual stats' },
+];
+
+export function getSegmentKey(sourceType: SourceType, segmentIndex: number): string {
+  return `${sourceType}_${segmentIndex}`;
+}
+
+export function parseSegmentKey(key: string): { sourceType: SourceType; segmentIndex: number } | null {
+  const match = key.match(/^(projections|adp|lastYear)_(\d)$/);
+  if (!match) return null;
+  return { sourceType: match[1] as SourceType, segmentIndex: parseInt(match[2], 10) };
+}
+
+// ============ PARSED PLAYER (from parser) ============
+export interface ParsedPlayer {
   rank: number;
   playerName: string;
   team: string | null;
-  position: string | null;
+  positions: string[];
   status: string | null;
   stats?: PlayerStats;
   avgPick?: number;
   rostPct?: number;
 }
 
-// Tier colors for visual display
-export const TIER_COLORS: Record<number, string> = {
-  1: 'bg-amber-500/20 border-amber-500/50 text-amber-200',
-  2: 'bg-purple-500/20 border-purple-500/50 text-purple-200',
-  3: 'bg-blue-500/20 border-blue-500/50 text-blue-200',
-  4: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200',
-  5: 'bg-slate-500/20 border-slate-500/50 text-slate-200',
-  6: 'bg-zinc-500/20 border-zinc-500/50 text-zinc-300',
-};
-
-// Calculate tier from rank
-export function getTierFromRank(rank: number, tierRanges: TierRange[] = DEFAULT_TIER_RANGES): number {
-  for (const range of tierRanges) {
-    if (rank >= range.min && rank <= range.max) {
-      return range.tier;
-    }
-  }
-  return 6;
+// ============ UNMATCHED PLAYER ============
+export interface UnmatchedPlayer {
+  parsed: ParsedPlayer;
+  sourceType: SourceType;
+  suggestions: Array<{ player: UnifiedPlayer; score: number }>;
+  resolved: boolean;
+  resolvedTo: string | null; // player id or 'new'
 }
 
-// Calculate value delta: positive means ADP is later than CRIS (value pick)
-export function calculateValueDelta(adpRank: number | null, crisRank: number | null): number | null {
-  if (adpRank === null || crisRank === null) return null;
-  return adpRank - crisRank;
+// ============ TEAM TRACKING ============
+export interface TeamComposition {
+  teamIndex: number;
+  playerIds: string[];
+  positionCounts: Record<string, number>;
+  totalCRI: number;
+  avgCRI: number;
 }
 
-// Name normalization for matching
+// ============ STAT VIEW ============
+export type StatView = 'projections' | 'lastYear';
+
+// ============ NAME NORMALIZATION ============
 const NAME_VARIANTS: Record<string, string> = {
   "d'angelo": "dangelo",
   "de'aaron": "deaaron",
@@ -145,39 +177,66 @@ const NAME_VARIANTS: Record<string, string> = {
   "a.j.": "aj",
   "t.j.": "tj",
   "j.r.": "jr",
+  "jr.": "",
+  "sr.": "",
+  "iii": "",
+  "ii": "",
+  "iv": "",
 };
 
-const NAME_SUFFIXES = ['jr', 'sr', 'ii', 'iii', 'iv', 'v'];
-
-// Normalize player name for matching
+/**
+ * Normalize player name for matching:
+ * - lowercase, trim, collapse whitespace
+ * - remove periods, apostrophes
+ * - normalize hyphens
+ * - remove accents
+ * - apply known variants
+ */
 export function normalizePlayerName(name: string): string {
-  let normalized = name.toLowerCase();
+  let normalized = name.toLowerCase().trim();
+  
+  // Remove accents
+  normalized = normalized.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   
   // Apply known variants
   for (const [variant, replacement] of Object.entries(NAME_VARIANTS)) {
-    normalized = normalized.replace(new RegExp(variant, 'g'), replacement);
+    normalized = normalized.replace(new RegExp(variant.replace(/\./g, '\\.'), 'gi'), replacement);
   }
   
-  // Remove punctuation
-  normalized = normalized.replace(/[^a-z\s]/g, '');
+  // Remove punctuation except hyphens
+  normalized = normalized.replace(/['.]/g, '');
   
-  // Remove suffixes
-  for (const suffix of NAME_SUFFIXES) {
-    normalized = normalized.replace(new RegExp(`\\s+${suffix}$`), '');
-  }
+  // Normalize hyphens
+  normalized = normalized.replace(/[-–—]/g, '-');
   
-  // Collapse spaces
+  // Collapse whitespace
   normalized = normalized.replace(/\s+/g, ' ').trim();
   
   return normalized;
 }
 
-// Generate player ID from normalized name
-export function generatePlayerId(name: string): string {
-  return normalizePlayerName(name).replace(/\s/g, '_');
+/**
+ * Generate a canonical key for matching (normalized name + team if available)
+ */
+export function generateCanonicalKey(name: string, team?: string | null): string {
+  const normalizedName = normalizePlayerName(name);
+  if (team) {
+    return `${normalizedName}_${team.toLowerCase()}`;
+  }
+  return normalizedName;
 }
 
-// Get my picks based on snake draft logic
+/**
+ * Generate unique player ID
+ */
+export function generatePlayerId(name: string): string {
+  return normalizePlayerName(name).replace(/\s/g, '_').replace(/-/g, '_');
+}
+
+// ============ DRAFT LOGIC ============
+/**
+ * Get all of "my" pick numbers based on snake draft logic
+ */
 export function getMyPicks(settings: DraftSettings): number[] {
   const picks: number[] = [];
   const { format, teams, myPickSlot, rounds } = settings;
@@ -202,4 +261,26 @@ export function getMyPicks(settings: DraftSettings): number[] {
   }
   
   return picks;
+}
+
+/**
+ * Get which team is picking at a given overall pick number
+ */
+export function getTeamForPick(pick: number, settings: DraftSettings): number {
+  const { format, teams } = settings;
+  const round = Math.ceil(pick / teams);
+  const pickInRound = ((pick - 1) % teams) + 1;
+  
+  if (format === 'snake' && round % 2 === 0) {
+    return teams - pickInRound + 1;
+  }
+  return pickInRound;
+}
+
+/**
+ * Calculate value deltas
+ */
+export function calculateValueDelta(adpRank: number | null, otherRank: number | null): number | null {
+  if (adpRank === null || otherRank === null) return null;
+  return adpRank - otherRank;
 }
