@@ -19,6 +19,7 @@ import { DataCompletenessBar } from "@/components/DataCompletenessBar";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { CustomWeights } from "@/components/WeightSettings";
 import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
+import { useDraftVisibility } from "@/hooks/useDraftVisibility";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
@@ -127,6 +128,9 @@ const Index = () => {
 
   // Global CRI weights for Settings page
   const [globalWeights, setGlobalWeights] = usePersistedState<CustomWeights>("dumphoops.criWeights", CRIS_WEIGHTS as CustomWeights);
+
+  // Draft tab visibility
+  const { showDraftTab, setShowDraftTab } = useDraftVisibility();
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -514,7 +518,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full max-w-5xl mx-auto grid-cols-8 bg-accent/30 border border-primary/20 mb-6">
+          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${showDraftTab ? 'grid-cols-8' : 'grid-cols-7'}`}>
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
@@ -539,10 +543,12 @@ const Index = () => {
               <Clipboard className="w-4 h-4 mr-1 hidden md:inline" />
               Gameplan
             </TabsTrigger>
-            <TabsTrigger value="draft" className="font-display font-semibold text-xs md:text-sm">
-              <Target className="w-4 h-4 mr-1 hidden md:inline" />
-              Draft
-            </TabsTrigger>
+            {showDraftTab && (
+              <TabsTrigger value="draft" className="font-display font-semibold text-xs md:text-sm">
+                <Target className="w-4 h-4 mr-1 hidden md:inline" />
+                Draft
+              </TabsTrigger>
+            )}
             <TabsTrigger value="settings" className="font-display font-semibold text-xs md:text-sm">
               <SettingsIcon className="w-4 h-4 mr-1 hidden md:inline" />
               Settings
@@ -792,12 +798,19 @@ const Index = () => {
             />
           </TabsContent>
 
-          <TabsContent value="draft">
-            <DraftStrategy />
-          </TabsContent>
+          {showDraftTab && (
+            <TabsContent value="draft">
+              <DraftStrategy />
+            </TabsContent>
+          )}
 
           <TabsContent value="settings">
-            <Settings weights={globalWeights} onWeightsChange={setGlobalWeights} />
+            <Settings 
+              weights={globalWeights} 
+              onWeightsChange={setGlobalWeights} 
+              showDraftTab={showDraftTab}
+              onShowDraftTabChange={setShowDraftTab}
+            />
           </TabsContent>
         </Tabs>
       </main>
