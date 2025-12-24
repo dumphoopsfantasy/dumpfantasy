@@ -20,19 +20,21 @@ import {
   X,
   TrendingUp,
   TrendingDown,
+  User,
+  Users,
 } from 'lucide-react';
 import { DraftPlayer, TIER_COLORS } from '@/types/draft';
 import { cn } from '@/lib/utils';
 
 interface DraftRankingsTableProps {
   players: DraftPlayer[];
-  onMarkDrafted: (playerName: string, draftedBy?: string) => void;
+  onMarkDrafted: (playerName: string, draftedBy: 'me' | 'other') => void;
   onUndoDraft: (playerName: string) => void;
   draftStarted: boolean;
   showDrafted?: boolean;
 }
 
-type SortColumn = 'crisRank' | 'adpRank' | 'lastYearRank' | 'valueDelta' | 'tier' | 'playerName';
+type SortColumn = 'crisRank' | 'adpRank' | 'lastYearRank' | 'valueDelta' | 'tier' | 'playerName' | 'pts' | 'reb' | 'ast';
 type SortDirection = 'asc' | 'desc';
 
 export function DraftRankingsTable({
@@ -52,7 +54,7 @@ export function DraftRankingsTable({
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortColumn(column);
-      setSortDirection('asc');
+      setSortDirection(column === 'pts' || column === 'reb' || column === 'ast' ? 'desc' : 'asc');
     }
   };
 
@@ -93,8 +95,8 @@ export function DraftRankingsTable({
           bVal = b.lastYearRank ?? 999;
           break;
         case 'valueDelta':
-          aVal = a.valueDelta ?? 0;
-          bVal = b.valueDelta ?? 0;
+          aVal = a.valueDelta ?? -999;
+          bVal = b.valueDelta ?? -999;
           break;
         case 'tier':
           aVal = a.tier;
@@ -103,6 +105,18 @@ export function DraftRankingsTable({
         case 'playerName':
           aVal = a.playerName;
           bVal = b.playerName;
+          break;
+        case 'pts':
+          aVal = a.crisStats?.pts ?? 0;
+          bVal = b.crisStats?.pts ?? 0;
+          break;
+        case 'reb':
+          aVal = a.crisStats?.reb ?? 0;
+          bVal = b.crisStats?.reb ?? 0;
+          break;
+        case 'ast':
+          aVal = a.crisStats?.ast ?? 0;
+          bVal = b.crisStats?.ast ?? 0;
           break;
       }
       
@@ -134,6 +148,11 @@ export function DraftRankingsTable({
     });
     return counts;
   }, [players]);
+
+  const formatStat = (val: number | undefined) => {
+    if (val === undefined) return '—';
+    return val.toFixed(1);
+  };
 
   return (
     <Card className="gradient-card shadow-card border-border overflow-hidden">
@@ -184,14 +203,14 @@ export function DraftRankingsTable({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+      {/* Table - No inner scroll, flows naturally */}
+      <div className="overflow-x-auto">
         <Table>
           <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
-              <TableHead className="w-12">#</TableHead>
+              <TableHead className="w-10">#</TableHead>
               <TableHead 
-                className="cursor-pointer hover:bg-muted/50"
+                className="cursor-pointer hover:bg-muted/50 min-w-[160px]"
                 onClick={() => handleSort('playerName')}
               >
                 <div className="flex items-center">
@@ -199,7 +218,7 @@ export function DraftRankingsTable({
                 </div>
               </TableHead>
               <TableHead 
-                className="cursor-pointer hover:bg-muted/50 text-center"
+                className="cursor-pointer hover:bg-muted/50 text-center w-12"
                 onClick={() => handleSort('tier')}
               >
                 <div className="flex items-center justify-center">
@@ -207,7 +226,7 @@ export function DraftRankingsTable({
                 </div>
               </TableHead>
               <TableHead 
-                className="cursor-pointer hover:bg-muted/50 text-center"
+                className="cursor-pointer hover:bg-muted/50 text-center w-14"
                 onClick={() => handleSort('crisRank')}
               >
                 <div className="flex items-center justify-center">
@@ -215,7 +234,7 @@ export function DraftRankingsTable({
                 </div>
               </TableHead>
               <TableHead 
-                className="cursor-pointer hover:bg-muted/50 text-center"
+                className="cursor-pointer hover:bg-muted/50 text-center w-14"
                 onClick={() => handleSort('adpRank')}
               >
                 <div className="flex items-center justify-center">
@@ -223,28 +242,56 @@ export function DraftRankingsTable({
                 </div>
               </TableHead>
               <TableHead 
-                className="cursor-pointer hover:bg-muted/50 text-center"
+                className="cursor-pointer hover:bg-muted/50 text-center w-14"
                 onClick={() => handleSort('lastYearRank')}
               >
                 <div className="flex items-center justify-center">
-                  Last Yr <SortIcon column="lastYearRank" />
+                  LY <SortIcon column="lastYearRank" />
                 </div>
               </TableHead>
               <TableHead 
-                className="cursor-pointer hover:bg-muted/50 text-center"
+                className="cursor-pointer hover:bg-muted/50 text-center w-14"
                 onClick={() => handleSort('valueDelta')}
               >
                 <div className="flex items-center justify-center">
                   Value <SortIcon column="valueDelta" />
                 </div>
               </TableHead>
-              {draftStarted && <TableHead className="w-20 text-center">Action</TableHead>}
+              {/* Stats columns */}
+              <TableHead 
+                className="cursor-pointer hover:bg-muted/50 text-center w-12"
+                onClick={() => handleSort('pts')}
+              >
+                <div className="flex items-center justify-center text-xs">
+                  PTS <SortIcon column="pts" />
+                </div>
+              </TableHead>
+              <TableHead 
+                className="cursor-pointer hover:bg-muted/50 text-center w-12"
+                onClick={() => handleSort('reb')}
+              >
+                <div className="flex items-center justify-center text-xs">
+                  REB <SortIcon column="reb" />
+                </div>
+              </TableHead>
+              <TableHead 
+                className="cursor-pointer hover:bg-muted/50 text-center w-12"
+                onClick={() => handleSort('ast')}
+              >
+                <div className="flex items-center justify-center text-xs">
+                  AST <SortIcon column="ast" />
+                </div>
+              </TableHead>
+              <TableHead className="text-center w-10 text-xs">STL</TableHead>
+              <TableHead className="text-center w-10 text-xs">BLK</TableHead>
+              <TableHead className="text-center w-10 text-xs">3PM</TableHead>
+              {draftStarted && <TableHead className="w-28 text-center">Action</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredAndSortedPlayers.map((player, idx) => (
               <TableRow 
-                key={player.playerName}
+                key={player.playerId}
                 className={cn(
                   player.drafted && 'opacity-50 bg-muted/30'
                 )}
@@ -299,6 +346,25 @@ export function DraftRankingsTable({
                     </div>
                   )}
                 </TableCell>
+                {/* Stats */}
+                <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                  {formatStat(player.crisStats?.pts)}
+                </TableCell>
+                <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                  {formatStat(player.crisStats?.reb)}
+                </TableCell>
+                <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                  {formatStat(player.crisStats?.ast)}
+                </TableCell>
+                <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                  {formatStat(player.crisStats?.stl)}
+                </TableCell>
+                <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                  {formatStat(player.crisStats?.blk)}
+                </TableCell>
+                <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                  {formatStat(player.crisStats?.threes)}
+                </TableCell>
                 {draftStarted && (
                   <TableCell className="text-center">
                     {player.drafted ? (
@@ -312,15 +378,26 @@ export function DraftRankingsTable({
                         Undo
                       </Button>
                     ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onMarkDrafted(player.playerName)}
-                        className="h-7 text-xs"
-                      >
-                        <Check className="w-3 h-3 mr-1" />
-                        Draft
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => onMarkDrafted(player.playerName, 'me')}
+                          className="h-7 text-xs px-2"
+                          title="Draft to my team"
+                        >
+                          <User className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onMarkDrafted(player.playerName, 'other')}
+                          className="h-7 text-xs px-2"
+                          title="Drafted by other team"
+                        >
+                          <Users className="w-3 h-3" />
+                        </Button>
+                      </div>
                     )}
                   </TableCell>
                 )}
