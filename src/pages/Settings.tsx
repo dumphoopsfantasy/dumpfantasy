@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MessageSquare, Palette, RotateCcw, Send, Settings2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { MessageSquare, Palette, RotateCcw, Send, Settings2, Target } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   NBA_THEMES,
@@ -20,9 +21,11 @@ import { WeightSettings, type CustomWeights } from "@/components/WeightSettings"
 interface SettingsProps {
   weights: CustomWeights;
   onWeightsChange: (weights: CustomWeights) => void;
+  showDraftTab: boolean;
+  onShowDraftTabChange: (show: boolean) => void;
 }
 
-export const Settings = ({ weights, onWeightsChange }: SettingsProps) => {
+export const Settings = ({ weights, onWeightsChange, showDraftTab, onShowDraftTabChange }: SettingsProps) => {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<NBATheme | null>(null);
@@ -122,6 +125,34 @@ export const Settings = ({ weights, onWeightsChange }: SettingsProps) => {
             <RotateCcw className="w-4 h-4 mr-2" />
             Reset to Default Theme
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Feature Toggles */}
+      <Card className="gradient-card border-border">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Target className="w-5 h-5 text-primary" />
+            <div>
+              <CardTitle className="font-display">Feature Toggles</CardTitle>
+              <CardDescription>Show or hide experimental features</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="draft-toggle">Draft Strategy Tab</Label>
+              <p className="text-xs text-muted-foreground">
+                Show the Draft Strategy tab for pre-draft preparation
+              </p>
+            </div>
+            <Switch
+              id="draft-toggle"
+              checked={showDraftTab}
+              onCheckedChange={onShowDraftTabChange}
+            />
+          </div>
         </CardContent>
       </Card>
 
