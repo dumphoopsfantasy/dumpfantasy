@@ -521,7 +521,10 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 grid-cols-${7 + (showDraftTab ? 1 : 0) + (showTradeTab ? 1 : 0)}`}>
+          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${
+            !showDraftTab && !showTradeTab ? 'grid-cols-7' :
+            (showDraftTab && showTradeTab) ? 'grid-cols-9' : 'grid-cols-8'
+          }`}>
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
