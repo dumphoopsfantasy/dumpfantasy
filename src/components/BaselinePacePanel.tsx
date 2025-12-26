@@ -137,14 +137,36 @@ export const BaselinePacePanel = ({
 
   const paceFactor = daysCompleted / 7;
 
+  // SANITY CHECK: Log baseline values to debug impossible totals
+  // Stats passed here are per-game team composites (sum of player averages)
+  // We multiply counting stats by 40 to get weekly projection
   const getBaseline = (stats: TeamStats, key: StatKey): number => {
     const value = stats[key];
-    // For counting stats, multiply by 40
     const cat = CATEGORIES.find(c => c.key === key);
+    
     if (cat?.isPercentage) {
-      return value; // Percentages are averages, not multiplied
+      return value; // Percentages stay as-is (0-1 scale)
     }
-    return value * 40;
+    
+    const weeklyProjection = value * 40;
+    
+    // Sanity check: flag impossible values
+    const REALISTIC_CAPS: Record<string, number> = {
+      threepm: 200,    // Max ~5 3PM/player × 13 players × 40 games ≈ max realistic ~150
+      rebounds: 600,   // Max ~15 reb/player × 13 × 40 ≈ max realistic ~500
+      assists: 400,    // Max ~10 ast/player × 13 × 40 ≈ max realistic ~350
+      steals: 150,     // Max ~2.5 stl/player × 13 × 40 ≈ max realistic ~100
+      blocks: 150,     // Max ~3 blk/player × 13 × 40 ≈ max realistic ~100
+      turnovers: 250,  // Max ~4 to/player × 13 × 40 ≈ max realistic ~200
+      points: 1800,    // Max ~35 pts/player × 13 × 40 ≈ max realistic ~1500
+    };
+    
+    const cap = REALISTIC_CAPS[key];
+    if (cap && weeklyProjection > cap) {
+      console.warn(`[BaselinePacePanel] SANITY CHECK FAILED: ${key} = ${weeklyProjection} exceeds cap ${cap}. Raw value = ${value}. This suggests double-scaling or parsing error.`);
+    }
+    
+    return weeklyProjection;
   };
 
   const getCurrent = (stats: WeeklyTeamStats | null, key: StatKey): number | null => {
