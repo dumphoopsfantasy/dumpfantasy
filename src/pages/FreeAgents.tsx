@@ -66,6 +66,14 @@ const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN'
 type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus';
 type ViewMode = 'stats' | 'rankings' | 'advanced';
 
+// Multi-paste import state
+interface ImportProgress {
+  totalPages: number | null; // null = unknown
+  importedPages: number;
+  playerCount: number;
+  paginationDetected: boolean;
+}
+
 export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [], matchupData }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
@@ -89,6 +97,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [dismissedTips, setDismissedTips] = useState<Set<string>>(new Set());
   const [bestPickupsOpen, setBestPickupsOpen] = useState(true);
   const [tableOnlyMode, setTableOnlyMode] = useState(false);
+  
+  // Multi-paste import tracking
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
+  const [isMultiPasteMode, setIsMultiPasteMode] = useState(false);
+  
   const { toast } = useToast();
 
   const dismissTip = (tipId: string) => {
@@ -538,6 +551,121 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     };
   };
 
+  /**
+   * Detect pagination in ESPN data
+   * Returns: { detected: boolean, currentPage: number | null, totalPages: number | null }
+   */
+  const detectPagination = (data: string): { detected: boolean; currentPage: number | null; totalPages: number | null } => {
+    const lines = data.split('\n').map(l => l.trim());
+    
+    // Pattern 1: Look for page number sequence like "1 2 3 4 5 ... 19" or "« 1 2 3 ... 19 »"
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // Match patterns like "1 2 3 4 5" or "1 2 3 ... 19"
+      const pageSequence = line.match(/^(\d+)(\s+\d+)+(\s+\.{2,3}\s+\d+)?$/);
+      if (pageSequence) {
+        // Extract numbers
+        const numbers = line.replace(/\.{2,3}/g, '').trim().split(/\s+/).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+        if (numbers.length >= 2) {
+          const currentPage = numbers[0]; // First number is usually current page
+          const totalPages = Math.max(...numbers);
+          return { detected: true, currentPage, totalPages };
+        }
+      }
+      
+      // Pattern 2: Look for ellipsis pattern like "..." between numbers
+      if (line === '...' || line === '…') {
+        // Check surrounding lines for page numbers
+        const prevNum = i > 0 ? parseInt(lines[i - 1], 10) : NaN;
+        const nextNum = i < lines.length - 1 ? parseInt(lines[i + 1], 10) : NaN;
+        if (!isNaN(prevNum) && !isNaN(nextNum) && nextNum > prevNum) {
+          return { detected: true, currentPage: 1, totalPages: nextNum };
+        }
+      }
+      
+      // Pattern 3: Look for "Page X of Y" or "Showing X-Y of Z"
+      const showingMatch = line.match(/showing\s+(\d+)\s*-\s*(\d+)\s+of\s+(\d+)/i);
+      if (showingMatch) {
+        const total = parseInt(showingMatch[3], 10);
+        const perPage = parseInt(showingMatch[2], 10) - parseInt(showingMatch[1], 10) + 1;
+        const totalPages = Math.ceil(total / perPage);
+        const currentPage = Math.ceil(parseInt(showingMatch[1], 10) / perPage);
+        return { detected: true, currentPage, totalPages };
+      }
+    }
+    
+    // Pattern 4: Look for isolated small numbers that could be page navigation (1, 2, 3 on separate lines)
+    let consecutiveNumbers: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const num = parseInt(lines[i], 10);
+      if (!isNaN(num) && num >= 1 && num <= 50 && lines[i] === String(num)) {
+        if (consecutiveNumbers.length === 0 || num === consecutiveNumbers[consecutiveNumbers.length - 1] + 1) {
+          consecutiveNumbers.push(num);
+        } else {
+          consecutiveNumbers = [num];
+        }
+        if (consecutiveNumbers.length >= 3) {
+          return { detected: true, currentPage: consecutiveNumbers[0], totalPages: null };
+        }
+      } else {
+        consecutiveNumbers = [];
+      }
+    }
+    
+    return { detected: false, currentPage: null, totalPages: null };
+  };
+
+  /**
+   * Merge new players with existing, deduping by name+team+position
+   */
+  const mergePlayers = (existing: Player[], newPlayers: Player[]): { merged: Player[]; newCount: number; dupCount: number } => {
+    const seen = new Set<string>();
+    const merged: Player[] = [];
+    
+    // Add existing first
+    for (const p of existing) {
+      const key = `${p.name.toLowerCase()}|${p.nbaTeam.toLowerCase()}|${p.positions.join(',')}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(p);
+      }
+    }
+    
+    let newCount = 0;
+    let dupCount = 0;
+    
+    // Add new, skip duplicates
+    for (const p of newPlayers) {
+      const key = `${p.name.toLowerCase()}|${p.nbaTeam.toLowerCase()}|${p.positions.join(',')}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(p);
+        newCount++;
+      } else {
+        dupCount++;
+      }
+    }
+    
+    return { merged, newCount, dupCount };
+  };
+
+  /**
+   * Merge bonus stats maps
+   */
+  const mergeBonusStats = (
+    existing: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>,
+    newBonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>
+  ): Map<string, { pr15: number; rosterPct: number; plusMinus: number }> => {
+    const merged = new Map(existing);
+    for (const [key, value] of newBonus) {
+      if (!merged.has(key)) {
+        merged.set(key, value);
+      }
+    }
+    return merged;
+  };
+
   const [parseDebug, setParseDebug] = useState<{ playerCount: number; statsCount: number; matchedCount: number } | null>(null);
 
   const handleParse = async () => {
@@ -568,18 +696,71 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       const window = detectStatWindow(rawData);
       setDetectedStatWindow(window);
       
+      // Check for pagination
+      const pagination = detectPagination(rawData);
+      
       // Parse with timeout protection
       const { players, bonus, debug } = await parseWithTimeout(() => parseESPNFreeAgents(rawData));
       
       setParseDebug(debug);
       
       if (players.length > 0) {
-        setRawPlayers(players);
-        setBonusStats(bonus);
-        toast({
-          title: "Success!",
-          description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''} - Parsed ${debug.playerCount} players, ${debug.statsCount} stats rows`,
-        });
+        if (isMultiPasteMode && rawPlayers.length > 0) {
+          // Multi-paste mode: merge with existing
+          const { merged, newCount, dupCount } = mergePlayers(rawPlayers, players);
+          const mergedBonus = mergeBonusStats(bonusStats, bonus);
+          
+          setRawPlayers(merged);
+          setBonusStats(mergedBonus);
+          
+          const pageNum = (importProgress?.importedPages || 0) + 1;
+          setImportProgress(prev => ({
+            totalPages: pagination.totalPages || prev?.totalPages || null,
+            importedPages: pageNum,
+            playerCount: merged.length,
+            paginationDetected: pagination.detected || (prev?.paginationDetected ?? false)
+          }));
+          
+          toast({
+            title: `Page ${pageNum} imported`,
+            description: `Added ${newCount} new players (${dupCount} duplicates skipped). Total: ${merged.length} players.${pagination.detected && pagination.totalPages ? ` Detected ${pagination.totalPages} pages.` : ''}`,
+          });
+          
+          // Clear textarea for next paste
+          setRawData("");
+        } else {
+          // First paste or fresh import
+          setRawPlayers(players);
+          setBonusStats(bonus);
+          
+          // Check if pagination detected - enter multi-paste mode
+          if (pagination.detected) {
+            setIsMultiPasteMode(true);
+            setImportProgress({
+              totalPages: pagination.totalPages,
+              importedPages: 1,
+              playerCount: players.length,
+              paginationDetected: true
+            });
+            
+            toast({
+              title: "Page 1 imported",
+              description: `Loaded ${players.length} players. Pagination detected${pagination.totalPages ? ` (${pagination.totalPages} pages)` : ''}. Paste page 2 to continue.`,
+            });
+            
+            // Clear textarea for next paste
+            setRawData("");
+          } else {
+            // No pagination - single page import complete
+            setIsMultiPasteMode(false);
+            setImportProgress(null);
+            
+            toast({
+              title: "Success!",
+              description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''}`,
+            });
+          }
+        }
       } else {
         toast({
           title: "No players found",
@@ -984,7 +1165,19 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     setBonusStats(new Map());
     setRawData("");
     setDetectedStatWindow(null);
+    setIsMultiPasteMode(false);
+    setImportProgress(null);
     if (onPlayersChange) onPlayersChange([]);
+  };
+
+  const handleFinishImport = () => {
+    setIsMultiPasteMode(false);
+    setImportProgress(null);
+    setRawData("");
+    toast({
+      title: "Import complete",
+      description: `Finished importing ${rawPlayers.length} free agents.`,
+    });
   };
 
   // Empty state - show paste input
@@ -1060,13 +1253,54 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             )}
           </h2>
           <CrisExplanation />
+          {/* Multi-paste progress indicator */}
+          {isMultiPasteMode && importProgress && (
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant="default" className="bg-primary/20 text-primary border-primary/50">
+                Multi-page import active
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                Page {importProgress.importedPages}{importProgress.totalPages ? ` of ${importProgress.totalPages}` : ''} • {importProgress.playerCount} players loaded
+              </span>
+            </div>
+          )}
           {/* Debug info - shows parsing results */}
-          {parseDebug && (
+          {parseDebug && !isMultiPasteMode && (
             <p className="text-xs text-muted-foreground mt-1">
               Parsed {parseDebug.playerCount} players, {parseDebug.statsCount} stats rows, matched {parseDebug.matchedCount}
             </p>
           )}
         </div>
+
+      {/* Multi-paste mode - show paste input for next page */}
+      {isMultiPasteMode && (
+        <Card className="p-4 border-primary/50 bg-primary/5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-primary" />
+              <span className="font-medium">Continue importing pages</span>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleFinishImport}>
+                Finish Import
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleReset} className="text-destructive">
+                Start Over
+              </Button>
+            </div>
+          </div>
+          <Textarea
+            placeholder={`Paste page ${(importProgress?.importedPages || 0) + 1} of ESPN Free Agents here...`}
+            value={rawData}
+            onChange={(e) => setRawData(e.target.value)}
+            className="min-h-[120px] font-mono text-sm mb-3 bg-muted/50"
+          />
+          <Button onClick={handleParse} disabled={isParsing || !rawData.trim()} className="w-full gradient-primary font-display font-bold">
+            <Upload className="w-4 h-4 mr-2" />
+            {isParsing ? "Parsing..." : `Add Page ${(importProgress?.importedPages || 0) + 1}`}
+          </Button>
+        </Card>
+      )}
 
       {/* Guidance Tips */}
       <div className="space-y-2">
