@@ -17,6 +17,8 @@ import {
   saveTheme,
 } from "@/lib/nbaThemes";
 import { WeightSettings, type CustomWeights } from "@/components/WeightSettings";
+import { ExperimentalSettings } from "@/components/ExperimentalSettings";
+import { DynamicWeightsSettings, DynamicMode, IntensityLevel } from "@/hooks/useDynamicWeights";
 
 interface SettingsProps {
   weights: CustomWeights;
@@ -25,9 +27,31 @@ interface SettingsProps {
   onShowDraftTabChange: (show: boolean) => void;
   showTradeTab: boolean;
   onShowTradeTabChange: (show: boolean) => void;
+  // Dynamic wCRI settings
+  dynamicSettings: DynamicWeightsSettings;
+  onDynamicEnabledChange: (enabled: boolean) => void;
+  onDynamicModeChange: (mode: DynamicMode) => void;
+  onDynamicIntensityChange: (intensity: IntensityLevel) => void;
+  onDynamicSmoothingChange: (enabled: boolean) => void;
+  onDynamicPuntDetectionChange: (enabled: boolean) => void;
+  onResetSmoothing: () => void;
 }
 
-export const Settings = ({ weights, onWeightsChange, showDraftTab, onShowDraftTabChange, showTradeTab, onShowTradeTabChange }: SettingsProps) => {
+export const Settings = ({ 
+  weights, 
+  onWeightsChange, 
+  showDraftTab, 
+  onShowDraftTabChange, 
+  showTradeTab, 
+  onShowTradeTabChange,
+  dynamicSettings,
+  onDynamicEnabledChange,
+  onDynamicModeChange,
+  onDynamicIntensityChange,
+  onDynamicSmoothingChange,
+  onDynamicPuntDetectionChange,
+  onResetSmoothing,
+}: SettingsProps) => {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<NBATheme | null>(null);
@@ -173,6 +197,17 @@ export const Settings = ({ weights, onWeightsChange, showDraftTab, onShowDraftTa
 
       {/* Weights (wCRI) */}
       <WeightSettings weights={weights} onWeightsChange={onWeightsChange} />
+
+      {/* Experimental Settings */}
+      <ExperimentalSettings
+        settings={dynamicSettings}
+        onEnabledChange={onDynamicEnabledChange}
+        onModeChange={onDynamicModeChange}
+        onIntensityChange={onDynamicIntensityChange}
+        onSmoothingChange={onDynamicSmoothingChange}
+        onPuntDetectionChange={onDynamicPuntDetectionChange}
+        onResetSmoothing={onResetSmoothing}
+      />
 
 
       {/* Feedback */}
