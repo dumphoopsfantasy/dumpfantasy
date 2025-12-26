@@ -457,14 +457,15 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           console.log(`Stopping at footer line ${i}: "${line.substring(0, 30)}"`);
           break;
         }
-        
-        // Skip pagination pattern "1 2 3 4 5 ... 19" or just "1"
-        if (/^(\d+\s+)*\.{3}\s*\d+$/.test(line)) continue;
-        if (/^\d+$/.test(line) && parseInt(line) < 100 && statTokens.length > 10) {
-          // Could be pagination - check if we have enough tokens for current player count
-          const expectedTokens = playerList.length * 15; // 15 tokens per player
-          if (statTokens.length >= expectedTokens * 0.9) break;
+
+        // Stop at pagination footer marker (we do NOT break on lone numeric tokens because those are valid stat cells)
+        if (/^showing\s+\d+\s*-\s*\d+\s+of\s+\d+/i.test(line) && statTokens.length > 0) {
+          console.log(`Stopping at pagination footer line ${i}: "${line}"`);
+          break;
         }
+
+        // Skip pagination pattern "1 2 3 4 5 ... 19" or just "1" (when it appears as a single line sequence)
+        if (/^(\d+\s+)*\.{3}\s*\d+$/.test(line)) continue;
         
         // Skip non-data lines
         if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results)$/i.test(line)) continue;
