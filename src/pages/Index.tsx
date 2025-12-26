@@ -118,6 +118,10 @@ const Index = () => {
 
   // Free agents state (persisted)
   const [freeAgents, setFreeAgents] = usePersistedState<Player[]>("dumphoops-freeagents", []);
+  const [multiPageFAImportEnabled, setMultiPageFAImportEnabled] = usePersistedState<boolean>(
+    "dumphoops-freeagents-multipage-import",
+    false
+  );
 
   // Weekly state (persisted)
   const [weeklyMatchups, setWeeklyMatchups] = usePersistedState<WeeklyMatchup[]>("dumphoops-weekly", []);
@@ -757,6 +761,7 @@ const Index = () => {
             <FreeAgents
               persistedPlayers={freeAgents}
               onPlayersChange={setFreeAgents}
+              multiPageImportEnabled={multiPageFAImportEnabled}
               currentRoster={rosterWithCRI.map((slot) => slot.player)}
               leagueTeams={leagueTeams}
               matchupData={matchupData}
@@ -845,6 +850,8 @@ const Index = () => {
               onShowDraftTabChange={setShowDraftTab}
               showTradeTab={showTradeTab}
               onShowTradeTabChange={setShowTradeTab}
+              enableMultiPageFreeAgentImport={multiPageFAImportEnabled}
+              onEnableMultiPageFreeAgentImportChange={setMultiPageFAImportEnabled}
               dynamicSettings={dynamicWeights.settings}
               onDynamicEnabledChange={dynamicWeights.setEnabled}
               onDynamicModeChange={dynamicWeights.setMode}
