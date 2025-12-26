@@ -27,9 +27,10 @@ import { PlayerPhoto } from "@/components/PlayerPhoto";
 interface TradeAnalyzerProps {
   freeAgents?: PlayerScores[];
   globalWeights?: typeof DEFAULT_WEIGHTS;
+  roster?: Array<{ slot: string; slotType: string; player: any }>;
 }
 
-export function TradeAnalyzer({ freeAgents = [], globalWeights }: TradeAnalyzerProps) {
+export function TradeAnalyzer({ freeAgents = [], globalWeights, roster = [] }: TradeAnalyzerProps) {
   const { toast } = useToast();
   
   // Score mode toggle
@@ -62,6 +63,41 @@ export function TradeAnalyzer({ freeAgents = [], globalWeights }: TradeAnalyzerP
   
   // Panels
   const [showTargetFinder, setShowTargetFinder] = useState(false);
+  
+  // Convert roster to PlayerScores format for "Add My Roster" feature
+  const handleAddMyRoster = useCallback(() => {
+    if (roster.length === 0) {
+      toast({ title: "No roster data", description: "Import your roster in the Roster tab first", variant: "destructive" });
+      return;
+    }
+    
+    // Convert roster slots to PlayerStats format
+    const playerStats = roster.map(slot => ({
+      name: slot.player.name,
+      team: slot.player.nbaTeam || '',
+      positions: slot.player.positions || [],
+      status: slot.player.status,
+      minutes: slot.player.minutes || 0,
+      fgm: slot.player.fgm || 0,
+      fga: slot.player.fga || 0,
+      fgPct: slot.player.fgPct || 0,
+      ftm: slot.player.ftm || 0,
+      fta: slot.player.fta || 0,
+      ftPct: slot.player.ftPct || 0,
+      threepm: slot.player.threepm || 0,
+      rebounds: slot.player.rebounds || 0,
+      assists: slot.player.assists || 0,
+      steals: slot.player.steals || 0,
+      blocks: slot.player.blocks || 0,
+      turnovers: slot.player.turnovers || 0,
+      points: slot.player.points || 0,
+      rostPct: undefined,
+    }));
+    
+    const scored = calcCRI(playerStats);
+    setYourRoster(scored);
+    toast({ title: `Loaded ${scored.length} players`, description: "Your Team loaded from Roster tab" });
+  }, [roster, toast]);
   
   // Parse teams
   const handleParseYourTeam = useCallback(() => {
@@ -376,17 +412,34 @@ export function TradeAnalyzer({ freeAgents = [], globalWeights }: TradeAnalyzerP
                 </Button>
               </div>
             ) : (
-              <>
+              <div className="space-y-3">
+                {roster.length > 0 && (
+                  <Button onClick={handleAddMyRoster} variant="outline" className="w-full">
+                    <Users className="w-4 h-4 mr-2" /> Add My Roster
+                  </Button>
+                )}
+                <div className="relative">
+                  {roster.length > 0 && (
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-border" />
+                    </div>
+                  )}
+                  {roster.length > 0 && (
+                    <div className="relative flex justify-center">
+                      <span className="bg-card px-2 text-xs text-muted-foreground">or paste ESPN data</span>
+                    </div>
+                  )}
+                </div>
                 <Textarea
                   value={yourTeamRaw}
                   onChange={(e) => setYourTeamRaw(e.target.value)}
                   placeholder="Paste your ESPN team page here..."
-                  className="min-h-[150px] font-mono text-xs"
+                  className="min-h-[120px] font-mono text-xs"
                 />
-                <Button onClick={handleParseYourTeam} className="mt-2 w-full">
+                <Button onClick={handleParseYourTeam} className="w-full">
                   <Upload className="w-4 h-4 mr-2" /> Import Your Team
                 </Button>
-              </>
+              </div>
             )}
           </Card>
           
@@ -723,7 +776,8 @@ export function TradeAnalyzer({ freeAgents = [], globalWeights }: TradeAnalyzerP
         </Card>
       )}
       
-      {/* Target Finder */}
+      {/* Target Finder - Only show when both rosters loaded */}
+      {yourRoster.length > 0 && opponentRoster.length > 0 && (
       <Collapsible open={showTargetFinder} onOpenChange={setShowTargetFinder}>
         <Card className="p-4">
           <CollapsibleTrigger className="w-full">
@@ -789,6 +843,7 @@ export function TradeAnalyzer({ freeAgents = [], globalWeights }: TradeAnalyzerP
           </CollapsibleContent>
         </Card>
       </Collapsible>
+      )}
       
       {/* Value Gap Panel */}
       {(yourRoster.length > 0 || opponentRoster.length > 0) && (
