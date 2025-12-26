@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import {
   DynamicMode,
@@ -28,12 +28,41 @@ function weightsToRecord(weights: CustomWeights): Record<string, number> {
   };
 }
 
+// Convert Record<string, number> to CustomWeights
+function recordToWeights(record: Record<string, number>): CustomWeights {
+  return {
+    fgPct: record.fgPct ?? 0.65,
+    ftPct: record.ftPct ?? 0.60,
+    threepm: record.threepm ?? 0.85,
+    rebounds: record.rebounds ?? 0.80,
+    assists: record.assists ?? 0.75,
+    steals: record.steals ?? 0.45,
+    blocks: record.blocks ?? 0.55,
+    turnovers: record.turnovers ?? 0.35,
+    points: record.points ?? 1.00,
+  };
+}
+
 export interface DynamicWeightsSettings {
   enabled: boolean;
   mode: DynamicMode;
   intensity: IntensityLevel;
   smoothingEnabled: boolean;
   allowPuntDetection: boolean;
+}
+
+export interface DynamicWeightsContext {
+  // Matchup context (optional)
+  matchupProjectedMy?: Record<string, number>;
+  matchupProjectedOpp?: Record<string, number>;
+  matchupCurrentMy?: Record<string, number>;
+  matchupCurrentOpp?: Record<string, number>;
+  matchupDaysRemaining?: number;
+  
+  // Standings context (optional)
+  userCategoryAvgs?: Record<string, number>;
+  leagueCategoryAvgs?: Record<string, number>;
+  categoryRanks?: Record<string, { rank: number; total: number; gap: number }>;
 }
 
 const DEFAULT_SETTINGS: DynamicWeightsSettings = {
@@ -57,6 +86,12 @@ export function useDynamicWeights(baseWeights: CustomWeights = CRIS_WEIGHTS as C
     undefined
   );
   
+  // Current dynamic weights context - stored to compute effective weights
+  const [dynamicContext, setDynamicContext] = usePersistedState<DynamicWeightsContext>(
+    "dumphoops-dynamic-weights-context",
+    {}
+  );
+  
   // Settings updaters
   const setEnabled = useCallback((enabled: boolean) => {
     setSettings(prev => ({ ...prev, enabled }));
@@ -78,7 +113,116 @@ export function useDynamicWeights(baseWeights: CustomWeights = CRIS_WEIGHTS as C
     setSettings(prev => ({ ...prev, allowPuntDetection }));
   }, [setSettings]);
   
-  // Calculate effective weights for matchup mode
+  // Update matchup context (call from matchup page when data changes)
+  const updateMatchupContext = useCallback((
+    projectedMy: Record<string, number>,
+    projectedOpp: Record<string, number>,
+    currentMy?: Record<string, number>,
+    currentOpp?: Record<string, number>,
+    daysRemaining?: number
+  ) => {
+    setDynamicContext(prev => ({
+      ...prev,
+      matchupProjectedMy: projectedMy,
+      matchupProjectedOpp: projectedOpp,
+      matchupCurrentMy: currentMy,
+      matchupCurrentOpp: currentOpp,
+      matchupDaysRemaining: daysRemaining,
+    }));
+  }, [setDynamicContext]);
+  
+  // Update standings context (call from standings page when data changes)
+  const updateStandingsContext = useCallback((
+    userCategoryAvgs: Record<string, number>,
+    leagueCategoryAvgs: Record<string, number>,
+    categoryRanks: Record<string, { rank: number; total: number; gap: number }>
+  ) => {
+    setDynamicContext(prev => ({
+      ...prev,
+      userCategoryAvgs,
+      leagueCategoryAvgs,
+      categoryRanks,
+    }));
+  }, [setDynamicContext]);
+  
+  // Compute effective weights based on current mode and context
+  const effectiveWeightsResult = useMemo((): EffectiveWeightsResult => {
+    const baseWeightsRecord = weightsToRecord(baseWeights);
+    
+    if (!settings.enabled) {
+      return {
+        weights: baseWeightsRecord,
+        details: {},
+        mode: settings.mode,
+        isActive: false,
+        unavailableReason: "Dynamic wCRI is disabled",
+      };
+    }
+    
+    if (settings.mode === "matchup") {
+      // Check if we have matchup context
+      if (!dynamicContext.matchupProjectedMy || !dynamicContext.matchupProjectedOpp) {
+        return {
+          weights: baseWeightsRecord,
+          details: {},
+          mode: "matchup",
+          isActive: false,
+          unavailableReason: "Import matchup data in the Matchup tab to enable dynamic weights",
+        };
+      }
+      
+      const context = buildMatchupContext(
+        dynamicContext.matchupProjectedMy,
+        dynamicContext.matchupProjectedOpp,
+        dynamicContext.matchupCurrentMy,
+        dynamicContext.matchupCurrentOpp,
+        dynamicContext.matchupDaysRemaining
+      );
+      
+      return getEffectiveWeights(
+        baseWeightsRecord,
+        "matchup",
+        context,
+        settings.intensity,
+        settings.smoothingEnabled,
+        smoothingState
+      );
+    } else {
+      // Standings mode
+      if (!dynamicContext.userCategoryAvgs || !dynamicContext.categoryRanks) {
+        return {
+          weights: baseWeightsRecord,
+          details: {},
+          mode: "standings",
+          isActive: false,
+          unavailableReason: "Import standings data in the Standings tab to enable dynamic weights",
+        };
+      }
+      
+      const context = buildStandingsContext(
+        dynamicContext.userCategoryAvgs,
+        dynamicContext.leagueCategoryAvgs || {},
+        dynamicContext.categoryRanks,
+        settings.allowPuntDetection
+      );
+      
+      return getEffectiveWeights(
+        baseWeightsRecord,
+        "standings",
+        context,
+        settings.intensity,
+        settings.smoothingEnabled,
+        smoothingState
+      );
+    }
+  }, [settings, baseWeights, dynamicContext, smoothingState]);
+  
+  // Effective weights as CustomWeights format (use this for wCRI calculations app-wide)
+  const effectiveWeights = useMemo((): CustomWeights => {
+    return recordToWeights(effectiveWeightsResult.weights);
+  }, [effectiveWeightsResult]);
+  
+  // Calculate effective weights for matchup mode (manual call for specific projections)
   const getMatchupWeights = useCallback((
     projectedMy: Record<string, number>,
     projectedOpp: Record<string, number>,
@@ -126,7 +270,7 @@ export function useDynamicWeights(baseWeights: CustomWeights = CRIS_WEIGHTS as C
     return result;
   }, [settings, baseWeights, smoothingState, setSmoothingState]);
   
-  // Calculate effective weights for standings mode
+  // Calculate effective weights for standings mode (manual call)
   const getStandingsWeights = useCallback((
     userCategoryAvgs: Record<string, number>,
     leagueCategoryAvgs: Record<string, number>,
@@ -176,6 +320,11 @@ export function useDynamicWeights(baseWeights: CustomWeights = CRIS_WEIGHTS as C
     setSmoothingState(undefined);
   }, [setSmoothingState]);
   
+  // Clear dynamic context
+  const clearContext = useCallback(() => {
+    setDynamicContext({});
+  }, [setDynamicContext]);
+  
   return {
     settings,
     setEnabled,
@@ -183,10 +332,19 @@ export function useDynamicWeights(baseWeights: CustomWeights = CRIS_WEIGHTS as C
     setIntensity,
     setSmoothingEnabled,
     setAllowPuntDetection,
+    // Context updaters
+    updateMatchupContext,
+    updateStandingsContext,
+    clearContext,
+    // Computed effective weights (for global use)
+    effectiveWeights,
+    effectiveWeightsResult,
+    // Manual calculation methods
     getMatchupWeights,
     getStandingsWeights,
     resetSmoothing,
     smoothingState,
+    dynamicContext,
   };
 }
 
