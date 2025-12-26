@@ -809,13 +809,25 @@ export const MatchupProjection = ({
     const numStatRows = Math.floor(statTokens.length / COLS);
     console.log(`[parseESPNTeamPage] Expected rows: ${numStatRows} (${statTokens.length} tokens / ${COLS} cols)`);
     
-    let validCount = 0;
-    let sums = {
-      fgm: 0, fga: 0, ftm: 0, fta: 0,
-      threepm: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0,
-    };
+    // Parse all player stats first
+    interface PlayerParsedStats {
+      row: number;
+      name?: string;
+      min: number;
+      fgm: number;
+      fga: number;
+      ftm: number;
+      fta: number;
+      threepm: number;
+      rebounds: number;
+      assists: number;
+      steals: number;
+      blocks: number;
+      turnovers: number;
+      points: number;
+    }
     
-    const playerStats: { row: number; min: number; fgm: number; fga: number; ftm: number; fta: number; threepm: number; blk: number; reb: number; pts: number }[] = [];
+    const allPlayerStats: PlayerParsedStats[] = [];
     const seenRows = new Set<number>();
     
     for (let i = 0; i < numStatRows; i++) {
@@ -845,12 +857,6 @@ export const MatchupProjection = ({
       const fga = parseVal('FGA');
       const ftm = parseVal('FTM');
       const fta = parseVal('FTA');
-      
-      let fgPct = parseVal('FG%');
-      if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
-
-      let ftPct = parseVal('FT%');
-      if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
 
       const threepm = parseVal('3PM');
       const rebounds = parseVal('REB');
@@ -860,84 +866,142 @@ export const MatchupProjection = ({
       const turnovers = parseVal('TO');
       const points = parseVal('PTS');
       
-      playerStats.push({ row: i, min, fgm, fga, ftm, fta, threepm, blk: blocks, reb: rebounds, pts: points });
-      
       // Sanity: individual player stats should be reasonable (per-game averages)
       if (threepm > 8) console.warn(`[parseESPNTeamPage] Row ${i}: 3PM=${threepm} > 8 - suspicious`);
       if (blocks > 6) console.warn(`[parseESPNTeamPage] Row ${i}: BLK=${blocks} > 6 - suspicious`);
-      if (rebounds > 20) console.warn(`[parseESPNTeamPage] Row ${i}: REB=${rebounds} > 20 - suspicious`);
       if (points > 60) console.warn(`[parseESPNTeamPage] Row ${i}: PTS=${points} > 60 - suspicious`);
       if (fga > 30) console.warn(`[parseESPNTeamPage] Row ${i}: FGA=${fga} > 30 - suspicious`);
       if (fta > 20) console.warn(`[parseESPNTeamPage] Row ${i}: FTA=${fta} > 20 - suspicious`);
-
-      sums.fgm += fgm;
-      sums.fga += fga;
-      sums.ftm += ftm;
-      sums.fta += fta;
-      sums.threepm += threepm;
-      sums.rebounds += rebounds;
-      sums.assists += assists;
-      sums.steals += steals;
-      sums.blocks += blocks;
-      sums.turnovers += turnovers;
-      sums.points += points;
-      validCount++;
+      
+      allPlayerStats.push({
+        row: i,
+        min,
+        fgm, fga, ftm, fta,
+        threepm, rebounds, assists, steals, blocks, turnovers, points,
+      });
     }
     
-    // Log first 2 players for debugging
-    console.log(`[parseESPNTeamPage] First 2 players:`, playerStats.slice(0, 2));
-    console.log(`[parseESPNTeamPage] All player stats (${playerStats.length}):`, playerStats);
+    console.log(`[parseESPNTeamPage] Total players parsed: ${allPlayerStats.length}`);
+    console.log(`[parseESPNTeamPage] All player stats:`, allPlayerStats);
 
-    if (validCount > 0) {
-      console.log(`[parseESPNTeamPage] Team: ${teamName}, Players parsed: ${validCount}`);
-      console.log(`[parseESPNTeamPage] Raw sums:`, {
-        fgm: sums.fgm, fga: sums.fga, ftm: sums.ftm, fta: sums.fta,
-        threepm: sums.threepm, blocks: sums.blocks, rebounds: sums.rebounds, points: sums.points,
-      });
+    if (allPlayerStats.length > 0) {
+      // BASELINE DEFINITION:
+      // - Use first 8 players (starters: PG, SG, SF, PF, C, G, F/C, UTIL)
+      // - Compute MEAN of their per-game stats (not sum!)
+      // - Baseline = mean × 40
+      // 
+      // This simulates 40 "roster games" where each game slot gets the average production.
       
-      // TEAM COMPOSITE: sum of player per-game averages = per-game team total
-      // FG%/FT% weighted by attempts
+      const STARTER_COUNT = 8;
+      const starters = allPlayerStats.slice(0, STARTER_COUNT);
+      const starterCount = starters.length;
+      
+      console.log(`[parseESPNTeamPage] Using ${starterCount} STARTERS for baseline (first ${STARTER_COUNT} players):`);
+      console.log(`[parseESPNTeamPage] Starters:`, starters.map((p, i) => ({
+        slot: i,
+        tpm: p.threepm.toFixed(1),
+        reb: p.rebounds.toFixed(1),
+        ast: p.assists.toFixed(1),
+        stl: p.steals.toFixed(1),
+        blk: p.blocks.toFixed(1),
+        to: p.turnovers.toFixed(1),
+        pts: p.points.toFixed(1),
+        fgm: p.fgm.toFixed(1),
+        fga: p.fga.toFixed(1),
+      })));
+      
+      // Sum starters' stats
+      const starterSums = starters.reduce((acc, p) => ({
+        fgm: acc.fgm + p.fgm,
+        fga: acc.fga + p.fga,
+        ftm: acc.ftm + p.ftm,
+        fta: acc.fta + p.fta,
+        threepm: acc.threepm + p.threepm,
+        rebounds: acc.rebounds + p.rebounds,
+        assists: acc.assists + p.assists,
+        steals: acc.steals + p.steals,
+        blocks: acc.blocks + p.blocks,
+        turnovers: acc.turnovers + p.turnovers,
+        points: acc.points + p.points,
+      }), { fgm: 0, fga: 0, ftm: 0, fta: 0, threepm: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0 });
+      
+      console.log(`[parseESPNTeamPage] Starter sums:`, starterSums);
+      
+      // Compute MEAN (per roster-game average)
+      const meanStats = {
+        fgm: starterSums.fgm / starterCount,
+        fga: starterSums.fga / starterCount,
+        ftm: starterSums.ftm / starterCount,
+        fta: starterSums.fta / starterCount,
+        threepm: starterSums.threepm / starterCount,
+        rebounds: starterSums.rebounds / starterCount,
+        assists: starterSums.assists / starterCount,
+        steals: starterSums.steals / starterCount,
+        blocks: starterSums.blocks / starterCount,
+        turnovers: starterSums.turnovers / starterCount,
+        points: starterSums.points / starterCount,
+      };
+      
+      console.log(`[parseESPNTeamPage] MEAN per roster-game (sum / ${starterCount}):`, meanStats);
+      
+      // Sanity check: MEAN values should be within single-player bounds
+      if (meanStats.points > 60) {
+        throw new Error(`[SANITY FAIL] Mean PTS/roster-game = ${meanStats.points.toFixed(1)} > 60. This is impossible.`);
+      }
+      if (meanStats.blocks > 6) {
+        throw new Error(`[SANITY FAIL] Mean BLK/roster-game = ${meanStats.blocks.toFixed(1)} > 6. This is impossible.`);
+      }
+      if (meanStats.threepm > 8) {
+        console.warn(`[SANITY] Mean 3PM/roster-game = ${meanStats.threepm.toFixed(1)} > 8. High but possible.`);
+      }
+      
+      // TEAM COMPOSITE: the MEAN stats that will be multiplied by 40 in BaselinePacePanel
+      // FG%/FT% are attempt-weighted from the starters
       const teamComposite = {
-        fgPct: sums.fga > 0 ? sums.fgm / sums.fga : 0,
-        ftPct: sums.fta > 0 ? sums.ftm / sums.fta : 0,
-        threepm: sums.threepm,
-        rebounds: sums.rebounds,
-        assists: sums.assists,
-        steals: sums.steals,
-        blocks: sums.blocks,
-        turnovers: sums.turnovers,
-        points: sums.points,
+        fgPct: starterSums.fga > 0 ? starterSums.fgm / starterSums.fga : 0,
+        ftPct: starterSums.fta > 0 ? starterSums.ftm / starterSums.fta : 0,
+        threepm: meanStats.threepm,
+        rebounds: meanStats.rebounds,
+        assists: meanStats.assists,
+        steals: meanStats.steals,
+        blocks: meanStats.blocks,
+        turnovers: meanStats.turnovers,
+        points: meanStats.points,
       };
       
-      console.log(`[parseESPNTeamPage] Team composite (per game) BEFORE ×40:`, teamComposite);
+      console.log(`[parseESPNTeamPage] Team composite (MEAN per roster-game):`, teamComposite);
       
-      // Sanity checks
-      const REALISTIC_LIMITS: Record<string, number> = {
-        threepm: 25, blocks: 20, rebounds: 80, points: 350,
+      // Compute expected baseline (×40) for verification
+      const expectedBaseline = {
+        threepm: Math.round(teamComposite.threepm * 40),
+        rebounds: Math.round(teamComposite.rebounds * 40),
+        assists: Math.round(teamComposite.assists * 40),
+        steals: Math.round(teamComposite.steals * 40),
+        blocks: Math.round(teamComposite.blocks * 40),
+        turnovers: Math.round(teamComposite.turnovers * 40),
+        points: Math.round(teamComposite.points * 40),
       };
       
-      if (teamComposite.threepm > REALISTIC_LIMITS.threepm) {
-        console.error(`[SANITY FAIL] Team 3PM/game = ${teamComposite.threepm} > ${REALISTIC_LIMITS.threepm}`);
-      }
-      if (teamComposite.blocks > REALISTIC_LIMITS.blocks) {
-        console.error(`[SANITY FAIL] Team BLK/game = ${teamComposite.blocks} > ${REALISTIC_LIMITS.blocks}`);
-      }
-      if (teamComposite.points > REALISTIC_LIMITS.points) {
-        console.error(`[SANITY FAIL] Team PTS/game = ${teamComposite.points} > ${REALISTIC_LIMITS.points}`);
-      }
-      if (teamComposite.fgPct < 0 || teamComposite.fgPct > 1) {
-        console.error(`[SANITY FAIL] FG% = ${teamComposite.fgPct} not in [0,1]`);
-      }
-      if (teamComposite.ftPct < 0 || teamComposite.ftPct > 1) {
-        console.error(`[SANITY FAIL] FT% = ${teamComposite.ftPct} not in [0,1]`);
-      }
+      console.log(`[parseESPNTeamPage] Expected Baseline (×40):`, expectedBaseline);
+      console.log(`[parseESPNTeamPage] FG% = ${(teamComposite.fgPct * 100).toFixed(1)}%, FT% = ${(teamComposite.ftPct * 100).toFixed(1)}%`);
       
-      console.log(`[parseESPNTeamPage] Baseline (×40):`, {
-        threepm: teamComposite.threepm * 40,
-        blocks: teamComposite.blocks * 40,
-        rebounds: teamComposite.rebounds * 40,
-        points: teamComposite.points * 40,
-      });
+      // Final sanity: baseline should be in realistic weekly ranges
+      const REALISTIC_WEEKLY_RANGES: Record<string, [number, number]> = {
+        threepm: [30, 150],
+        rebounds: [100, 350],
+        assists: [80, 250],
+        steals: [20, 80],
+        blocks: [10, 60],
+        turnovers: [40, 120],
+        points: [350, 1000],
+      };
+      
+      for (const [cat, [min, max]] of Object.entries(REALISTIC_WEEKLY_RANGES)) {
+        const val = expectedBaseline[cat as keyof typeof expectedBaseline];
+        if (val < min || val > max) {
+          console.warn(`[SANITY] Baseline ${cat} = ${val} outside typical range [${min}, ${max}]`);
+        }
+      }
       
       return {
         info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
