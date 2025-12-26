@@ -135,6 +135,9 @@ const Index = () => {
   // Draft and Trade tab visibility
   const { showDraftTab, setShowDraftTab } = useDraftVisibility();
   const { showTradeTab, setShowTradeTab } = useTradeVisibility();
+  
+  // Dynamic wCRI
+  const dynamicWeights = useDynamicWeights(globalWeights);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
