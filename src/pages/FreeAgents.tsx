@@ -69,16 +69,20 @@ type ViewMode = 'stats' | 'rankings' | 'advanced';
 // Multi-paste import state
 interface ImportProgress {
   totalPages: number | null; // null = unknown
+  totalResults: number | null; // from "Showing X-Y of Z" when available
   importedPages: number;
-  playerCount: number;
+  playerCount: number; // unique players
+  availableCount: number; // FA + WA
+  unknownCount: number; // missing availability marker
   paginationDetected: boolean;
 }
 
 export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [], matchupData }: FreeAgentsProps) => {
-  const [rawPlayers, setRawPlayers] = useState<Player[]>(persistedPlayers);
+  const [rawPlayers, setRawPlayers] = useState<ImportedFreeAgent[]>(persistedPlayers as ImportedFreeAgent[]);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
   const [search, setSearch] = useState("");
+  const [availabilityFilter, setAvailabilityFilter] = useState<"available" | "all">("available");
   const [positionFilter, setPositionFilter] = useState<string>("all");
   const [scheduleFilter, setScheduleFilter] = useState<string>("all");
   const [healthFilter, setHealthFilter] = useState<string>("all");
@@ -130,6 +134,32 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     return null;
   };
 
+  type Availability = "FA" | "WA" | "UNK";
+  type ImportedFreeAgent = Player & { availability?: Availability };
+
+  const normalizeKey = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+
+  const makeFallbackId = (name: string, team: string, positions: string[]) =>
+    `fa:${normalizeKey(name).replace(/\s/g, "_")}:${team.toLowerCase()}:${positions.join("-").toLowerCase()}`;
+
+  const extractEspnIdsFromBlob = (blob: string): Map<string, string> => {
+    const map = new Map<string, string>();
+    const urlRegex = /player\/_\/id\/(\d+)\/([a-z0-9-]+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = urlRegex.exec(blob))) {
+      const id = m[1];
+      const slug = m[2].replace(/-/g, " ");
+      const key = normalizeKey(slug);
+      if (key && !map.has(key)) map.set(key, id);
+    }
+    return map;
+  };
+
   // Sync with persisted data
   useEffect(() => {
     if (persistedPlayers.length > 0 && rawPlayers.length === 0) {
@@ -150,19 +180,21 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
    * Phase 2: Parse STATS TABLE (15 columns: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-)
    * Phase 3: ZIP by index - player[i] gets stats[i]
    */
-  const parseESPNFreeAgents = (data: string): { players: Player[]; bonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>; debug: { playerCount: number; statsCount: number; matchedCount: number } } => {
+  const parseESPNFreeAgents = (data: string): { players: ImportedFreeAgent[]; bonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>; debug: { playerCount: number; statsCount: number; matchedCount: number } } => {
     // Validate input before processing
     validateParseInput(data);
     
     console.log('=== Starting ESPN Free Agents Parser ===');
     const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     const loopGuard = createLoopGuard();
+    const espnIdsByName = extractEspnIdsFromBlob(data);
     
     // ========== PHASE 1: Parse Player List (Bios) ==========
     interface PlayerInfo {
       name: string;
       team: string;
       positions: string[];
+      availability?: Availability;
       status?: string;
       opponent?: string;
       gameTime?: string;
@@ -233,7 +265,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       let status = '';
       let opponent = '';
       let gameTime = '';
-      let foundFAWA = false;
+      let availability: Availability | undefined;
       
       // Look ahead for player metadata (up to 25 lines)
       for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
@@ -266,10 +298,16 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           continue;
         }
         
-        // FA/WA status - mark it but DON'T break, continue to find opponent
-        if (nextLine === 'FA' || nextLine.match(/^WA(\s|\(|$)/)) {
-          foundFAWA = true;
-          continue;
+        // Availability marker (FA / WA)
+        if (!availability) {
+          if (nextLine === 'FA') {
+            availability = 'FA';
+            continue;
+          }
+          if (nextLine.match(/^WA(\s|\(|$)/)) {
+            availability = 'WA';
+            continue;
+          }
         }
         
         // Opponent with time: "Utah 7:30 PM" or "@LAL 7:00 PM" or "vs BOS 7:00 PM"
@@ -284,7 +322,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           
           // Just opponent: "@LAL" or "vs BOS" or team code like "Utah", "Bos", "Min"
           const oppMatch = nextLine.match(/^(@|vs\.?\s*)?([A-Za-z]{2,4})$/i);
-          if (oppMatch && foundFAWA) {
+          if (oppMatch && availability) {
             const upperTeam = oppMatch[2].toUpperCase();
             // Check if it's a valid opponent team (not the player's own team)
             if ((NBA_TEAMS.includes(upperTeam) || ['UTAH'].includes(upperTeam)) && upperTeam !== team) {
@@ -304,11 +342,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           }
         }
         
-        // If we found FA/WA and then opponent+time, we're done
-        if (foundFAWA && opponent && gameTime) break;
+        // If we found availability and then opponent+time, we're done
+        if (availability && opponent && gameTime) break;
         
-        // Stop if we hit "--" (no game) after FA/WA
-        if (foundFAWA && nextLine === '--') break;
+        // Stop if we hit "--" (no game) after availability
+        if (availability && nextLine === '--') break;
       }
       
       // Accept player even without metadata - use defaults
@@ -319,6 +357,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         name,
         team,
         positions,
+        availability: availability ?? 'UNK',
         status: status || undefined,
         opponent: opponent || undefined,
         gameTime: gameTime || undefined
@@ -498,19 +537,23 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       console.warn(`⚠️ Mismatch: ${playerList.length} players vs ${statsList.length} stat rows. Using ${targetCount}.`);
     }
     
-    const players: Player[] = [];
+    const players: ImportedFreeAgent[] = [];
     const bonusMap = new Map<string, { pr15: number; rosterPct: number; plusMinus: number }>();
     
     for (let i = 0; i < targetCount; i++) {
       const p = playerList[i];
       const s = statsList[i];
-      const id = `fa-${i}`;
+
+      const nameKey = normalizeKey(p.name);
+      const espnId = espnIdsByName.get(nameKey);
+      const id = espnId ? `espn:${espnId}` : makeFallbackId(p.name, p.team, p.positions);
       
       players.push({
         id,
         name: p.name,
         nbaTeam: p.team,
         positions: p.positions,
+        availability: p.availability ?? "UNK",
         status: p.status as any,
         opponent: p.opponent,
         gameTime: p.gameTime,
@@ -555,7 +598,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
    * Detect pagination in ESPN data
    * Returns: { detected: boolean, currentPage: number | null, totalPages: number | null }
    */
-  const detectPagination = (data: string): { detected: boolean; currentPage: number | null; totalPages: number | null } => {
+  const detectPagination = (data: string): { detected: boolean; currentPage: number | null; totalPages: number | null; totalResults: number | null } => {
     const lines = data.split('\n').map(l => l.trim());
     
     // Pattern 1: Look for page number sequence like "1 2 3 4 5 ... 19" or "« 1 2 3 ... 19 »"
@@ -570,7 +613,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         if (numbers.length >= 2) {
           const currentPage = numbers[0]; // First number is usually current page
           const totalPages = Math.max(...numbers);
-          return { detected: true, currentPage, totalPages };
+          return { detected: true, currentPage, totalPages, totalResults: null };
         }
       }
       
@@ -580,7 +623,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         const prevNum = i > 0 ? parseInt(lines[i - 1], 10) : NaN;
         const nextNum = i < lines.length - 1 ? parseInt(lines[i + 1], 10) : NaN;
         if (!isNaN(prevNum) && !isNaN(nextNum) && nextNum > prevNum) {
-          return { detected: true, currentPage: 1, totalPages: nextNum };
+          return { detected: true, currentPage: 1, totalPages: nextNum, totalResults: null };
         }
       }
       
@@ -591,7 +634,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         const perPage = parseInt(showingMatch[2], 10) - parseInt(showingMatch[1], 10) + 1;
         const totalPages = Math.ceil(total / perPage);
         const currentPage = Math.ceil(parseInt(showingMatch[1], 10) / perPage);
-        return { detected: true, currentPage, totalPages };
+        return { detected: true, currentPage, totalPages, totalResults: total };
       }
     }
     
@@ -606,52 +649,48 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           consecutiveNumbers = [num];
         }
         if (consecutiveNumbers.length >= 3) {
-          return { detected: true, currentPage: consecutiveNumbers[0], totalPages: null };
+          return { detected: true, currentPage: consecutiveNumbers[0], totalPages: null, totalResults: null };
         }
       } else {
         consecutiveNumbers = [];
       }
     }
     
-    return { detected: false, currentPage: null, totalPages: null };
+    return { detected: false, currentPage: null, totalPages: null, totalResults: null };
   };
 
   /**
-   * Merge new players with existing, deduping by name+team+position
+   * Merge new players with existing, deduping by player.id (stable)
    */
-  const mergePlayers = (existing: Player[], newPlayers: Player[]): { merged: Player[]; newCount: number; dupCount: number } => {
+  const mergePlayers = (
+    existing: ImportedFreeAgent[],
+    newPlayers: ImportedFreeAgent[]
+  ): { merged: ImportedFreeAgent[]; newCount: number; dupCount: number } => {
     const seen = new Set<string>();
-    const merged: Player[] = [];
-    
-    // Add existing first
-    for (const p of existing) {
-      const key = `${p.name.toLowerCase()}|${p.nbaTeam.toLowerCase()}|${p.positions.join(',')}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        merged.push(p);
-      }
-    }
-    
+    const merged: ImportedFreeAgent[] = [];
+
     let newCount = 0;
     let dupCount = 0;
-    
-    // Add new, skip duplicates
-    for (const p of newPlayers) {
-      const key = `${p.name.toLowerCase()}|${p.nbaTeam.toLowerCase()}|${p.positions.join(',')}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        merged.push(p);
-        newCount++;
-      } else {
-        dupCount++;
+
+    const add = (p: ImportedFreeAgent, isNew: boolean) => {
+      const key = p.id || makeFallbackId(p.name, p.nbaTeam, p.positions);
+      if (seen.has(key)) {
+        if (isNew) dupCount++;
+        return;
       }
-    }
-    
+      seen.add(key);
+      merged.push(p);
+      if (isNew) newCount++;
+    };
+
+    existing.forEach((p) => add(p, false));
+    newPlayers.forEach((p) => add(p, true));
+
     return { merged, newCount, dupCount };
   };
 
   /**
-   * Merge bonus stats maps
+   * Merge bonus stats maps (latest paste wins)
    */
   const mergeBonusStats = (
     existing: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>,
@@ -659,9 +698,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   ): Map<string, { pr15: number; rosterPct: number; plusMinus: number }> => {
     const merged = new Map(existing);
     for (const [key, value] of newBonus) {
-      if (!merged.has(key)) {
-        merged.set(key, value);
-      }
+      merged.set(key, value);
     }
     return merged;
   };
@@ -703,33 +740,86 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       const { players, bonus, debug } = await parseWithTimeout(() => parseESPNFreeAgents(rawData));
       
       setParseDebug(debug);
+
+      const countAvail = (list: ImportedFreeAgent[]) => {
+        const availableCount = list.filter(p => p.availability === 'FA' || p.availability === 'WA').length;
+        const unknownCount = list.length - availableCount;
+        return { availableCount, unknownCount };
+      };
+
+      // Sanity: if ESPN says paginated but we didn't get ~50 rows, likely copy/virtualization issue
+      if (pagination.detected && players.length > 0 && players.length < 40) {
+        console.warn('[FA Import] Paste incomplete:', { parsedRows: players.length, pagination });
+        toast({
+          title: "Paste incomplete",
+          description: `Parsed ${players.length} rows, but ESPN pages are usually 50. Scroll the list, then Ctrl+A and copy again.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const { availableCount: parsedAvailable, unknownCount: parsedUnknown } = countAvail(players);
+      console.log('[FA Import] parsed', {
+        parsedRows: players.length,
+        parsedAvailable,
+        parsedUnknown,
+        first: players[0]?.name,
+        last: players[players.length - 1]?.name,
+        pagination,
+      });
       
       if (players.length > 0) {
         if (isMultiPasteMode && rawPlayers.length > 0) {
           // Multi-paste mode: merge with existing
           const { merged, newCount, dupCount } = mergePlayers(rawPlayers, players);
           const mergedBonus = mergeBonusStats(bonusStats, bonus);
-          
+
+          const { availableCount: mergedAvailable, unknownCount: mergedUnknown } = countAvail(merged);
+
           setRawPlayers(merged);
           setBonusStats(mergedBonus);
           
           const pageNum = (importProgress?.importedPages || 0) + 1;
           setImportProgress(prev => ({
             totalPages: pagination.totalPages || prev?.totalPages || null,
+            totalResults: pagination.totalResults || prev?.totalResults || null,
             importedPages: pageNum,
             playerCount: merged.length,
+            availableCount: mergedAvailable,
+            unknownCount: mergedUnknown,
             paginationDetected: pagination.detected || (prev?.paginationDetected ?? false)
           }));
+
+          console.log('[FA Import] merge', {
+            pageNum,
+            parsedRows: players.length,
+            addedUnique: newCount,
+            duplicatesSkipped: dupCount,
+            totalUnique: merged.length,
+            availableCount: mergedAvailable,
+            unknownCount: mergedUnknown,
+          });
           
           toast({
             title: `Page ${pageNum} imported`,
-            description: `Added ${newCount} new players (${dupCount} duplicates skipped). Total: ${merged.length} players.${pagination.detected && pagination.totalPages ? ` Detected ${pagination.totalPages} pages.` : ''}`,
+            description: `Added ${newCount} new (${dupCount} dupes). Total: ${merged.length} unique (${mergedAvailable} available).`,
           });
           
           // Clear textarea for next paste
           setRawData("");
         } else {
           // First paste or fresh import
+          const { availableCount: firstAvailable, unknownCount: firstUnknown } = countAvail(players);
+
+          if (firstAvailable === 0) {
+            toast({
+              title: "No available players detected",
+              description: `Parsed ${players.length} rows but found 0 marked FA/WA. Make sure ESPN is set to Free Agents / Available, then copy again.`,
+              variant: "destructive",
+            });
+            return;
+          }
+
           setRawPlayers(players);
           setBonusStats(bonus);
           
@@ -738,14 +828,17 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
             setIsMultiPasteMode(true);
             setImportProgress({
               totalPages: pagination.totalPages,
+              totalResults: pagination.totalResults,
               importedPages: 1,
               playerCount: players.length,
+              availableCount: firstAvailable,
+              unknownCount: firstUnknown,
               paginationDetected: true
             });
             
             toast({
               title: "Page 1 imported",
-              description: `Loaded ${players.length} players. Pagination detected${pagination.totalPages ? ` (${pagination.totalPages} pages)` : ''}. Paste page 2 to continue.`,
+              description: `Loaded ${players.length} players (${firstAvailable} available). Paste page 2 to continue.`,
             });
             
             // Clear textarea for next paste
@@ -757,7 +850,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
             
             toast({
               title: "Success!",
-              description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''}`,
+              description: `Loaded ${players.length} players (${firstAvailable} available)${window ? ` (${window})` : ''}`,
             });
           }
         }
@@ -828,6 +921,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const filteredPlayers = useMemo(() => {
     let result = playersWithRanks;
 
+    // Availability filter (default: pickup-eligible only)
+    if (availabilityFilter === "available") {
+      result = result.filter(p => (p as any).availability === 'FA' || (p as any).availability === 'WA');
+    }
+
     if (search) {
       result = result.filter(p =>
         p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -871,9 +969,6 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       }));
     }
 
-    // Determine actual sort key
-    // When clicking CRI# or wCRI# columns directly, use exactly what was clicked
-    // The toggle only affects which column is the "default" when using rankings view
     const activeSortKey = sortKey;
     
     const sorted = [...result].sort((a, b) => {
@@ -888,7 +983,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     });
     
     return sorted;
-  }, [playersWithRanks, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories]);
+  }, [playersWithRanks, availabilityFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -1245,7 +1340,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-display font-bold">
-            Free Agents ({filteredPlayers.length} players)
+            Free Agents
+            <span className="text-sm font-normal text-muted-foreground"> (showing {filteredPlayers.length} of {playersWithRanks.length})</span>
             {detectedStatWindow && (
               <Badge variant="outline" className="ml-2 text-xs font-normal">
                 {detectedStatWindow}
@@ -1260,7 +1356,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 Multi-page import active
               </Badge>
               <span className="text-xs text-muted-foreground">
-                Page {importProgress.importedPages}{importProgress.totalPages ? ` of ${importProgress.totalPages}` : ''} • {importProgress.playerCount} players loaded
+                Page {importProgress.importedPages}{importProgress.totalPages ? ` of ${importProgress.totalPages}` : ''} • {importProgress.playerCount}{importProgress.totalResults ? ` / ${importProgress.totalResults}` : ''} players • {importProgress.availableCount} available
               </span>
             </div>
           )}
@@ -1492,6 +1588,25 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       {/* Filters */}
       <Card className="gradient-card border-border p-4">
         <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1 w-fit">
+            <Button
+              variant={availabilityFilter === "available" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setAvailabilityFilter("available")}
+              className="h-8 px-3"
+            >
+              Available
+            </Button>
+            <Button
+              variant={availabilityFilter === "all" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setAvailabilityFilter("all")}
+              className="h-8 px-3"
+            >
+              All Imported
+            </Button>
+          </div>
+
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
