@@ -822,6 +822,7 @@ const Index = () => {
                   wCriRank: p.wCriRank || 0,
                 }))}
                 globalWeights={globalWeights}
+                roster={rosterWithCRI}
               />
             </TabsContent>
           )}
