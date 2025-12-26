@@ -58,6 +58,7 @@ interface FreeAgentsProps {
   currentRoster?: Player[];
   leagueTeams?: LeagueTeam[];
   matchupData?: MatchupData | null;
+  multiPageImportEnabled?: boolean;
 }
 
 // Known NBA team codes
@@ -77,7 +78,7 @@ interface ImportProgress {
   paginationDetected: boolean;
 }
 
-export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [], matchupData }: FreeAgentsProps) => {
+export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [], matchupData, multiPageImportEnabled = false }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<ImportedFreeAgent[]>(persistedPlayers as ImportedFreeAgent[]);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
@@ -105,7 +106,15 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   // Multi-paste import tracking
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isMultiPasteMode, setIsMultiPasteMode] = useState(false);
-  
+  const multiPageEnabled = !!multiPageImportEnabled;
+
+  useEffect(() => {
+    if (!multiPageEnabled && isMultiPasteMode) {
+      setIsMultiPasteMode(false);
+      setImportProgress(null);
+    }
+  }, [multiPageEnabled, isMultiPasteMode]);
+
   const { toast } = useToast();
 
   const dismissTip = (tipId: string) => {
@@ -460,11 +469,19 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results)$/i.test(line)) continue;
         
         // Handle fractions like "5.9/12.3" - keep as single token (we'll parse later)
-        // Also handle standalone numbers, percentages, negatives, and '--' placeholders
-        if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
-          statTokens.push(line);
-        } else if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--' || line === '0') {
-          statTokens.push(line);
+        // Also handle standalone numbers, percentages, negatives, and missing-value placeholders
+        const normalizedLine = (line === "—" || line === "–" || line === "-") ? "--" : line;
+
+        if (/^\d+\.?\d*\/\d+\.?\d*$/.test(normalizedLine)) {
+          statTokens.push(normalizedLine);
+        } else if (/^\d+\.?\d*%$/.test(normalizedLine)) {
+          statTokens.push(normalizedLine.replace(/%$/, ""));
+        } else if (
+          /^[-+]?\d+\.?\d*$/.test(normalizedLine) ||
+          /^\.\d+$/.test(normalizedLine) ||
+          normalizedLine === "--"
+        ) {
+          statTokens.push(normalizedLine);
         }
       }
       
@@ -531,23 +548,43 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     }
     
     // ========== PHASE 3: Combine by Index ==========
-    const targetCount = Math.min(playerList.length, statsList.length);
-    
-    if (playerList.length !== statsList.length) {
-      console.warn(`⚠️ Mismatch: ${playerList.length} players vs ${statsList.length} stat rows. Using ${targetCount}.`);
+    // If some stat tokens were skipped (commonly % signs or em-dashes), we may end up with fewer stat rows.
+    // We still return the full player list and fill missing stats with 0s so the page always shows all 50 players.
+    const hasAnyStats = statsList.length > 0;
+    const targetCount = hasAnyStats ? playerList.length : 0;
+    const missingStatRows = hasAnyStats ? Math.max(0, playerList.length - statsList.length) : playerList.length;
+
+    if (hasAnyStats && missingStatRows > 0) {
+      console.warn(`⚠️ Mismatch: ${playerList.length} players vs ${statsList.length} stat rows. Filling ${missingStatRows} missing rows with 0s.`);
     }
-    
+
+    const emptyStats: StatRow = {
+      min: 0,
+      fgPct: 0,
+      ftPct: 0,
+      threepm: 0,
+      reb: 0,
+      ast: 0,
+      stl: 0,
+      blk: 0,
+      to: 0,
+      pts: 0,
+      pr15: 0,
+      rosterPct: 0,
+      plusMinus: 0,
+    };
+
     const players: ImportedFreeAgent[] = [];
     const bonusMap = new Map<string, { pr15: number; rosterPct: number; plusMinus: number }>();
-    
+
     for (let i = 0; i < targetCount; i++) {
       const p = playerList[i];
-      const s = statsList[i];
+      const s = statsList[i] ?? emptyStats;
 
       const nameKey = normalizeKey(p.name);
       const espnId = espnIdsByName.get(nameKey);
       const id = espnId ? `espn:${espnId}` : makeFallbackId(p.name, p.team, p.positions);
-      
+
       players.push({
         id,
         name: p.name,
@@ -572,7 +609,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         turnovers: s.to,
         points: s.pts,
       });
-      
+
       // Store bonus stats separately
       bonusMap.set(id, {
         pr15: s.pr15,
@@ -580,17 +617,17 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         plusMinus: s.plusMinus,
       });
     }
-    
+
     console.log(`=== Parser Complete: ${players.length} players with stats ===`);
-    
-    return { 
-      players, 
+
+    return {
+      players,
       bonus: bonusMap,
       debug: {
         playerCount: playerList.length,
         statsCount: statsList.length,
-        matchedCount: targetCount
-      }
+        matchedCount: targetCount,
+      },
     };
   };
 
@@ -823,8 +860,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           setRawPlayers(players);
           setBonusStats(bonus);
           
-          // Check if pagination detected - enter multi-paste mode
-          if (pagination.detected) {
+          // Check if pagination detected - optionally enter multi-paste mode (user-controlled via Settings)
+          if (pagination.detected && multiPageEnabled) {
             setIsMultiPasteMode(true);
             setImportProgress({
               totalPages: pagination.totalPages,
@@ -833,24 +870,28 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
               playerCount: players.length,
               availableCount: firstAvailable,
               unknownCount: firstUnknown,
-              paginationDetected: true
+              paginationDetected: true,
             });
-            
+
             toast({
               title: "Page 1 imported",
               description: `Loaded ${players.length} players (${firstAvailable} available). Paste page 2 to continue.`,
             });
-            
+
             // Clear textarea for next paste
             setRawData("");
           } else {
-            // No pagination - single page import complete
+            // No pagination OR multi-page disabled
             setIsMultiPasteMode(false);
             setImportProgress(null);
-            
+
+            const suffix = pagination.detected && !multiPageEnabled
+              ? " (Pagination detected — enable Multi-page Free Agents Import in Settings to merge pages.)"
+              : "";
+
             toast({
               title: "Success!",
-              description: `Loaded ${players.length} players (${firstAvailable} available)${window ? ` (${window})` : ''}`,
+              description: `Loaded ${players.length} players (${firstAvailable} available)${window ? ` (${window})` : ''}${suffix}`,
             });
           }
         }

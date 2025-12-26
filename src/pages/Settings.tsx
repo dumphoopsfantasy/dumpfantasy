@@ -27,6 +27,8 @@ interface SettingsProps {
   onShowDraftTabChange: (show: boolean) => void;
   showTradeTab: boolean;
   onShowTradeTabChange: (show: boolean) => void;
+  enableMultiPageFreeAgentImport: boolean;
+  onEnableMultiPageFreeAgentImportChange: (enabled: boolean) => void;
   // Dynamic wCRI settings
   dynamicSettings: DynamicWeightsSettings;
   onDynamicEnabledChange: (enabled: boolean) => void;
@@ -44,6 +46,8 @@ export const Settings = ({
   onShowDraftTabChange, 
   showTradeTab, 
   onShowTradeTabChange,
+  enableMultiPageFreeAgentImport,
+  onEnableMultiPageFreeAgentImportChange,
   dynamicSettings,
   onDynamicEnabledChange,
   onDynamicModeChange,
@@ -190,6 +194,19 @@ export const Settings = ({
               id="trade-toggle"
               checked={showTradeTab}
               onCheckedChange={onShowTradeTabChange}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="fa-multipage-toggle">Multi-page Free Agents Import</Label>
+              <p className="text-xs text-muted-foreground">
+                Merge multiple ESPN pages by pasting page 1, then page 2, etc.
+              </p>
+            </div>
+            <Switch
+              id="fa-multipage-toggle"
+              checked={enableMultiPageFreeAgentImport}
+              onCheckedChange={onEnableMultiPageFreeAgentImportChange}
             />
           </div>
         </CardContent>
