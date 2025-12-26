@@ -133,11 +133,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
   /**
    * ESPN Free Agents Parser - Robust Two-Phase Index-Based Approach
-   * Phase 1: Parse PLAYER LIST (names, teams, positions, opponent, time, status)
-   * Phase 2: Parse STATS TABLE (17 numeric values per player)
+   * Phase 1: Parse PLAYER LIST (names with duplicate pattern like "Bobby PortisBobby Portis")
+   * Phase 2: Parse STATS TABLE (15 columns: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-)
    * Phase 3: ZIP by index - player[i] gets stats[i]
    */
-  const parseESPNFreeAgents = (data: string): { players: Player[]; bonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }> } => {
+  const parseESPNFreeAgents = (data: string): { players: Player[]; bonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>; debug: { playerCount: number; statsCount: number; matchedCount: number } } => {
     // Validate input before processing
     validateParseInput(data);
     
@@ -156,9 +156,20 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     }
     
     const playerList: PlayerInfo[] = [];
+    const seenNames = new Set<string>();
     
-    // Method 1: Find doubled player names (ESPN pattern: "Noah ClowneyNoah Clowney")
-    // Method 2: Look for FA/WA markers and work backwards
+    // Helper to collapse duplicate name pattern: "Bobby PortisBobby Portis" -> "Bobby Portis"
+    const collapseDuplicateName = (text: string): string | null => {
+      const len = text.length;
+      if (len < 4 || len % 2 !== 0) return null;
+      const half = len / 2;
+      const first = text.substring(0, half);
+      const second = text.substring(half);
+      if (first === second && first.includes(' ') && /^[A-Z]/.test(first)) {
+        return first;
+      }
+      return null;
+    };
     
     for (let i = 0; i < lines.length; i++) {
       loopGuard.check();
@@ -169,10 +180,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       
       let name = '';
       
-      // Method 1: Check for doubled name pattern on same line ("Noah ClowneyNoah Clowney")
-      const halfLen = line.length / 2;
-      if (halfLen === Math.floor(halfLen) && line.substring(0, halfLen) === line.substring(halfLen)) {
-        name = line.substring(0, halfLen).trim();
+      // Method 1: Check for doubled name pattern on same line ("Bobby PortisBobby Portis")
+      const collapsedName = collapseDuplicateName(line);
+      if (collapsedName) {
+        name = collapsedName;
       }
       // Method 2: Check for consecutive identical lines (no photo pattern: "Caleb Love\nCaleb Love")
       else if (i + 1 < lines.length && line === lines[i + 1] && line.includes(' ') && /^[A-Z]/.test(line)) {
@@ -182,119 +193,115 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       
       if (!name) continue;
       
-      // Validate it looks like a name - allow:
-      // - Standard names: "Noah Clowney" (starts with capital, has space)
-      // - Names with initials: "AJ Green" (two capitals)
-      // - Names with apostrophes: "D'Angelo Russell"
+      // Validate it looks like a name
       const isValidName = name.includes(' ') && /^[A-Z]/.test(name) && name.length >= 4;
       if (!isValidName) continue;
+      
+      // Skip navigation/header text
+      if (/^(Fantasy|ESPN|Add|Drop|Trade|Watch|Support|Research|Basketball|Football|Hockey|Baseball|Player Name|Free Agents)/i.test(name)) continue;
+      
+      // Skip if we've already seen this player
+      const nameLower = name.toLowerCase();
+      if (seenNames.has(nameLower)) continue;
+      seenNames.add(nameLower);
+      
+      let team = '';
+      let positions: string[] = [];
+      let status = '';
+      let opponent = '';
+      let gameTime = '';
+      let foundFAWA = false;
+      
+      // Look ahead for player metadata (up to 25 lines)
+      for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
+        const nextLine = lines[j];
         
-        // Skip navigation/header text
-        if (/^(Fantasy|ESPN|Add|Drop|Trade|Watch|Support|Research|Basketball|Football|Hockey|Baseball)/i.test(name)) continue;
+        // Check if next line is a doubled name (next player) - stop here
+        if (collapseDuplicateName(nextLine)) break;
         
-        let team = '';
-        let positions: string[] = [];
-        let status = '';
-        let opponent = '';
-        let gameTime = '';
-        let foundFAWA = false;
+        // Team code (2-4 letter uppercase)
+        if (!team) {
+          const upperLine = nextLine.toUpperCase();
+          if (NBA_TEAMS.includes(upperLine)) {
+            team = upperLine;
+            continue;
+          }
+        }
         
-        // Look ahead for player metadata (up to 25 lines)
-        for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
-          const nextLine = lines[j];
-          
-          // Check if next line is a doubled name (next player) - stop here
-          const testHalf = nextLine.length / 2;
-          if (testHalf === Math.floor(testHalf) && testHalf >= 3 && 
-              nextLine.substring(0, testHalf) === nextLine.substring(testHalf) &&
-              /^[A-Z]/.test(nextLine.substring(0, testHalf)) &&
-              nextLine.substring(0, testHalf).includes(' ')) {
-            break;
+        // Positions (PG, SG, SF, PF, C combinations)
+        if (positions.length === 0) {
+          const posMatch = nextLine.match(/^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i);
+          if (posMatch) {
+            positions = nextLine.toUpperCase().replace(/\s/g, '').split(',').filter(p => p);
+            continue;
           }
-          
-          // Team code (2-4 letter uppercase)
-          if (!team) {
-            const upperLine = nextLine.toUpperCase();
-            if (NBA_TEAMS.includes(upperLine)) {
-              team = upperLine;
-              continue;
-            }
-          }
-          
-          // Positions (PG, SG, SF, PF, C combinations)
-          if (positions.length === 0) {
-            const posMatch = nextLine.match(/^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i);
-            if (posMatch) {
-              positions = nextLine.toUpperCase().replace(/\s/g, '').split(',').filter(p => p);
-              continue;
-            }
-          }
-          
-          // Injury/status (DTD, O, GTD, IR, SUSP)
-          if (!status && ['DTD', 'O', 'GTD', 'IR', 'SUSP'].includes(nextLine.toUpperCase())) {
-            status = nextLine.toUpperCase();
+        }
+        
+        // Injury/status (DTD, O, GTD, IR, SUSP)
+        if (!status && ['DTD', 'O', 'GTD', 'IR', 'SUSP'].includes(nextLine.toUpperCase())) {
+          status = nextLine.toUpperCase();
+          continue;
+        }
+        
+        // FA/WA status - mark it but DON'T break, continue to find opponent
+        if (nextLine === 'FA' || nextLine.match(/^WA(\s|\(|$)/)) {
+          foundFAWA = true;
+          continue;
+        }
+        
+        // Opponent with time: "Utah 7:30 PM" or "@LAL 7:00 PM" or "vs BOS 7:00 PM"
+        if (!opponent) {
+          const oppTimeMatch = nextLine.match(/^(@|vs\.?\s*)?([A-Za-z]{2,4})\s+(\d{1,2}:\d{2}\s*(AM|PM)?(\s*ET)?)/i);
+          if (oppTimeMatch) {
+            const prefix = oppTimeMatch[1] ? (oppTimeMatch[1].toLowerCase().includes('v') ? 'vs ' : '@') : '';
+            opponent = prefix + oppTimeMatch[2].toUpperCase();
+            gameTime = oppTimeMatch[3].trim();
             continue;
           }
           
-          // FA/WA status - mark it but DON'T break, continue to find opponent
-          if (nextLine === 'FA' || nextLine.match(/^WA(\s|\(|$)/)) {
-            foundFAWA = true;
-            continue;
-          }
-          
-          // Opponent with time: "Utah 7:30 PM" or "@LAL 7:00 PM" or "vs BOS 7:00 PM"
-          if (!opponent) {
-            const oppTimeMatch = nextLine.match(/^(@|vs\.?\s*)?([A-Za-z]{2,4})\s+(\d{1,2}:\d{2}\s*(AM|PM)?(\s*ET)?)/i);
-            if (oppTimeMatch) {
-              const prefix = oppTimeMatch[1] ? (oppTimeMatch[1].toLowerCase().includes('v') ? 'vs ' : '@') : '';
-              opponent = prefix + oppTimeMatch[2].toUpperCase();
-              gameTime = oppTimeMatch[3].trim();
+          // Just opponent: "@LAL" or "vs BOS" or team code like "Utah", "Bos", "Min"
+          const oppMatch = nextLine.match(/^(@|vs\.?\s*)?([A-Za-z]{2,4})$/i);
+          if (oppMatch && foundFAWA) {
+            const upperTeam = oppMatch[2].toUpperCase();
+            // Check if it's a valid opponent team (not the player's own team)
+            if ((NBA_TEAMS.includes(upperTeam) || ['UTAH'].includes(upperTeam)) && upperTeam !== team) {
+              const prefix = oppMatch[1] ? (oppMatch[1].toLowerCase().includes('v') ? 'vs ' : '@') : '';
+              opponent = prefix + upperTeam;
               continue;
             }
-            
-            // Just opponent: "@LAL" or "vs BOS" or team code like "Utah", "Bos", "Min"
-            const oppMatch = nextLine.match(/^(@|vs\.?\s*)?([A-Za-z]{2,4})$/i);
-            if (oppMatch && foundFAWA) {
-              const upperTeam = oppMatch[2].toUpperCase();
-              // Check if it's a valid opponent team (not the player's own team)
-              if ((NBA_TEAMS.includes(upperTeam) || ['UTAH'].includes(upperTeam)) && upperTeam !== team) {
-                const prefix = oppMatch[1] ? (oppMatch[1].toLowerCase().includes('v') ? 'vs ' : '@') : '';
-                opponent = prefix + upperTeam;
-                continue;
-              }
-            }
           }
-          
-          // Standalone game time: "7:30 PM"
-          if (!gameTime && opponent) {
-            const timeMatch = nextLine.match(/^(\d{1,2}:\d{2}\s*(AM|PM)(\s*ET)?)/i);
-            if (timeMatch) {
-              gameTime = timeMatch[1].trim();
-              break; // Got everything, stop
-            }
-          }
-          
-          // If we found FA/WA and then opponent+time, we're done
-          if (foundFAWA && opponent && gameTime) break;
-          
-          // Stop if we hit "--" (no game) after FA/WA
-          if (foundFAWA && nextLine === '--') break;
         }
         
-        // Accept player if we found some metadata
-        if (team || positions.length > 0) {
-          if (!team) team = 'FA';
-          if (positions.length === 0) positions = ['UTIL'];
-          
-          playerList.push({
-            name,
-            team,
-            positions,
-            status: status || undefined,
-            opponent: opponent || undefined,
-            gameTime: gameTime || undefined
-          });
+        // Standalone game time: "7:30 PM"
+        if (!gameTime && opponent) {
+          const timeMatch = nextLine.match(/^(\d{1,2}:\d{2}\s*(AM|PM)(\s*ET)?)/i);
+          if (timeMatch) {
+            gameTime = timeMatch[1].trim();
+            break; // Got everything, stop
+          }
         }
+        
+        // If we found FA/WA and then opponent+time, we're done
+        if (foundFAWA && opponent && gameTime) break;
+        
+        // Stop if we hit "--" (no game) after FA/WA
+        if (foundFAWA && nextLine === '--') break;
+      }
+      
+      // Accept player if we found some metadata
+      if (team || positions.length > 0) {
+        if (!team) team = 'FA';
+        if (positions.length === 0) positions = ['UTIL'];
+        
+        playerList.push({
+          name,
+          team,
+          positions,
+          status: status || undefined,
+          opponent: opponent || undefined,
+          gameTime: gameTime || undefined
+        });
+      }
     }
     
     console.log(`Phase 1: Found ${playerList.length} players from bio section`);
@@ -303,90 +310,43 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     }
     
     // ========== PHASE 2: Parse Stats Table ==========
-    // Columns when fractions split: MIN, FGM, FGA, FG%, FTM, FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
-    // That's 17 values per player
+    // Find the LAST occurrence of stats header (PR15 %ROST +/-)
+    // Stats rows follow immediately after and have 15 fields each:
+    // MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
     
-    const statTokens: string[] = [];
+    let statsHeaderIdx = -1;
     
-    // Find the stats section - look for "MIN" followed by stat headers
-    let statsStartIdx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i] === 'MIN' && i + 1 < lines.length) {
-        // Verify this is the stats header by checking next few lines
-        const nextFew = lines.slice(i, i + 5).join(' ');
-        if (nextFew.includes('FG') || nextFew.includes('3PM') || nextFew.includes('REB')) {
-          statsStartIdx = i;
-          break;
+    // Find the stats header row - look for "PR15" which is distinctive
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i] === 'PR15' || lines[i] === '+/-') {
+        // Backtrack to find the start of header (MIN)
+        for (let j = i - 1; j >= Math.max(0, i - 20); j--) {
+          if (lines[j] === 'MIN') {
+            statsHeaderIdx = j;
+            break;
+          }
         }
+        if (statsHeaderIdx > -1) break;
       }
     }
     
-    if (statsStartIdx === -1) {
-      // Alternative: look for "STATS" or "Research" marker
+    // Alternative: look for "STATS" or "Research" marker
+    if (statsHeaderIdx === -1) {
       for (let i = 0; i < lines.length; i++) {
         if (/^STATS$/i.test(lines[i]) || /^Research$/i.test(lines[i])) {
           // Find MIN after this
           for (let j = i; j < Math.min(i + 20, lines.length); j++) {
             if (lines[j] === 'MIN') {
-              statsStartIdx = j;
+              statsHeaderIdx = j;
               break;
             }
           }
-          if (statsStartIdx > -1) break;
+          if (statsHeaderIdx > -1) break;
         }
       }
     }
     
-    console.log(`Stats section starts at line ${statsStartIdx}`);
-    
-    if (statsStartIdx > -1) {
-      // Skip past column headers
-      let dataStartIdx = statsStartIdx + 1;
-      while (dataStartIdx < lines.length && 
-             /^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|MIN)$/i.test(lines[dataStartIdx])) {
-        dataStartIdx++;
-      }
-      
-      // Calculate how many tokens we need (17 per player)
-      const tokensNeeded = playerList.length * 17;
-      
-      // Collect tokens until we have enough OR hit footer
-      for (let i = dataStartIdx; i < lines.length && statTokens.length < tokensNeeded; i++) {
-        const line = lines[i];
-        
-        // Stop at footer content
-        if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy|Fantasy Basketball Support)/i.test(line)) {
-          console.log(`Stopping at footer line ${i}: "${line.substring(0, 30)}"`);
-          break;
-        }
-        
-        // Skip non-data lines (but NOT small numbers - those are valid stats!)
-        if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results|\d+\s+of\s+\d+)$/i.test(line)) continue;
-        
-        // Skip pagination pattern "1 2 3 4 5 ... 19" on a single line
-        if (/^(\d+\s+)+\.{3}\s*\d+$/.test(line)) continue;
-        
-        // Handle fractions like "5.9/12.3" - split into two values
-        if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
-          const parts = line.split('/');
-          statTokens.push(parts[0], parts[1]);
-          continue;
-        }
-        
-        // Collect numeric values: integers, decimals, percentages (.XXX), negatives, and '--' placeholders
-        // Small integers (0, 1, 2...) ARE valid stat values (blocks, steals, etc.)
-        if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
-          statTokens.push(line);
-        }
-      }
-    }
-    
-    console.log(`Phase 2: Collected ${statTokens.length} stat tokens (expected ~${playerList.length * 17})`);
-    
-    // Parse tokens into stat rows (17 values per player when fractions are split)
-    // Columns: MIN, FGM, FGA, FG%, FTM, FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
-    const COLS = 17;
-    const numStatRows = Math.floor(statTokens.length / COLS);
+    console.log(`Stats header found at line ${statsHeaderIdx}`);
     
     interface StatRow {
       min: number;
@@ -406,48 +366,108 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     
     const statsList: StatRow[] = [];
     
-    for (let i = 0; i < numStatRows; i++) {
-      const base = i * COLS;
-      const parseVal = (idx: number): number => {
-        const val = statTokens[base + idx];
-        if (!val || val === '--') return 0;
-        return parseFloat(val);
-      };
+    if (statsHeaderIdx > -1) {
+      // Skip past column headers to find first data row
+      let dataStartIdx = statsHeaderIdx + 1;
+      while (dataStartIdx < lines.length && 
+             /^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|MIN)$/i.test(lines[dataStartIdx])) {
+        dataStartIdx++;
+      }
       
-      // Column mapping (when FGM/FGA and FTM/FTA split into separate values):
-      // 0: MIN, 1: FGM, 2: FGA, 3: FG%, 4: FTM, 5: FTA, 6: FT%
-      // 7: 3PM, 8: REB, 9: AST, 10: STL, 11: BLK, 12: TO, 13: PTS
-      // 14: PR15, 15: %ROST, 16: +/-
+      console.log(`Stats data starts at line ${dataStartIdx}`);
       
-      // FG% is at index 3 - should be in .XXX format like .477
-      let fgPct = parseVal(3);
-      // If it's already < 1, it's correct; if > 1, normalize it
-      if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
+      // Collect all stat tokens
+      const statTokens: string[] = [];
       
-      // FT% is at index 6
-      let ftPct = parseVal(6);
-      if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
+      for (let i = dataStartIdx; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Stop at footer content
+        if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy|Fantasy Basketball Support)/i.test(line)) {
+          console.log(`Stopping at footer line ${i}: "${line.substring(0, 30)}"`);
+          break;
+        }
+        
+        // Skip pagination pattern "1 2 3 4 5 ... 19" or just "1"
+        if (/^(\d+\s+)*\.{3}\s*\d+$/.test(line)) continue;
+        if (/^\d+$/.test(line) && parseInt(line) < 100 && statTokens.length > 10) {
+          // Could be pagination - check if we have enough tokens for current player count
+          const expectedTokens = playerList.length * 15; // 15 tokens per player
+          if (statTokens.length >= expectedTokens * 0.9) break;
+        }
+        
+        // Skip non-data lines
+        if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results)$/i.test(line)) continue;
+        
+        // Handle fractions like "5.9/12.3" - keep as single token (we'll parse later)
+        // Also handle standalone numbers, percentages, negatives, and '--' placeholders
+        if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
+          statTokens.push(line);
+        } else if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--' || line === '0') {
+          statTokens.push(line);
+        }
+      }
       
-      statsList.push({
-        min: parseVal(0),
-        fgPct,
-        ftPct,
-        threepm: parseVal(7),
-        reb: parseVal(8),
-        ast: parseVal(9),
-        stl: parseVal(10),
-        blk: parseVal(11),
-        to: parseVal(12),
-        pts: parseVal(13),
-        pr15: parseVal(14),
-        rosterPct: parseVal(15),
-        plusMinus: parseVal(16),
-      });
+      console.log(`Collected ${statTokens.length} stat tokens`);
+      
+      // Parse tokens into stat rows
+      // Each row has 15 fields: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
+      const COLS = 15;
+      const numStatRows = Math.floor(statTokens.length / COLS);
+      
+      for (let i = 0; i < numStatRows; i++) {
+        const base = i * COLS;
+        
+        const parseVal = (idx: number): number => {
+          const val = statTokens[base + idx];
+          if (!val || val === '--') return 0;
+          // Handle potential +/- at the end
+          const cleaned = val.replace(/^\+/, '');
+          return parseFloat(cleaned) || 0;
+        };
+        
+        // Column mapping:
+        // 0: MIN, 1: FGM/FGA, 2: FG%, 3: FTM/FTA, 4: FT%
+        // 5: 3PM, 6: REB, 7: AST, 8: STL, 9: BLK, 10: TO, 11: PTS
+        // 12: PR15, 13: %ROST, 14: +/-
+        
+        // FG% is at index 2 - should be in .XXX format like .477
+        let fgPct = parseVal(2);
+        if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
+        
+        // FT% is at index 4
+        let ftPct = parseVal(4);
+        if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
+        
+        // Handle +/- which can be +0.8 or -0.5 or 0
+        let plusMinus = 0;
+        const pmToken = statTokens[base + 14];
+        if (pmToken && pmToken !== '--') {
+          plusMinus = parseFloat(pmToken) || 0;
+        }
+        
+        statsList.push({
+          min: parseVal(0),
+          fgPct,
+          ftPct,
+          threepm: parseVal(5),
+          reb: parseVal(6),
+          ast: parseVal(7),
+          stl: parseVal(8),
+          blk: parseVal(9),
+          to: parseVal(10),
+          pts: parseVal(11),
+          pr15: parseVal(12),
+          rosterPct: parseVal(13),
+          plusMinus,
+        });
+      }
     }
     
     console.log(`Phase 2: Built ${statsList.length} stat rows`);
     if (statsList.length > 0) {
       console.log('First player stats:', statsList[0]);
+      console.log('Bobby Portis expected PR15=6.65, got:', statsList[0]?.pr15);
     }
     
     // ========== PHASE 3: Combine by Index ==========
@@ -499,8 +519,18 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     
     console.log(`=== Parser Complete: ${players.length} players with stats ===`);
     
-    return { players, bonus: bonusMap };
+    return { 
+      players, 
+      bonus: bonusMap,
+      debug: {
+        playerCount: playerList.length,
+        statsCount: statsList.length,
+        matchedCount: targetCount
+      }
+    };
   };
+
+  const [parseDebug, setParseDebug] = useState<{ playerCount: number; statsCount: number; matchedCount: number } | null>(null);
 
   const handleParse = async () => {
     if (!rawData.trim()) {
@@ -523,6 +553,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     }
     
     setIsParsing(true);
+    setParseDebug(null);
     
     try {
       // Detect stat window from pasted data
@@ -530,19 +561,21 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       setDetectedStatWindow(window);
       
       // Parse with timeout protection
-      const { players, bonus } = await parseWithTimeout(() => parseESPNFreeAgents(rawData));
+      const { players, bonus, debug } = await parseWithTimeout(() => parseESPNFreeAgents(rawData));
+      
+      setParseDebug(debug);
       
       if (players.length > 0) {
         setRawPlayers(players);
         setBonusStats(bonus);
         toast({
           title: "Success!",
-          description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''}`,
+          description: `Loaded ${players.length} free agents${window ? ` (${window})` : ''} - Parsed ${debug.playerCount} players, ${debug.statsCount} stats rows`,
         });
       } else {
         toast({
           title: "No players found",
-          description: "Could not parse free agent data. Make sure to copy the entire ESPN Free Agents page.",
+          description: `Could not parse free agent data. Found ${debug.playerCount} players, ${debug.statsCount} stats rows. Make sure to copy the entire ESPN Free Agents page.`,
           variant: "destructive",
         });
       }
@@ -1019,6 +1052,12 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             )}
           </h2>
           <CrisExplanation />
+          {/* Debug info - shows parsing results */}
+          {parseDebug && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Parsed {parseDebug.playerCount} players, {parseDebug.statsCount} stats rows, matched {parseDebug.matchedCount}
+            </p>
+          )}
         </div>
 
       {/* Guidance Tips */}
