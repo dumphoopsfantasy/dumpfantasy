@@ -21,6 +21,7 @@ import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { CustomWeights } from "@/components/WeightSettings";
 import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
 import { useDraftVisibility, useTradeVisibility } from "@/hooks/useDraftVisibility";
+import { useDynamicWeights } from "@/hooks/useDynamicWeights";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
@@ -841,6 +842,13 @@ const Index = () => {
               onShowDraftTabChange={setShowDraftTab}
               showTradeTab={showTradeTab}
               onShowTradeTabChange={setShowTradeTab}
+              dynamicSettings={dynamicWeights.settings}
+              onDynamicEnabledChange={dynamicWeights.setEnabled}
+              onDynamicModeChange={dynamicWeights.setMode}
+              onDynamicIntensityChange={dynamicWeights.setIntensity}
+              onDynamicSmoothingChange={dynamicWeights.setSmoothingEnabled}
+              onDynamicPuntDetectionChange={dynamicWeights.setAllowPuntDetection}
+              onResetSmoothing={dynamicWeights.resetSmoothing}
             />
           </TabsContent>
         </Tabs>
