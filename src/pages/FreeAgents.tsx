@@ -160,13 +160,23 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     
     // Helper to collapse duplicate name pattern: "Bobby PortisBobby Portis" -> "Bobby Portis"
     const collapseDuplicateName = (text: string): string | null => {
-      const len = text.length;
-      if (len < 4 || len % 2 !== 0) return null;
-      const half = len / 2;
-      const first = text.substring(0, half);
-      const second = text.substring(half);
-      if (first === second && first.includes(' ') && /^[A-Z]/.test(first)) {
-        return first;
+      const trimmed = text.trim();
+      const len = trimmed.length;
+      if (len < 6) return null; // Minimum realistic name length
+      
+      // Try splitting at different points near the middle (handles odd lengths, spacing variations)
+      for (let offset = 0; offset <= 3; offset++) {
+        for (const delta of [0, offset, -offset]) {
+          const mid = Math.floor(len / 2) + delta;
+          if (mid < 3 || mid > len - 3) continue;
+          
+          const first = trimmed.substring(0, mid).trim();
+          const second = trimmed.substring(mid).trim();
+          
+          if (first === second && first.includes(' ') && /^[A-Z]/.test(first)) {
+            return first;
+          }
+        }
       }
       return null;
     };
@@ -288,20 +298,18 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         if (foundFAWA && nextLine === '--') break;
       }
       
-      // Accept player if we found some metadata
-      if (team || positions.length > 0) {
-        if (!team) team = 'FA';
-        if (positions.length === 0) positions = ['UTIL'];
-        
-        playerList.push({
-          name,
-          team,
-          positions,
-          status: status || undefined,
-          opponent: opponent || undefined,
-          gameTime: gameTime || undefined
-        });
-      }
+      // Accept player even without metadata - use defaults
+      if (!team) team = 'FA';
+      if (positions.length === 0) positions = ['UTIL'];
+      
+      playerList.push({
+        name,
+        team,
+        positions,
+        status: status || undefined,
+        opponent: opponent || undefined,
+        gameTime: gameTime || undefined
+      });
     }
     
     console.log(`Phase 1: Found ${playerList.length} players from bio section`);
