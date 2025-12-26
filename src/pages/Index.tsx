@@ -20,7 +20,7 @@ import { DataCompletenessBar } from "@/components/DataCompletenessBar";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { CustomWeights } from "@/components/WeightSettings";
 import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
-import { useDraftVisibility } from "@/hooks/useDraftVisibility";
+import { useDraftVisibility, useTradeVisibility } from "@/hooks/useDraftVisibility";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
@@ -131,8 +131,9 @@ const Index = () => {
   // Global CRI weights for Settings page
   const [globalWeights, setGlobalWeights] = usePersistedState<CustomWeights>("dumphoops.criWeights", CRIS_WEIGHTS as CustomWeights);
 
-  // Draft tab visibility
+  // Draft and Trade tab visibility
   const { showDraftTab, setShowDraftTab } = useDraftVisibility();
+  const { showTradeTab, setShowTradeTab } = useTradeVisibility();
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -520,7 +521,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${showDraftTab ? 'grid-cols-9' : 'grid-cols-8'}`}>
+          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 grid-cols-${7 + (showDraftTab ? 1 : 0) + (showTradeTab ? 1 : 0)}`}>
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
@@ -541,14 +542,16 @@ const Index = () => {
               <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
               Weekly
             </TabsTrigger>
-            <TabsTrigger value="trade" className="font-display font-semibold text-xs md:text-sm">
-              <ArrowLeftRight className="w-4 h-4 mr-1 hidden md:inline" />
-              Trade
-            </TabsTrigger>
             <TabsTrigger value="gameplan" className="font-display font-semibold text-xs md:text-sm">
               <Clipboard className="w-4 h-4 mr-1 hidden md:inline" />
               Gameplan
             </TabsTrigger>
+            {showTradeTab && (
+              <TabsTrigger value="trade" className="font-display font-semibold text-xs md:text-sm">
+                <ArrowLeftRight className="w-4 h-4 mr-1 hidden md:inline" />
+                Trade
+              </TabsTrigger>
+            )}
             {showDraftTab && (
               <TabsTrigger value="draft" className="font-display font-semibold text-xs md:text-sm">
                 <Target className="w-4 h-4 mr-1 hidden md:inline" />
@@ -804,18 +807,21 @@ const Index = () => {
             />
           </TabsContent>
 
-          <TabsContent value="trade">
-            <TradeAnalyzer 
-              freeAgents={freeAgents.map(p => ({
-                ...p,
-                cri: p.cri || 0,
-                wCri: p.wCri || 0,
-                criRank: p.criRank || 0,
-                wCriRank: p.wCriRank || 0,
-              }))}
-              globalWeights={globalWeights}
-            />
-          </TabsContent>
+          {showTradeTab && (
+            <TabsContent value="trade">
+              <TradeAnalyzer 
+                freeAgents={freeAgents.map(p => ({
+                  ...p,
+                  team: p.nbaTeam || 'FA',
+                  cri: p.cri || 0,
+                  wCri: p.wCri || 0,
+                  criRank: p.criRank || 0,
+                  wCriRank: p.wCriRank || 0,
+                }))}
+                globalWeights={globalWeights}
+              />
+            </TabsContent>
+          )}
 
           {showDraftTab && (
             <TabsContent value="draft">
@@ -829,6 +835,8 @@ const Index = () => {
               onWeightsChange={setGlobalWeights} 
               showDraftTab={showDraftTab}
               onShowDraftTabChange={setShowDraftTab}
+              showTradeTab={showTradeTab}
+              onShowTradeTabChange={setShowTradeTab}
             />
           </TabsContent>
         </Tabs>

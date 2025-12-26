@@ -23,9 +23,11 @@ interface SettingsProps {
   onWeightsChange: (weights: CustomWeights) => void;
   showDraftTab: boolean;
   onShowDraftTabChange: (show: boolean) => void;
+  showTradeTab: boolean;
+  onShowTradeTabChange: (show: boolean) => void;
 }
 
-export const Settings = ({ weights, onWeightsChange, showDraftTab, onShowDraftTabChange }: SettingsProps) => {
+export const Settings = ({ weights, onWeightsChange, showDraftTab, onShowDraftTabChange, showTradeTab, onShowTradeTabChange }: SettingsProps) => {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<NBATheme | null>(null);
@@ -151,6 +153,19 @@ export const Settings = ({ weights, onWeightsChange, showDraftTab, onShowDraftTa
               id="draft-toggle"
               checked={showDraftTab}
               onCheckedChange={onShowDraftTabChange}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="trade-toggle">Trade Analyzer Tab</Label>
+              <p className="text-xs text-muted-foreground">
+                Show the Trade Analyzer tab for evaluating trades
+              </p>
+            </div>
+            <Switch
+              id="trade-toggle"
+              checked={showTradeTab}
+              onCheckedChange={onShowTradeTabChange}
             />
           </div>
         </CardContent>
