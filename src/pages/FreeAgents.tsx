@@ -83,7 +83,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
   const [search, setSearch] = useState("");
-  const [availabilityFilter, setAvailabilityFilter] = useState<"available" | "all">("available");
+  const [availabilityFilter, setAvailabilityFilter] = useState<"available" | "all">("all");
   const [positionFilter, setPositionFilter] = useState<string>("all");
   const [scheduleFilter, setScheduleFilter] = useState<string>("all");
   const [healthFilter, setHealthFilter] = useState<string>("all");
