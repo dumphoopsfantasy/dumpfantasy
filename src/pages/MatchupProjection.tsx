@@ -773,6 +773,8 @@ export const MatchupProjection = ({
       }
 
       const numStatRows = Math.floor(statTokens.length / COLS);
+      const playerStats: { row: number; min: number; threepm: number; blk: number; reb: number; pts: number }[] = [];
+      
       for (let i = 0; i < numStatRows; i++) {
         const base = i * COLS;
         const parseVal = (idx: number): number => {
@@ -790,33 +792,85 @@ export const MatchupProjection = ({
         let ftPct = parseVal(6);
         if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
 
+        const threepm = parseVal(7);
+        const rebounds = parseVal(8);
+        const assists = parseVal(9);
+        const steals = parseVal(10);
+        const blocks = parseVal(11);
+        const turnovers = parseVal(12);
+        const points = parseVal(13);
+        
+        // Track per-player for debugging
+        playerStats.push({ row: i, min, threepm, blk: blocks, reb: rebounds, pts: points });
+        
+        // Sanity: individual player stats should be reasonable
+        if (threepm > 8 || blocks > 5 || rebounds > 20 || points > 50) {
+          console.warn(`[parseESPNTeamPage] Row ${i}: Suspicious player stats - 3PM=${threepm}, BLK=${blocks}, REB=${rebounds}, PTS=${points}`);
+        }
+
         sums.fgPct += fgPct;
         sums.ftPct += ftPct;
-        sums.threepm += parseVal(7);
-        sums.rebounds += parseVal(8);
-        sums.assists += parseVal(9);
-        sums.steals += parseVal(10);
-        sums.blocks += parseVal(11);
-        sums.turnovers += parseVal(12);
-        sums.points += parseVal(13);
+        sums.threepm += threepm;
+        sums.rebounds += rebounds;
+        sums.assists += assists;
+        sums.steals += steals;
+        sums.blocks += blocks;
+        sums.turnovers += turnovers;
+        sums.points += points;
         validCount++;
       }
+      
+      // Log all player stats for debugging
+      console.log(`[parseESPNTeamPage] Per-player stats:`, playerStats);
     }
 
     if (validCount > 0) {
+      // DEBUG: Log parsing results
+      console.log(`[parseESPNTeamPage] Team: ${teamName}, Players parsed: ${validCount}`);
+      console.log(`[parseESPNTeamPage] Raw sums:`, {
+        threepm: sums.threepm,
+        blocks: sums.blocks,
+        rebounds: sums.rebounds,
+        points: sums.points,
+      });
+      
+      // CRITICAL: For counting stats, we want TEAM TOTAL per game (sum of player avgs)
+      // NOT per-player average. The ×40 multiplier is applied later in BaselinePacePanel.
+      // For percentages, we average them (or ideally weight by attempts, but avg is close enough).
+      const teamComposite = {
+        fgPct: sums.fgPct / validCount,   // Average FG% across players
+        ftPct: sums.ftPct / validCount,   // Average FT% across players  
+        threepm: sums.threepm,            // TEAM total 3PM per game
+        rebounds: sums.rebounds,          // TEAM total rebounds per game
+        assists: sums.assists,            // TEAM total assists per game
+        steals: sums.steals,              // TEAM total steals per game
+        blocks: sums.blocks,              // TEAM total blocks per game
+        turnovers: sums.turnovers,        // TEAM total turnovers per game
+        points: sums.points,              // TEAM total points per game
+      };
+      
+      console.log(`[parseESPNTeamPage] Team composite (per game):`, teamComposite);
+      
+      // Sanity checks - per-game team totals should be realistic
+      const REALISTIC_LIMITS = {
+        threepm: 25,     // ~2 per player × 13 active
+        blocks: 20,      // ~1.5 per player × 13 active
+        rebounds: 80,    // ~6 per player × 13 active
+        points: 500,     // ~38 per player × 13 active
+      };
+      
+      let hasWarning = false;
+      Object.entries(REALISTIC_LIMITS).forEach(([key, limit]) => {
+        const value = teamComposite[key as keyof typeof teamComposite];
+        if (typeof value === 'number' && value > limit) {
+          console.warn(`[parseESPNTeamPage] WARNING: ${key}=${value} exceeds realistic limit ${limit}. Possible parsing error.`);
+          hasWarning = true;
+        }
+      });
+      
       return {
         info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
-        stats: {
-          fgPct: sums.fgPct / validCount,
-          ftPct: sums.ftPct / validCount,
-          threepm: sums.threepm / validCount,
-          rebounds: sums.rebounds / validCount,
-          assists: sums.assists / validCount,
-          steals: sums.steals / validCount,
-          blocks: sums.blocks / validCount,
-          turnovers: sums.turnovers / validCount,
-          points: sums.points / validCount,
-        },
+        stats: teamComposite,
       };
     }
 
