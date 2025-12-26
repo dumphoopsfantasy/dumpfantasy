@@ -87,6 +87,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [positionFilter, setPositionFilter] = useState<string>("all");
   const [scheduleFilter, setScheduleFilter] = useState<string>("all");
   const [healthFilter, setHealthFilter] = useState<string>("all");
+  const [statsFilter, setStatsFilter] = useState<"all" | "with-stats" | "missing-stats">("all");
   const [sortKey, setSortKey] = useState<SortKey>("cri");
   const [sortAsc, setSortAsc] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgent | null>(null);
@@ -189,7 +190,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
    * Phase 2: Parse STATS TABLE (15 columns: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-)
    * Phase 3: ZIP by index - player[i] gets stats[i]
    */
-  const parseESPNFreeAgents = (data: string): { players: ImportedFreeAgent[]; bonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>; debug: { playerCount: number; statsCount: number; matchedCount: number } } => {
+  const parseESPNFreeAgents = (data: string): { players: ImportedFreeAgent[]; bonus: Map<string, { pr15: number; rosterPct: number; plusMinus: number }>; debug: { playerCount: number; statsCount: number; matchedCount: number; playersMissingStats: string[]; isComplete: boolean } } => {
     // Validate input before processing
     validateParseInput(data);
     
@@ -548,14 +549,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     }
     
     // ========== PHASE 3: Combine by Index ==========
-    // If some stat tokens were skipped (commonly % signs or em-dashes), we may end up with fewer stat rows.
-    // We still return the full player list and fill missing stats with 0s so the page always shows all 50 players.
+    // Track players with/without stats for validation
     const hasAnyStats = statsList.length > 0;
-    const targetCount = hasAnyStats ? playerList.length : 0;
     const missingStatRows = hasAnyStats ? Math.max(0, playerList.length - statsList.length) : playerList.length;
 
     if (hasAnyStats && missingStatRows > 0) {
-      console.warn(`⚠️ Mismatch: ${playerList.length} players vs ${statsList.length} stat rows. Filling ${missingStatRows} missing rows with 0s.`);
+      console.warn(`⚠️ Mismatch: ${playerList.length} players vs ${statsList.length} stat rows. Last ${missingStatRows} players will have no stats.`);
     }
 
     const emptyStats: StatRow = {
@@ -576,14 +575,24 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
     const players: ImportedFreeAgent[] = [];
     const bonusMap = new Map<string, { pr15: number; rosterPct: number; plusMinus: number }>();
+    const playersWithStats: string[] = [];
+    const playersMissingStats: string[] = [];
 
-    for (let i = 0; i < targetCount; i++) {
+    for (let i = 0; i < playerList.length; i++) {
       const p = playerList[i];
-      const s = statsList[i] ?? emptyStats;
+      const hasStats = i < statsList.length;
+      const s = hasStats ? statsList[i] : emptyStats;
 
       const nameKey = normalizeKey(p.name);
       const espnId = espnIdsByName.get(nameKey);
       const id = espnId ? `espn:${espnId}` : makeFallbackId(p.name, p.team, p.positions);
+
+      // Track stats presence
+      if (hasStats && (s.min > 0 || s.pts > 0 || s.reb > 0 || s.ast > 0)) {
+        playersWithStats.push(p.name);
+      } else {
+        playersMissingStats.push(p.name);
+      }
 
       players.push({
         id,
@@ -608,7 +617,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         blocks: s.blk,
         turnovers: s.to,
         points: s.pts,
-      });
+        // Mark if stats are missing for UI badge
+        _hasStats: hasStats && (s.min > 0 || s.pts > 0 || s.reb > 0 || s.ast > 0),
+      } as ImportedFreeAgent & { _hasStats?: boolean });
 
       // Store bonus stats separately
       bonusMap.set(id, {
@@ -618,7 +629,16 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       });
     }
 
-    console.log(`=== Parser Complete: ${players.length} players with stats ===`);
+    console.log(`=== Parser Complete ===`);
+    console.log(`Players parsed: ${playerList.length}, Stats rows: ${statsList.length}`);
+    console.log(`With stats: ${playersWithStats.length}, Missing stats: ${playersMissingStats.length}`);
+    if (playersMissingStats.length > 0) {
+      console.log(`Players missing stats: ${playersMissingStats.join(', ')}`);
+    }
+    console.log(`Last 5 players: ${playerList.slice(-5).map(p => p.name).join(', ')}`);
+    if (statsList.length > 0) {
+      console.log(`Last 5 stat rows (pts): ${statsList.slice(-5).map(s => s.pts).join(', ')}`);
+    }
 
     return {
       players,
@@ -626,7 +646,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       debug: {
         playerCount: playerList.length,
         statsCount: statsList.length,
-        matchedCount: targetCount,
+        matchedCount: playersWithStats.length,
+        playersMissingStats,
+        isComplete: playersMissingStats.length === 0,
       },
     };
   };
@@ -698,32 +720,55 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
   /**
    * Merge new players with existing, deduping by player.id (stable)
+   * IMPORTANT: Never overwrite good stats with null/empty stats
    */
   const mergePlayers = (
     existing: ImportedFreeAgent[],
     newPlayers: ImportedFreeAgent[]
   ): { merged: ImportedFreeAgent[]; newCount: number; dupCount: number } => {
-    const seen = new Set<string>();
-    const merged: ImportedFreeAgent[] = [];
+    const byId = new Map<string, ImportedFreeAgent>();
 
     let newCount = 0;
     let dupCount = 0;
 
-    const add = (p: ImportedFreeAgent, isNew: boolean) => {
-      const key = p.id || makeFallbackId(p.name, p.nbaTeam, p.positions);
-      if (seen.has(key)) {
-        if (isNew) dupCount++;
-        return;
-      }
-      seen.add(key);
-      merged.push(p);
-      if (isNew) newCount++;
+    // Helper to check if player has valid stats
+    const hasValidStats = (p: ImportedFreeAgent): boolean => {
+      return (p as any)._hasStats === true || p.minutes > 0 || p.points > 0 || p.rebounds > 0 || p.assists > 0;
     };
 
-    existing.forEach((p) => add(p, false));
-    newPlayers.forEach((p) => add(p, true));
+    // Add existing players first
+    for (const p of existing) {
+      const key = p.id || makeFallbackId(p.name, p.nbaTeam, p.positions);
+      byId.set(key, p);
+    }
 
-    return { merged, newCount, dupCount };
+    // Merge new players
+    for (const p of newPlayers) {
+      const key = p.id || makeFallbackId(p.name, p.nbaTeam, p.positions);
+      const existingPlayer = byId.get(key);
+      
+      if (existingPlayer) {
+        dupCount++;
+        // Only update if new player has valid stats and existing doesn't
+        // OR if new player has valid stats (prefer newer data when both have stats)
+        const existingHasStats = hasValidStats(existingPlayer);
+        const newHasStats = hasValidStats(p);
+        
+        if (newHasStats && !existingHasStats) {
+          console.log(`[merge] Updating ${p.name} with new stats (existing had none)`);
+          byId.set(key, p);
+        } else if (!newHasStats && existingHasStats) {
+          console.warn(`[merge] Keeping existing stats for ${p.name} (new import missing stats)`);
+          // Keep existing - don't overwrite
+        }
+        // If both have stats or neither has stats, keep existing (first wins)
+      } else {
+        byId.set(key, p);
+        newCount++;
+      }
+    }
+
+    return { merged: Array.from(byId.values()), newCount, dupCount };
   };
 
   /**
@@ -740,7 +785,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     return merged;
   };
 
-  const [parseDebug, setParseDebug] = useState<{ playerCount: number; statsCount: number; matchedCount: number } | null>(null);
+  const [parseDebug, setParseDebug] = useState<{ playerCount: number; statsCount: number; matchedCount: number; playersMissingStats?: string[]; isComplete?: boolean } | null>(null);
 
   const handleParse = async () => {
     if (!rawData.trim()) {
@@ -795,11 +840,31 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         return;
       }
 
+      // Validate stats completeness
+      const missingStatsCount = debug.playersMissingStats.length;
+      if (!debug.isComplete) {
+        console.warn('[FA Import] Stats incomplete:', {
+          playersParsed: debug.playerCount,
+          statsRowsParsed: debug.statsCount,
+          playersWithStats: debug.matchedCount,
+          playersMissingStats: debug.playersMissingStats,
+        });
+        
+        toast({
+          title: "Import incomplete",
+          description: `${debug.playerCount} players found, but only ${debug.statsCount} stat rows. ${missingStatsCount} players have no stats. Scroll the ESPN stats table fully and copy again.`,
+          variant: "destructive",
+        });
+        // Continue anyway but flag the issue - user can see which players are missing
+      }
+
       const { availableCount: parsedAvailable, unknownCount: parsedUnknown } = countAvail(players);
       console.log('[FA Import] parsed', {
         parsedRows: players.length,
         parsedAvailable,
         parsedUnknown,
+        withStats: debug.matchedCount,
+        missingStats: missingStatsCount,
         first: players[0]?.name,
         last: players[players.length - 1]?.name,
         pagination,
@@ -835,11 +900,13 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
             totalUnique: merged.length,
             availableCount: mergedAvailable,
             unknownCount: mergedUnknown,
+            missingStats: missingStatsCount,
           });
           
+          const statsSuffix = missingStatsCount > 0 ? ` (${missingStatsCount} missing stats)` : '';
           toast({
             title: `Page ${pageNum} imported`,
-            description: `Added ${newCount} new (${dupCount} dupes). Total: ${merged.length} unique (${mergedAvailable} available).`,
+            description: `Added ${newCount} new (${dupCount} dupes). Total: ${merged.length} unique (${mergedAvailable} available).${statsSuffix}`,
           });
           
           // Clear textarea for next paste
@@ -873,9 +940,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
               paginationDetected: true,
             });
 
+            const statsSuffix = missingStatsCount > 0 ? ` (${missingStatsCount} missing stats)` : '';
             toast({
               title: "Page 1 imported",
-              description: `Loaded ${players.length} players (${firstAvailable} available). Paste page 2 to continue.`,
+              description: `Loaded ${players.length} players (${firstAvailable} available). Paste page 2 to continue.${statsSuffix}`,
             });
 
             // Clear textarea for next paste
@@ -888,10 +956,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
             const suffix = pagination.detected && !multiPageEnabled
               ? " (Pagination detected — enable Multi-page Free Agents Import in Settings to merge pages.)"
               : "";
+            const statsSuffix = missingStatsCount > 0 ? ` ⚠️ ${missingStatsCount} players missing stats.` : '';
 
             toast({
-              title: "Success!",
-              description: `Loaded ${players.length} players (${firstAvailable} available)${window ? ` (${window})` : ''}${suffix}`,
+              title: debug.isComplete ? "Success!" : "Partial import",
+              description: `Loaded ${players.length} players (${firstAvailable} available)${window ? ` (${window})` : ''}${suffix}${statsSuffix}`,
+              variant: debug.isComplete ? "default" : "destructive",
             });
           }
         }
@@ -990,6 +1060,13 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       result = result.filter(p => !p.status || p.status === "healthy");
     } else if (healthFilter === "injured") {
       result = result.filter(p => p.status && p.status !== "healthy");
+    }
+
+    // Stats filter (for debugging missing stats from import)
+    if (statsFilter === "with-stats") {
+      result = result.filter(p => (p as any)._hasStats === true || p.minutes > 0 || p.points > 0 || p.rebounds > 0);
+    } else if (statsFilter === "missing-stats") {
+      result = result.filter(p => (p as any)._hasStats === false || (p.minutes === 0 && p.points === 0 && p.rebounds === 0 && p.assists === 0));
     }
 
     // Calculate custom CRI for Advanced view
@@ -1303,6 +1380,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     setDetectedStatWindow(null);
     setIsMultiPasteMode(false);
     setImportProgress(null);
+    setStatsFilter("all");
+    setParseDebug(null);
     if (onPlayersChange) onPlayersChange([]);
   };
 
@@ -1690,6 +1769,16 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectItem value="injured">Injured Only</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={statsFilter} onValueChange={(v) => setStatsFilter(v as "all" | "with-stats" | "missing-stats")}>
+            <SelectTrigger className="w-full md:w-[160px]">
+              <SelectValue placeholder="Stats" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Stats</SelectItem>
+              <SelectItem value="with-stats">With Stats</SelectItem>
+              <SelectItem value="missing-stats">Missing Stats</SelectItem>
+            </SelectContent>
+          </Select>
           <Button variant="outline" size="icon" onClick={handleReset}>
             <RefreshCw className="w-4 h-4" />
           </Button>
@@ -2056,6 +2145,10 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                           {player.nbaTeam} • {player.positions.join("/")}
                           {player.status && player.status !== 'healthy' && (
                             <Badge variant="destructive" className="text-xs ml-1">{player.status}</Badge>
+                          )}
+                          {/* Show "No stats" badge if stats are missing */}
+                          {((player as any)._hasStats === false || (player.minutes === 0 && player.points === 0 && player.rebounds === 0 && player.assists === 0)) && (
+                            <Badge variant="outline" className="text-xs ml-1 border-orange-500 text-orange-500">No stats</Badge>
                           )}
                         </div>
                       </div>
