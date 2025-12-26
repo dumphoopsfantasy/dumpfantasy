@@ -12,6 +12,7 @@ import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE }
 import { RosterSlot, Player } from "@/types/fantasy";
 import { useToast } from "@/hooks/use-toast";
 import { BaselinePacePanel } from "@/components/BaselinePacePanel";
+import { devLog, devWarn, devError } from "@/lib/devLog";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -776,8 +777,8 @@ export const MatchupProjection = ({
     }
     
     const indexMap = buildHeaderIndexMap(headers);
-    console.log('[parseESPNTeamPage] Headers:', headers);
-    console.log('[parseESPNTeamPage] Index map:', indexMap);
+    devLog('[parseESPNTeamPage] Headers:', headers);
+    devLog('[parseESPNTeamPage] Index map:', indexMap);
     
     // Columns after split: MIN, FGM, FGA, FG%, FTM, FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/- = 17 tokens
     const COLS = 17;
@@ -804,10 +805,10 @@ export const MatchupProjection = ({
       }
     }
 
-    console.log(`[parseESPNTeamPage] Collected ${statTokens.length} stat tokens`);
+    devLog(`[parseESPNTeamPage] Collected ${statTokens.length} stat tokens`);
     
     const numStatRows = Math.floor(statTokens.length / COLS);
-    console.log(`[parseESPNTeamPage] Expected rows: ${numStatRows} (${statTokens.length} tokens / ${COLS} cols)`);
+    devLog(`[parseESPNTeamPage] Expected rows: ${numStatRows} (${statTokens.length} tokens / ${COLS} cols)`);
     
     // Parse all player stats first
     interface PlayerParsedStats {
@@ -832,7 +833,7 @@ export const MatchupProjection = ({
     
     for (let i = 0; i < numStatRows; i++) {
       if (seenRows.has(i)) {
-        console.warn(`[parseESPNTeamPage] Duplicate row ${i} - skipping`);
+        devWarn(`[parseESPNTeamPage] Duplicate row ${i} - skipping`);
         continue;
       }
       seenRows.add(i);
@@ -849,7 +850,7 @@ export const MatchupProjection = ({
       const min = parseVal('MIN');
       // Sanity: MIN should be 0-48
       if (!min || isNaN(min) || min === 0 || min > 48) {
-        if (min > 48) console.warn(`[parseESPNTeamPage] Row ${i}: MIN=${min} > 48, skipping`);
+        if (min > 48) devWarn(`[parseESPNTeamPage] Row ${i}: MIN=${min} > 48, skipping`);
         continue;
       }
 
@@ -867,11 +868,11 @@ export const MatchupProjection = ({
       const points = parseVal('PTS');
       
       // Sanity: individual player stats should be reasonable (per-game averages)
-      if (threepm > 8) console.warn(`[parseESPNTeamPage] Row ${i}: 3PM=${threepm} > 8 - suspicious`);
-      if (blocks > 6) console.warn(`[parseESPNTeamPage] Row ${i}: BLK=${blocks} > 6 - suspicious`);
-      if (points > 60) console.warn(`[parseESPNTeamPage] Row ${i}: PTS=${points} > 60 - suspicious`);
-      if (fga > 30) console.warn(`[parseESPNTeamPage] Row ${i}: FGA=${fga} > 30 - suspicious`);
-      if (fta > 20) console.warn(`[parseESPNTeamPage] Row ${i}: FTA=${fta} > 20 - suspicious`);
+      if (threepm > 8) devWarn(`[parseESPNTeamPage] Row ${i}: 3PM=${threepm} > 8 - suspicious`);
+      if (blocks > 6) devWarn(`[parseESPNTeamPage] Row ${i}: BLK=${blocks} > 6 - suspicious`);
+      if (points > 60) devWarn(`[parseESPNTeamPage] Row ${i}: PTS=${points} > 60 - suspicious`);
+      if (fga > 30) devWarn(`[parseESPNTeamPage] Row ${i}: FGA=${fga} > 30 - suspicious`);
+      if (fta > 20) devWarn(`[parseESPNTeamPage] Row ${i}: FTA=${fta} > 20 - suspicious`);
       
       allPlayerStats.push({
         row: i,
@@ -881,8 +882,8 @@ export const MatchupProjection = ({
       });
     }
     
-    console.log(`[parseESPNTeamPage] Total players parsed: ${allPlayerStats.length}`);
-    console.log(`[parseESPNTeamPage] All player stats:`, allPlayerStats);
+    devLog(`[parseESPNTeamPage] Total players parsed: ${allPlayerStats.length}`);
+    devLog(`[parseESPNTeamPage] All player stats:`, allPlayerStats);
 
     if (allPlayerStats.length > 0) {
       // BASELINE DEFINITION:
@@ -896,8 +897,8 @@ export const MatchupProjection = ({
       const starters = allPlayerStats.slice(0, STARTER_COUNT);
       const starterCount = starters.length;
       
-      console.log(`[parseESPNTeamPage] Using ${starterCount} STARTERS for baseline (first ${STARTER_COUNT} players):`);
-      console.log(`[parseESPNTeamPage] Starters:`, starters.map((p, i) => ({
+      devLog(`[parseESPNTeamPage] Using ${starterCount} STARTERS for baseline (first ${STARTER_COUNT} players):`);
+      devLog(`[parseESPNTeamPage] Starters:`, starters.map((p, i) => ({
         slot: i,
         tpm: p.threepm.toFixed(1),
         reb: p.rebounds.toFixed(1),
@@ -925,7 +926,7 @@ export const MatchupProjection = ({
         points: acc.points + p.points,
       }), { fgm: 0, fga: 0, ftm: 0, fta: 0, threepm: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0 });
       
-      console.log(`[parseESPNTeamPage] Starter sums:`, starterSums);
+      devLog(`[parseESPNTeamPage] Starter sums:`, starterSums);
       
       // Compute MEAN (per roster-game average)
       const meanStats = {
@@ -942,7 +943,7 @@ export const MatchupProjection = ({
         points: starterSums.points / starterCount,
       };
       
-      console.log(`[parseESPNTeamPage] MEAN per roster-game (sum / ${starterCount}):`, meanStats);
+      devLog(`[parseESPNTeamPage] MEAN per roster-game (sum / ${starterCount}):`, meanStats);
       
       // Sanity check: MEAN values should be within single-player bounds
       if (meanStats.points > 60) {
@@ -952,7 +953,7 @@ export const MatchupProjection = ({
         throw new Error(`[SANITY FAIL] Mean BLK/roster-game = ${meanStats.blocks.toFixed(1)} > 6. This is impossible.`);
       }
       if (meanStats.threepm > 8) {
-        console.warn(`[SANITY] Mean 3PM/roster-game = ${meanStats.threepm.toFixed(1)} > 8. High but possible.`);
+        devWarn(`[SANITY] Mean 3PM/roster-game = ${meanStats.threepm.toFixed(1)} > 8. High but possible.`);
       }
       
       // TEAM COMPOSITE: the MEAN stats that will be multiplied by 40 in BaselinePacePanel
@@ -969,7 +970,7 @@ export const MatchupProjection = ({
         points: meanStats.points,
       };
       
-      console.log(`[parseESPNTeamPage] Team composite (MEAN per roster-game):`, teamComposite);
+      devLog(`[parseESPNTeamPage] Team composite (MEAN per roster-game):`, teamComposite);
       
       // Compute expected baseline (×40) for verification
       const expectedBaseline = {
@@ -982,8 +983,8 @@ export const MatchupProjection = ({
         points: Math.round(teamComposite.points * 40),
       };
       
-      console.log(`[parseESPNTeamPage] Expected Baseline (×40):`, expectedBaseline);
-      console.log(`[parseESPNTeamPage] FG% = ${(teamComposite.fgPct * 100).toFixed(1)}%, FT% = ${(teamComposite.ftPct * 100).toFixed(1)}%`);
+      devLog(`[parseESPNTeamPage] Expected Baseline (×40):`, expectedBaseline);
+      devLog(`[parseESPNTeamPage] FG% = ${(teamComposite.fgPct * 100).toFixed(1)}%, FT% = ${(teamComposite.ftPct * 100).toFixed(1)}%`);
       
       // Final sanity: baseline should be in realistic weekly ranges
       const REALISTIC_WEEKLY_RANGES: Record<string, [number, number]> = {
@@ -999,7 +1000,7 @@ export const MatchupProjection = ({
       for (const [cat, [min, max]] of Object.entries(REALISTIC_WEEKLY_RANGES)) {
         const val = expectedBaseline[cat as keyof typeof expectedBaseline];
         if (val < min || val > max) {
-          console.warn(`[SANITY] Baseline ${cat} = ${val} outside typical range [${min}, ${max}]`);
+          devWarn(`[SANITY] Baseline ${cat} = ${val} outside typical range [${min}, ${max}]`);
         }
       }
       
@@ -1115,7 +1116,7 @@ export const MatchupProjection = ({
         });
       }
     } catch (error) {
-      console.error('Parse error:', error);
+      devError('Parse error:', error);
     } finally {
       setIsParsing(false);
     }

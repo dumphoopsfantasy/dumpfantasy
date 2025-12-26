@@ -17,6 +17,7 @@ import {
 } from '@/types/draft';
 import { parseClipboardData, validateParseResult } from '@/lib/draftParsers';
 import { cn } from '@/lib/utils';
+import { devError } from '@/lib/devLog';
 
 interface DraftImportWizardProps {
   importState: ImportState;
@@ -176,7 +177,7 @@ export function DraftImportWizard({
         setLastHtml(null);
       }
     } catch (error) {
-      console.error('Parse error:', error);
+      devError('Parse error:', error);
       setParseError('Could not parse the data. Try copying the table again.');
       toast({ title: 'Parse error', description: 'Could not parse the data', variant: 'destructive' });
     } finally {
