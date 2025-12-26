@@ -10,6 +10,7 @@ import { StartSitAdvisor } from "@/components/StartSitAdvisor";
 import { Settings } from "@/pages/Settings";
 import { Gameplan } from "@/pages/Gameplan";
 import { DraftStrategy } from "@/pages/DraftStrategy";
+import { TradeAnalyzer } from "@/pages/TradeAnalyzer";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentSuggestions";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
@@ -31,6 +32,7 @@ import {
   TrendingUp,
   Calendar,
   Swords,
+  ArrowLeftRight,
   Trophy,
   Info,
   Settings as SettingsIcon,
@@ -518,7 +520,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${showDraftTab ? 'grid-cols-8' : 'grid-cols-7'}`}>
+          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${showDraftTab ? 'grid-cols-9' : 'grid-cols-8'}`}>
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
               Roster
@@ -538,6 +540,10 @@ const Index = () => {
             <TabsTrigger value="weekly" className="font-display font-semibold text-xs md:text-sm">
               <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
               Weekly
+            </TabsTrigger>
+            <TabsTrigger value="trade" className="font-display font-semibold text-xs md:text-sm">
+              <ArrowLeftRight className="w-4 h-4 mr-1 hidden md:inline" />
+              Trade
             </TabsTrigger>
             <TabsTrigger value="gameplan" className="font-display font-semibold text-xs md:text-sm">
               <Clipboard className="w-4 h-4 mr-1 hidden md:inline" />
@@ -795,6 +801,19 @@ const Index = () => {
               leagueTeams={leagueTeams}
               matchupData={matchupData}
               weeklyMatchups={weeklyMatchups}
+            />
+          </TabsContent>
+
+          <TabsContent value="trade">
+            <TradeAnalyzer 
+              freeAgents={freeAgents.map(p => ({
+                ...p,
+                cri: p.cri || 0,
+                wCri: p.wCri || 0,
+                criRank: p.criRank || 0,
+                wCriRank: p.wCriRank || 0,
+              }))}
+              globalWeights={globalWeights}
             />
           </TabsContent>
 
