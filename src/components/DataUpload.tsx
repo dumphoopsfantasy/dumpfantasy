@@ -12,6 +12,7 @@ import {
   createLoopGuard,
   MAX_INPUT_SIZE 
 } from "@/lib/parseUtils";
+import { devLog, devWarn, devError } from "@/lib/devLog";
 
 interface DataUploadProps {
   onDataParsed: (data: PlayerStats[]) => void;
@@ -29,7 +30,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     // INPUT VALIDATION: Validate input before processing
     validateParseInput(data);
     
-    console.log('Starting to parse ESPN data...');
+    devLog('Starting to parse ESPN data...');
     
     // Find the STARTERS section - this marks the beginning of roster data
     const startersIdx = data.indexOf('STARTERS');
@@ -172,12 +173,12 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       }
     }
 
-    console.log(`Parsed ${playerInfos.length} player infos`);
+    devLog(`Parsed ${playerInfos.length} player infos`);
 
     // Parse stats section
     const statsIdx = data.indexOf('STATS');
     if (statsIdx === -1) {
-      console.log('No STATS section found');
+      devLog('No STATS section found');
       return playerInfos.map(p => ({
         slot: p.slot,
         player: p.name,
@@ -209,7 +210,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       }
     }
 
-    console.log(`Collected ${statTokens.length} stat tokens`);
+    devLog(`Collected ${statTokens.length} stat tokens`);
 
     // ESPN has 15 columns per player
     const COLUMNS_PER_PLAYER = 15;
@@ -229,7 +230,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       statsData.push(numericSlice);
     }
 
-    console.log(`Built ${statsData.length} stat rows`);
+    devLog(`Built ${statsData.length} stat rows`);
 
     // Match players with stats
     const maxLen = Math.min(playerInfos.length, statsData.length);
@@ -274,7 +275,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       });
     }
 
-    console.log(`Returning ${result.length} complete player records`);
+    devLog(`Returning ${result.length} complete player records`);
     return result;
   };
 
@@ -317,7 +318,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       try {
         localStorage.setItem('dumphoops-roster-raw', rawData);
       } catch (e) {
-        console.warn('Could not save raw roster blob:', e);
+        devWarn('Could not save raw roster blob:', e);
       }
 
       onDataParsed(parsedData);
@@ -326,7 +327,7 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
         description: `Loaded ${parsedData.length} players`,
       });
     } catch (error) {
-      console.error('Parse error:', error);
+      devError('Parse error:', error);
       const errorMessage = error instanceof Error ? error.message : "Could not parse the data. Please check the format.";
       toast({
         title: "Parse error",

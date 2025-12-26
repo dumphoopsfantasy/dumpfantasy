@@ -20,6 +20,7 @@ import { calculateCRISForAll, calculateCustomCRI, formatPct, CATEGORIES, CATEGOR
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
+import { devLog, devWarn, devError } from "@/lib/devLog";
 
 // Extended Free Agent interface with bonus stats and ranks
 interface FreeAgent extends Player {
@@ -194,7 +195,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     // Validate input before processing
     validateParseInput(data);
     
-    console.log('=== Starting ESPN Free Agents Parser ===');
+    devLog('=== Starting ESPN Free Agents Parser ===');
     const lines = data.split('\n').map(l => l.trim()).filter(l => l);
     const loopGuard = createLoopGuard();
     const espnIdsByName = extractEspnIdsFromBlob(data);
@@ -374,9 +375,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       });
     }
     
-    console.log(`Phase 1: Found ${playerList.length} players from bio section`);
+    devLog(`Phase 1: Found ${playerList.length} players from bio section`);
     if (playerList.length > 0) {
-      console.log('First 3 players:', playerList.slice(0, 3).map(p => `${p.name} (${p.team})`));
+      devLog('First 3 players:', playerList.slice(0, 3).map(p => `${p.name} (${p.team})`));
     }
     
     // ========== PHASE 2: Parse Stats Table ==========
@@ -416,7 +417,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       }
     }
     
-    console.log(`Stats header found at line ${statsHeaderIdx}`);
+    devLog(`Stats header found at line ${statsHeaderIdx}`);
     
     interface StatRow {
       min: number;
@@ -444,7 +445,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         dataStartIdx++;
       }
       
-      console.log(`Stats data starts at line ${dataStartIdx}`);
+      devLog(`Stats data starts at line ${dataStartIdx}`);
       
       // Collect all stat tokens
       const statTokens: string[] = [];
@@ -454,13 +455,13 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         
         // Stop at footer content
         if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy|Fantasy Basketball Support)/i.test(line)) {
-          console.log(`Stopping at footer line ${i}: "${line.substring(0, 30)}"`);
+          devLog(`Stopping at footer line ${i}: "${line.substring(0, 30)}"`);
           break;
         }
 
         // Stop at pagination footer marker (we do NOT break on lone numeric tokens because those are valid stat cells)
         if (/^showing\s+\d+\s*-\s*\d+\s+of\s+\d+/i.test(line) && statTokens.length > 0) {
-          console.log(`Stopping at pagination footer line ${i}: "${line}"`);
+          devLog(`Stopping at pagination footer line ${i}: "${line}"`);
           break;
         }
 
@@ -487,7 +488,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         }
       }
       
-      console.log(`Collected ${statTokens.length} stat tokens`);
+      devLog(`Collected ${statTokens.length} stat tokens`);
       
       // Parse tokens into stat rows
       // Each row has 15 fields: MIN, FGM/FGA, FG%, FTM/FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/-
@@ -543,10 +544,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       }
     }
     
-    console.log(`Phase 2: Built ${statsList.length} stat rows`);
+    devLog(`Phase 2: Built ${statsList.length} stat rows`);
     if (statsList.length > 0) {
-      console.log('First player stats:', statsList[0]);
-      console.log('Bobby Portis expected PR15=6.65, got:', statsList[0]?.pr15);
+      devLog('First player stats:', statsList[0]);
+      devLog('Bobby Portis expected PR15=6.65, got:', statsList[0]?.pr15);
     }
     
     // ========== PHASE 3: Combine by Index ==========
@@ -555,7 +556,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     const missingStatRows = hasAnyStats ? Math.max(0, playerList.length - statsList.length) : playerList.length;
 
     if (hasAnyStats && missingStatRows > 0) {
-      console.warn(`⚠️ Mismatch: ${playerList.length} players vs ${statsList.length} stat rows. Last ${missingStatRows} players will have no stats.`);
+      devWarn(`⚠️ Mismatch: ${playerList.length} players vs ${statsList.length} stat rows. Last ${missingStatRows} players will have no stats.`);
     }
 
     const emptyStats: StatRow = {
@@ -630,15 +631,15 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       });
     }
 
-    console.log(`=== Parser Complete ===`);
-    console.log(`Players parsed: ${playerList.length}, Stats rows: ${statsList.length}`);
-    console.log(`With stats: ${playersWithStats.length}, Missing stats: ${playersMissingStats.length}`);
+    devLog(`=== Parser Complete ===`);
+    devLog(`Players parsed: ${playerList.length}, Stats rows: ${statsList.length}`);
+    devLog(`With stats: ${playersWithStats.length}, Missing stats: ${playersMissingStats.length}`);
     if (playersMissingStats.length > 0) {
-      console.log(`Players missing stats: ${playersMissingStats.join(', ')}`);
+      devLog(`Players missing stats: ${playersMissingStats.join(', ')}`);
     }
-    console.log(`Last 5 players: ${playerList.slice(-5).map(p => p.name).join(', ')}`);
+    devLog(`Last 5 players: ${playerList.slice(-5).map(p => p.name).join(', ')}`);
     if (statsList.length > 0) {
-      console.log(`Last 5 stat rows (pts): ${statsList.slice(-5).map(s => s.pts).join(', ')}`);
+      devLog(`Last 5 stat rows (pts): ${statsList.slice(-5).map(s => s.pts).join(', ')}`);
     }
 
     return {
@@ -756,10 +757,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         const newHasStats = hasValidStats(p);
         
         if (newHasStats && !existingHasStats) {
-          console.log(`[merge] Updating ${p.name} with new stats (existing had none)`);
+          devLog(`[merge] Updating ${p.name} with new stats (existing had none)`);
           byId.set(key, p);
         } else if (!newHasStats && existingHasStats) {
-          console.warn(`[merge] Keeping existing stats for ${p.name} (new import missing stats)`);
+          devWarn(`[merge] Keeping existing stats for ${p.name} (new import missing stats)`);
           // Keep existing - don't overwrite
         }
         // If both have stats or neither has stats, keep existing (first wins)
@@ -832,7 +833,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
       // Sanity: if ESPN says paginated but we didn't get ~50 rows, likely copy/virtualization issue
       if (pagination.detected && players.length > 0 && players.length < 40) {
-        console.warn('[FA Import] Paste incomplete:', { parsedRows: players.length, pagination });
+        devWarn('[FA Import] Paste incomplete:', { parsedRows: players.length, pagination });
         toast({
           title: "Paste incomplete",
           description: `Parsed ${players.length} rows, but ESPN pages are usually 50. Scroll the list, then Ctrl+A and copy again.`,
@@ -844,7 +845,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       // Validate stats completeness
       const missingStatsCount = debug.playersMissingStats.length;
       if (!debug.isComplete) {
-        console.warn('[FA Import] Stats incomplete:', {
+        devWarn('[FA Import] Stats incomplete:', {
           playersParsed: debug.playerCount,
           statsRowsParsed: debug.statsCount,
           playersWithStats: debug.matchedCount,
@@ -860,7 +861,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       }
 
       const { availableCount: parsedAvailable, unknownCount: parsedUnknown } = countAvail(players);
-      console.log('[FA Import] parsed', {
+      devLog('[FA Import] parsed', {
         parsedRows: players.length,
         parsedAvailable,
         parsedUnknown,
@@ -893,7 +894,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
             paginationDetected: pagination.detected || (prev?.paginationDetected ?? false)
           }));
 
-          console.log('[FA Import] merge', {
+          devLog('[FA Import] merge', {
             pageNum,
             parsedRows: players.length,
             addedUnique: newCount,
@@ -974,7 +975,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         });
       }
     } catch (error) {
-      console.error('Parse error:', error);
+      devError('Parse error:', error);
       const errorMessage = error instanceof Error ? error.message : "Could not parse the data. Please check the format.";
       toast({
         title: "Parse error",

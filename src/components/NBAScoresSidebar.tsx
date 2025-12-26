@@ -13,6 +13,7 @@ import {
   formatDisplayDate
 } from "@/lib/nbaApi";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { devError } from "@/lib/devLog";
 
 interface RosterPlayer {
   name: string;
@@ -113,7 +114,7 @@ export function NBAScoresSidebar({ rosterTeams = [], rosterPlayers = [] }: NBASc
       
       setLastUpdated(new Date());
     } catch (error) {
-      console.error("Error fetching NBA data:", error);
+      devError("Error fetching NBA data:", error);
       // Fallback to sample data
       const sampleYesterday = getSampleYesterdayScores().map(g => ({
         ...g,

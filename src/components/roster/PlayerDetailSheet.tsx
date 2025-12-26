@@ -11,6 +11,7 @@ import { fetchPlayerNews, PlayerNews } from "@/lib/nbaApi";
 import { cn } from "@/lib/utils";
 import { Trophy, TrendingUp, Target, Calendar, Newspaper, ExternalLink, RefreshCw, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { devError } from "@/lib/devLog";
 
 interface PlayerDetailSheetProps {
   player: Player | null;
@@ -51,7 +52,7 @@ export const PlayerDetailSheet = ({ player, open, onOpenChange, allPlayers = [] 
       const playerNews = await fetchPlayerNews(playerName);
       setNews(playerNews);
     } catch (error) {
-      console.error("Error fetching player news:", error);
+      devError("Error fetching player news:", error);
       setNews([]);
     } finally {
       setIsLoadingNews(false);

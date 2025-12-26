@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { ChevronDown, TrendingUp, TrendingDown, Minus, Clock } from "lucide-react";
 import { formatPct } from "@/lib/crisUtils";
 import { useState, useMemo } from "react";
+import { devWarn } from "@/lib/devLog";
 
 interface TeamStats {
   fgPct: number;
@@ -163,7 +164,7 @@ export const BaselinePacePanel = ({
     
     const cap = REALISTIC_CAPS[key];
     if (cap && weeklyProjection > cap) {
-      console.warn(`[BaselinePacePanel] SANITY CHECK FAILED: ${key} = ${weeklyProjection} exceeds cap ${cap}. Raw value = ${value}. This suggests double-scaling or parsing error.`);
+      devWarn(`[BaselinePacePanel] SANITY CHECK FAILED: ${key} = ${weeklyProjection} exceeds cap ${cap}. Raw value = ${value}. This suggests double-scaling or parsing error.`);
     }
     
     return weeklyProjection;
