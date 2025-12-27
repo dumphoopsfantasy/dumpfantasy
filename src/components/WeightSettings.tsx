@@ -84,14 +84,14 @@ export function WeightSettings({ weights, onWeightsChange, effectiveWeightsResul
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Settings className="w-5 h-5 text-primary" />
-          <h3 className="font-display font-bold">wCRI Weights</h3>
+          <h3 className="font-display font-bold">wCRI Base Weights</h3>
           {!isDefault && (
             <Badge variant="secondary" className="text-[10px]">Custom</Badge>
           )}
           {dynamicActive && (
             <Badge variant="outline" className="text-[10px] gap-1 border-primary/50 bg-primary/10">
               <Zap className="w-3 h-3 text-primary" />
-              Dynamic Active
+              Dynamic
             </Badge>
           )}
         </div>
@@ -104,7 +104,7 @@ export function WeightSettings({ weights, onWeightsChange, effectiveWeightsResul
             className="text-xs"
           >
             <RotateCcw className="w-3 h-3 mr-1" />
-            Reset
+            Reset to Default
           </Button>
           {hasChanges && (
             <Button
@@ -119,72 +119,48 @@ export function WeightSettings({ weights, onWeightsChange, effectiveWeightsResul
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground mb-4">
-        {dynamicActive 
-          ? "Sliders set base weights. Dynamic mode applies multipliers based on your matchup/standings data."
-          : "Adjust the importance of each category in wCRI calculations. Higher weight = more impact on score."
-        }
-      </p>
-
-      {/* Header row when dynamic is active */}
-      {dynamicActive && (
-        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 mb-3 px-1 text-[10px] text-muted-foreground font-medium">
-          <span>Category</span>
-          <span className="w-14 text-center">Base</span>
-          <span className="w-14 text-center">Mult</span>
-          <span className="w-14 text-center">Effective</span>
-        </div>
-      )}
-
       <TooltipProvider>
-        <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-4">
           {(Object.keys(CATEGORY_LABELS) as Array<keyof CustomWeights>).map((key) => {
             const detail = effectiveWeightsResult?.details[key];
             const multiplier = detail?.needMultiplier ?? 1;
             const effectiveWeight = detail?.effectiveWeight ?? localWeights[key];
+            const hasMultiplier = dynamicActive && Math.abs(multiplier - 1) > 0.02;
 
             return (
-              <div key={key} className="space-y-2">
-                {/* Category header with values */}
-                <div className={`flex items-center ${dynamicActive ? 'grid grid-cols-[1fr_auto_auto_auto] gap-2' : 'justify-between'}`}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{CATEGORY_LABELS[key]}</span>
+              <div key={key} className="space-y-1.5">
+                {/* Category label and value */}
+                <div className="flex items-center justify-between">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-sm font-medium cursor-default">
+                        {CATEGORY_LABELS[key]}
+                        {hasMultiplier && (
+                          <span className="ml-1">
+                            {multiplier > 1 ? (
+                              <TrendingUp className="w-3 h-3 text-stat-positive inline" />
+                            ) : (
+                              <TrendingDown className="w-3 h-3 text-stat-negative inline" />
+                            )}
+                          </span>
+                        )}
+                      </span>
+                    </TooltipTrigger>
                     {dynamicActive && detail?.reason && (
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0">
-                            {detail.reason}
-                          </Badge>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs">
-                          <p className="text-xs">{detail.modeInput}</p>
-                        </TooltipContent>
-                      </Tooltip>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="text-xs font-medium">{detail.reason}</p>
+                        {detail.modeInput && (
+                          <p className="text-xs text-muted-foreground mt-1">{detail.modeInput}</p>
+                        )}
+                        {hasMultiplier && (
+                          <p className="text-xs mt-1">
+                            Multiplier: {formatMultiplier(multiplier)} → Effective: {effectiveWeight.toFixed(2)}
+                          </p>
+                        )}
+                      </TooltipContent>
                     )}
-                  </div>
-                  
-                  {dynamicActive ? (
-                    <>
-                      <span className="w-14 text-center text-sm font-mono text-muted-foreground">
-                        {localWeights[key].toFixed(2)}
-                      </span>
-                      <div className="w-14 flex items-center justify-center gap-1">
-                        {getMultiplierIcon(multiplier)}
-                        <span className={`text-xs font-mono ${
-                          multiplier > 1.05 ? 'text-stat-positive' : 
-                          multiplier < 0.95 ? 'text-stat-negative' : 
-                          'text-muted-foreground'
-                        }`}>
-                          {formatMultiplier(multiplier)}
-                        </span>
-                      </div>
-                      <span className="w-14 text-center text-sm font-mono text-primary font-semibold">
-                        {effectiveWeight.toFixed(2)}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-sm font-mono text-primary">{localWeights[key].toFixed(2)}</span>
-                  )}
+                  </Tooltip>
+                  <span className="text-sm font-mono text-primary">{localWeights[key].toFixed(2)}</span>
                 </div>
 
                 {/* Slider */}
@@ -198,7 +174,7 @@ export function WeightSettings({ weights, onWeightsChange, effectiveWeightsResul
                     className="w-full"
                   />
                   {/* Effective weight marker when dynamic is active */}
-                  {dynamicActive && Math.abs(effectiveWeight - localWeights[key]) > 0.02 && (
+                  {hasMultiplier && (
                     <div 
                       className="absolute top-1/2 -translate-y-1/2 w-1 h-4 bg-primary/60 rounded-full pointer-events-none"
                       style={{ 
@@ -209,11 +185,9 @@ export function WeightSettings({ weights, onWeightsChange, effectiveWeightsResul
                   )}
                 </div>
 
-                {/* Footer with range indicators */}
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>0</span>
-                  <span className="text-primary/50">Default: {DEFAULT_WEIGHTS[key]}</span>
-                  <span>1.5</span>
+                {/* Default value centered below */}
+                <div className="text-center text-[10px] text-muted-foreground">
+                  Default: {DEFAULT_WEIGHTS[key]}
                 </div>
               </div>
             );
