@@ -20,9 +20,7 @@ import {
 import { WeightSettings, type CustomWeights } from "@/components/WeightSettings";
 import { ExperimentalSettings } from "@/components/ExperimentalSettings";
 import { DynamicWeightsSettings, DynamicMode, IntensityLevel } from "@/hooks/useDynamicWeights";
-import { DynamicWeightsPanel } from "@/components/DynamicWeightsPanel";
 import { EffectiveWeightsResult } from "@/lib/dynamicWeights";
-
 interface SettingsProps {
   weights: CustomWeights;
   onWeightsChange: (weights: CustomWeights) => void;
@@ -221,13 +219,8 @@ export const Settings = ({
       <WeightSettings 
         weights={weights} 
         onWeightsChange={onWeightsChange} 
-        dynamicActive={effectiveWeightsResult.isActive}
+        effectiveWeightsResult={effectiveWeightsResult}
       />
-
-      {/* Dynamic Weights Breakdown - show when active */}
-      {effectiveWeightsResult.isActive && (
-        <DynamicWeightsPanel result={effectiveWeightsResult} />
-      )}
 
       {/* Unavailable reason - show when enabled but not active */}
       {dynamicSettings.enabled && !effectiveWeightsResult.isActive && effectiveWeightsResult.unavailableReason && (
