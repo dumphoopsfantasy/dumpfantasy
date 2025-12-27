@@ -173,13 +173,13 @@ export function WeightSettings({ weights, onWeightsChange, effectiveWeightsResul
                     step={0.05}
                     className="w-full"
                   />
-                  {/* Effective weight marker when dynamic is active */}
+                  {/* Effective weight marker - hollow ring showing where dynamic weight lands */}
                   {hasMultiplier && (
                     <div 
-                      className="absolute top-1/2 -translate-y-1/2 w-1 h-4 bg-primary/60 rounded-full pointer-events-none"
+                      className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-primary/70 bg-transparent pointer-events-none"
                       style={{ 
                         left: `${Math.min(100, Math.max(0, (effectiveWeight / 1.5) * 100))}%`,
-                        marginLeft: '-2px'
+                        marginLeft: '-8px'
                       }}
                     />
                   )}
