@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { RotateCcw, Save, Settings } from "lucide-react";
+import { RotateCcw, Save, Settings, Zap } from "lucide-react";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 
 export interface CustomWeights {
@@ -35,9 +35,10 @@ const CATEGORY_LABELS: Record<keyof CustomWeights, string> = {
 interface WeightSettingsProps {
   weights: CustomWeights;
   onWeightsChange: (weights: CustomWeights) => void;
+  dynamicActive?: boolean;
 }
 
-export function WeightSettings({ weights, onWeightsChange }: WeightSettingsProps) {
+export function WeightSettings({ weights, onWeightsChange, dynamicActive = false }: WeightSettingsProps) {
   const [localWeights, setLocalWeights] = useState<CustomWeights>(weights);
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -67,9 +68,15 @@ export function WeightSettings({ weights, onWeightsChange }: WeightSettingsProps
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Settings className="w-5 h-5 text-primary" />
-          <h3 className="font-display font-bold">wCRI Weight Settings</h3>
+          <h3 className="font-display font-bold">wCRI Base Weights</h3>
           {!isDefault && (
             <Badge variant="secondary" className="text-[10px]">Custom</Badge>
+          )}
+          {dynamicActive && (
+            <Badge variant="outline" className="text-[10px] gap-1 border-primary/50">
+              <Zap className="w-3 h-3 text-primary" />
+              Dynamic Active
+            </Badge>
           )}
         </div>
         <div className="flex gap-2">
@@ -97,7 +104,10 @@ export function WeightSettings({ weights, onWeightsChange }: WeightSettingsProps
       </div>
 
       <p className="text-xs text-muted-foreground mb-4">
-        Adjust the importance of each category in wCRI calculations. Higher weight = more impact on score.
+        {dynamicActive 
+          ? "These are your base weights. Dynamic mode applies multipliers to them based on matchup/standings data. See the effective weights breakdown below."
+          : "Adjust the importance of each category in wCRI calculations. Higher weight = more impact on score."
+        }
       </p>
 
       <div className="grid md:grid-cols-3 gap-4">

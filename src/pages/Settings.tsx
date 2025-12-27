@@ -5,7 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { MessageSquare, Palette, RotateCcw, Send, Settings2, Target } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { MessageSquare, Palette, RotateCcw, Send, Settings2, Target, AlertCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   NBA_THEMES,
@@ -19,6 +20,8 @@ import {
 import { WeightSettings, type CustomWeights } from "@/components/WeightSettings";
 import { ExperimentalSettings } from "@/components/ExperimentalSettings";
 import { DynamicWeightsSettings, DynamicMode, IntensityLevel } from "@/hooks/useDynamicWeights";
+import { DynamicWeightsPanel } from "@/components/DynamicWeightsPanel";
+import { EffectiveWeightsResult } from "@/lib/dynamicWeights";
 
 interface SettingsProps {
   weights: CustomWeights;
@@ -37,6 +40,7 @@ interface SettingsProps {
   onDynamicSmoothingChange: (enabled: boolean) => void;
   onDynamicPuntDetectionChange: (enabled: boolean) => void;
   onResetSmoothing: () => void;
+  effectiveWeightsResult: EffectiveWeightsResult;
 }
 
 export const Settings = ({ 
@@ -55,6 +59,7 @@ export const Settings = ({
   onDynamicSmoothingChange,
   onDynamicPuntDetectionChange,
   onResetSmoothing,
+  effectiveWeightsResult,
 }: SettingsProps) => {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
@@ -213,7 +218,27 @@ export const Settings = ({
       </Card>
 
       {/* Weights (wCRI) */}
-      <WeightSettings weights={weights} onWeightsChange={onWeightsChange} />
+      <WeightSettings 
+        weights={weights} 
+        onWeightsChange={onWeightsChange} 
+        dynamicActive={effectiveWeightsResult.isActive}
+      />
+
+      {/* Dynamic Weights Breakdown - show when active */}
+      {effectiveWeightsResult.isActive && (
+        <DynamicWeightsPanel result={effectiveWeightsResult} />
+      )}
+
+      {/* Unavailable reason - show when enabled but not active */}
+      {dynamicSettings.enabled && !effectiveWeightsResult.isActive && effectiveWeightsResult.unavailableReason && (
+        <Alert variant="default" className="border-primary/30 bg-primary/5">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-sm">
+            <span className="font-medium">Dynamic wCRI enabled but not active:</span>{" "}
+            {effectiveWeightsResult.unavailableReason}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Experimental Settings */}
       <ExperimentalSettings
