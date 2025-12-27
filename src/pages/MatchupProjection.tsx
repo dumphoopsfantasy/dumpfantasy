@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -108,6 +108,13 @@ interface MatchupProjectionProps {
   weeklyMatchups?: WeeklyMatchup[];
   roster?: RosterSlot[];
   opponentRoster?: RosterSlot[];
+  onUpdateMatchupContext?: (
+    projectedMy: Record<string, number>,
+    projectedOpp: Record<string, number>,
+    currentMy?: Record<string, number>,
+    currentOpp?: Record<string, number>,
+    daysRemaining?: number
+  ) => void;
 }
 
 const COUNTING_STATS = ["threepm", "rebounds", "assists", "steals", "blocks", "turnovers", "points"];
@@ -395,6 +402,7 @@ export const MatchupProjection = ({
   onMatchupChange,
   weeklyMatchups = [],
   roster = [],
+  onUpdateMatchupContext,
 }: MatchupProjectionProps) => {
   const { toast } = useToast();
   const [myTeamData, setMyTeamData] = useState("");
@@ -558,7 +566,73 @@ export const MatchupProjection = ({
     };
   }, [persistedMatchup, myWeeklyData, todayExpected, oppTodayExpected, dayInfo]);
 
-  // Extract opponent name from "Current Matchup" section
+  // Update dynamic weights context when matchup data changes
+  useEffect(() => {
+    if (!persistedMatchup || !onUpdateMatchupContext) return;
+    
+    const myStats = persistedMatchup.myTeam.stats;
+    const oppStats = persistedMatchup.opponent.stats;
+    
+    // Create projections as Record<string, number>
+    const projectedMy: Record<string, number> = {
+      fgPct: myStats.fgPct,
+      ftPct: myStats.ftPct,
+      threepm: myStats.threepm,
+      rebounds: myStats.rebounds,
+      assists: myStats.assists,
+      steals: myStats.steals,
+      blocks: myStats.blocks,
+      turnovers: myStats.turnovers,
+      points: myStats.points,
+    };
+    
+    const projectedOpp: Record<string, number> = {
+      fgPct: oppStats.fgPct,
+      ftPct: oppStats.ftPct,
+      threepm: oppStats.threepm,
+      rebounds: oppStats.rebounds,
+      assists: oppStats.assists,
+      steals: oppStats.steals,
+      blocks: oppStats.blocks,
+      turnovers: oppStats.turnovers,
+      points: oppStats.points,
+    };
+    
+    // If we have weekly data, include current stats
+    let currentMy: Record<string, number> | undefined;
+    let currentOpp: Record<string, number> | undefined;
+    
+    if (myWeeklyData) {
+      currentMy = {
+        fgPct: myWeeklyData.myTeam.stats.fgPct,
+        ftPct: myWeeklyData.myTeam.stats.ftPct,
+        threepm: myWeeklyData.myTeam.stats.threepm,
+        rebounds: myWeeklyData.myTeam.stats.rebounds,
+        assists: myWeeklyData.myTeam.stats.assists,
+        steals: myWeeklyData.myTeam.stats.steals,
+        blocks: myWeeklyData.myTeam.stats.blocks,
+        turnovers: myWeeklyData.myTeam.stats.turnovers,
+        points: myWeeklyData.myTeam.stats.points,
+      };
+      currentOpp = {
+        fgPct: myWeeklyData.opponent.stats.fgPct,
+        ftPct: myWeeklyData.opponent.stats.ftPct,
+        threepm: myWeeklyData.opponent.stats.threepm,
+        rebounds: myWeeklyData.opponent.stats.rebounds,
+        assists: myWeeklyData.opponent.stats.assists,
+        steals: myWeeklyData.opponent.stats.steals,
+        blocks: myWeeklyData.opponent.stats.blocks,
+        turnovers: myWeeklyData.opponent.stats.turnovers,
+        points: myWeeklyData.opponent.stats.points,
+      };
+    }
+    
+    // Calculate days remaining (Sun = 0 = final day, so 0 remaining)
+    const dayOfWeek = new Date().getDay();
+    const daysRemaining = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    
+    onUpdateMatchupContext(projectedMy, projectedOpp, currentMy, currentOpp, daysRemaining);
+  }, [persistedMatchup, myWeeklyData, onUpdateMatchupContext]);
   const extractOpponentFromCurrentMatchup = (data: string, myTeamName: string): string | null => {
     const lines = data.trim().split("\n").map(l => l.trim()).filter(l => l);
     

@@ -257,9 +257,14 @@ type SortKey = 'originalRank' | 'cri' | 'wCri' | 'fgPct' | 'ftPct' | 'threepm' |
 interface LeagueStandingsProps {
   persistedTeams?: LeagueTeam[];
   onTeamsChange?: (teams: LeagueTeam[]) => void;
+  onUpdateStandingsContext?: (
+    userCategoryAvgs: Record<string, number>,
+    leagueCategoryAvgs: Record<string, number>,
+    categoryRanks: Record<string, { rank: number; total: number; gap: number }>
+  ) => void;
 }
 
-export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueStandingsProps) => {
+export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateStandingsContext }: LeagueStandingsProps) => {
   const [rawData, setRawData] = useState("");
   const [rawTeams, setRawTeams] = useState<LeagueTeam[]>(persistedTeams);
   const [useCris, setUseCris] = useState(true);
@@ -514,7 +519,61 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange }: LeagueSt
     return withCris.map((t, idx) => ({ ...t, originalRank: idx + 1 }));
   }, [rawTeams]);
 
-  // Sort teams
+  // Update dynamic weights standings context when teams data changes
+  useEffect(() => {
+    if (!onUpdateStandingsContext || teams.length === 0) return;
+    
+    // Find user's team (assuming it's named something like "bane" - or use first team as fallback)
+    const userTeam = teams.find(t => t.name.toLowerCase().includes('bane')) || teams[0];
+    if (!userTeam) return;
+    
+    // Calculate league averages
+    const leagueCategoryAvgs: Record<string, number> = {
+      fgPct: teams.reduce((sum, t) => sum + t.fgPct, 0) / teams.length,
+      ftPct: teams.reduce((sum, t) => sum + t.ftPct, 0) / teams.length,
+      threepm: teams.reduce((sum, t) => sum + t.threepm, 0) / teams.length,
+      rebounds: teams.reduce((sum, t) => sum + t.rebounds, 0) / teams.length,
+      assists: teams.reduce((sum, t) => sum + t.assists, 0) / teams.length,
+      steals: teams.reduce((sum, t) => sum + t.steals, 0) / teams.length,
+      blocks: teams.reduce((sum, t) => sum + t.blocks, 0) / teams.length,
+      turnovers: teams.reduce((sum, t) => sum + t.turnovers, 0) / teams.length,
+      points: teams.reduce((sum, t) => sum + t.points, 0) / teams.length,
+    };
+    
+    const userCategoryAvgs: Record<string, number> = {
+      fgPct: userTeam.fgPct,
+      ftPct: userTeam.ftPct,
+      threepm: userTeam.threepm,
+      rebounds: userTeam.rebounds,
+      assists: userTeam.assists,
+      steals: userTeam.steals,
+      blocks: userTeam.blocks,
+      turnovers: userTeam.turnovers,
+      points: userTeam.points,
+    };
+    
+    // Calculate category ranks with gaps
+    const categoryRanks: Record<string, { rank: number; total: number; gap: number }> = {};
+    const categories = ['fgPct', 'ftPct', 'threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'];
+    
+    categories.forEach(cat => {
+      const isLowerBetter = cat === 'turnovers';
+      const sorted = [...teams].sort((a, b) => {
+        const aVal = a[cat as keyof TeamWithCris] as number;
+        const bVal = b[cat as keyof TeamWithCris] as number;
+        return isLowerBetter ? aVal - bVal : bVal - aVal;
+      });
+      
+      const rank = sorted.findIndex(t => t.name === userTeam.name) + 1;
+      const userVal = userTeam[cat as keyof TeamWithCris] as number;
+      const leaderVal = sorted[0][cat as keyof TeamWithCris] as number;
+      const gap = isLowerBetter ? userVal - leaderVal : leaderVal - userVal;
+      
+      categoryRanks[cat] = { rank, total: teams.length, gap };
+    });
+    
+    onUpdateStandingsContext(userCategoryAvgs, leagueCategoryAvgs, categoryRanks);
+  }, [teams, onUpdateStandingsContext]);
   const sortedTeams = useMemo(() => {
     return [...teams].sort((a, b) => {
       let aVal: number, bVal: number;
