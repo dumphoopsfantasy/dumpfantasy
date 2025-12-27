@@ -875,6 +875,7 @@ const Index = () => {
               onDynamicSmoothingChange={dynamicWeights.setSmoothingEnabled}
               onDynamicPuntDetectionChange={dynamicWeights.setAllowPuntDetection}
               onResetSmoothing={dynamicWeights.resetSmoothing}
+              effectiveWeightsResult={dynamicWeights.effectiveWeightsResult}
             />
           </TabsContent>
         </Tabs>
