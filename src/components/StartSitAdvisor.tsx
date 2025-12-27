@@ -6,6 +6,7 @@ import { RosterSlot, Player, CategoryStats, SlotType } from "@/types/fantasy";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, XCircle, AlertCircle, Calendar, TrendingUp, Lock, AlertTriangle, Target } from "lucide-react";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
+import { CustomWeights } from "@/components/WeightSettings";
 
 // Category definitions with labels
 const CATEGORIES = [
@@ -90,6 +91,7 @@ interface StartSitAdvisorProps {
   matchupData?: MatchupProjectionData | null;
   weeklyMatchups?: WeeklyMatchup[];
   leagueTeams?: { name: string }[];
+  effectiveWeights?: CustomWeights;
 }
 
 // Check if a player is OUT (various formats)
@@ -125,9 +127,10 @@ export const StartSitAdvisor = ({
   matchupData,
   weeklyMatchups = [],
   leagueTeams = [],
+  effectiveWeights,
 }: StartSitAdvisorProps) => {
-  // Use default CRIS_WEIGHTS
-  const weights = CRIS_WEIGHTS;
+  // Use effective weights if provided, otherwise fall back to default CRIS_WEIGHTS
+  const weights = effectiveWeights || (CRIS_WEIGHTS as CustomWeights);
   // Find my team's weekly data if available
   const myWeeklyData = useMemo(() => {
     if (!matchupData || weeklyMatchups.length === 0) return null;

@@ -22,6 +22,7 @@ import { CustomWeights } from "@/components/WeightSettings";
 import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
 import { useDraftVisibility, useTradeVisibility } from "@/hooks/useDraftVisibility";
 import { useDynamicWeights } from "@/hooks/useDynamicWeights";
+import { DynamicWeightsIndicator } from "@/components/DynamicWeightsPanel";
 import { PlayerStats } from "@/types/player";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
@@ -300,10 +301,11 @@ const Index = () => {
       let cri = 0;
       let wCri = 0;
 
-      CRI_CATEGORIES.forEach((cat) => {
+    CRI_CATEGORIES.forEach((cat) => {
         const score = categoryScores[cat.key][slot.player.id] || 0;
         cri += score;
-        wCri += score * CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS];
+        // Use dynamic effective weights instead of static CRIS_WEIGHTS
+        wCri += score * dynamicWeights.effectiveWeights[cat.key as keyof CustomWeights];
       });
 
       return { id: slot.player.id, cri, wCri };
@@ -348,7 +350,8 @@ const Index = () => {
             if (cat.lowerBetter ? val < apVal : val > apVal) score++;
           });
           cri += Math.min(score, N);
-          wCri += Math.min(score, N) * CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS];
+          // Use dynamic effective weights instead of static CRIS_WEIGHTS
+          wCri += Math.min(score, N) * dynamicWeights.effectiveWeights[cat.key as keyof CustomWeights];
         });
         return {
           ...slot,
@@ -359,7 +362,7 @@ const Index = () => {
     });
 
     return { rosterWithCRI: finalSlots, categoryRanks: catRanks, activePlayerCount: N };
-  }, [players]);
+  }, [players, dynamicWeights.effectiveWeights]);
 
   // Apply filter and sort (custom rank removed)
 
@@ -689,6 +692,13 @@ const Index = () => {
                         wCRI
                       </Button>
                     </div>
+                    {/* Dynamic Weights Indicator */}
+                    {!useCris && (
+                      <DynamicWeightsIndicator 
+                        isActive={dynamicWeights.effectiveWeightsResult.isActive} 
+                        mode={dynamicWeights.settings.mode}
+                      />
+                    )}
                     {/* Pin IR Toggle - subtle */}
                     <Button
                       variant="ghost"
@@ -770,7 +780,11 @@ const Index = () => {
 
           <TabsContent value="league">
             <div className="max-w-5xl mx-auto">
-              <LeagueStandings persistedTeams={leagueTeams} onTeamsChange={setLeagueTeams} />
+              <LeagueStandings 
+                persistedTeams={leagueTeams} 
+                onTeamsChange={setLeagueTeams}
+                onUpdateStandingsContext={dynamicWeights.updateStandingsContext}
+              />
             </div>
           </TabsContent>
 
@@ -785,6 +799,7 @@ const Index = () => {
                     matchupData={matchupData}
                     weeklyMatchups={weeklyMatchups}
                     leagueTeams={leagueTeams}
+                    effectiveWeights={dynamicWeights.effectiveWeights}
                   />
                 </div>
               )}
@@ -795,6 +810,7 @@ const Index = () => {
                   weeklyMatchups={weeklyMatchups}
                   roster={rosterWithCRI}
                   opponentRoster={opponentRoster}
+                  onUpdateMatchupContext={dynamicWeights.updateMatchupContext}
                 />
               </div>
             </div>
