@@ -160,30 +160,26 @@ export function WeightSettings({ weights, onWeightsChange, effectiveWeightsResul
                       </TooltipContent>
                     )}
                   </Tooltip>
-                  <span className="text-sm font-mono text-primary">{localWeights[key].toFixed(2)}</span>
-                </div>
-
-                {/* Slider */}
-                <div className="relative">
-                  <Slider
-                    value={[localWeights[key]]}
-                    onValueChange={([value]) => handleWeightChange(key, value)}
-                    min={0}
-                    max={1.5}
-                    step={0.05}
-                    className="w-full"
-                  />
-                  {/* Effective weight marker - hollow ring showing where dynamic weight lands */}
-                  {hasMultiplier && (
-                    <div 
-                      className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-primary/70 bg-transparent pointer-events-none"
-                      style={{ 
-                        left: `${Math.min(100, Math.max(0, (effectiveWeight / 1.5) * 100))}%`,
-                        marginLeft: '-8px'
-                      }}
-                    />
+                  {hasMultiplier ? (
+                    <span className="text-sm font-mono">
+                      <span className="text-muted-foreground">{localWeights[key].toFixed(2)}</span>
+                      <span className="text-muted-foreground mx-1">→</span>
+                      <span className="text-primary font-semibold">{effectiveWeight.toFixed(2)}</span>
+                    </span>
+                  ) : (
+                    <span className="text-sm font-mono text-primary">{localWeights[key].toFixed(2)}</span>
                   )}
                 </div>
+
+                {/* Slider - clean, no overlays */}
+                <Slider
+                  value={[localWeights[key]]}
+                  onValueChange={([value]) => handleWeightChange(key, value)}
+                  min={0}
+                  max={1.5}
+                  step={0.05}
+                  className="w-full"
+                />
 
                 {/* Default value centered below */}
                 <div className="text-center text-[10px] text-muted-foreground">
