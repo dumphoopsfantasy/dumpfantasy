@@ -18,6 +18,7 @@ import {
   Heart,
   ExternalLink,
   Copy,
+  Mail,
   Check,
   ChevronRight,
   Scale,
@@ -333,43 +334,38 @@ export function LegalSupportSection() {
                 </p>
               </div>
 
-              {/* Report Bug */}
+              {/* Contact / Report Bugs */}
               <div className="p-4 rounded-lg bg-muted/30 border border-border">
                 <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4" />
-                  Report a Bug / Request a Feature
+                  <Mail className="w-4 h-4" />
+                  Questions, Bugs, or Feature Requests
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Found something broken or have an idea? Let us know on GitHub.
+                  Found something broken or have an idea? We'd love to hear from you!
                 </p>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
                     className="flex-1"
-                    onClick={() => window.open(SUPPORT_CONTENT.githubIssuesUrl, "_blank")}
+                    onClick={() => window.open(`mailto:${SUPPORT_CONTENT.email}?subject=DumpHoops Feedback`, "_blank")}
                   >
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Open GitHub Issues
+                    <Mail className="w-4 h-4 mr-2" />
+                    Email Us
                   </Button>
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => handleCopyLink(SUPPORT_CONTENT.githubIssuesUrl, "GitHub Issues")}
+                    onClick={() => handleCopyLink(SUPPORT_CONTENT.email, "Email")}
                   >
-                    {copiedLink === SUPPORT_CONTENT.githubIssuesUrl ? (
+                    {copiedLink === SUPPORT_CONTENT.email ? (
                       <Check className="w-4 h-4 text-stat-positive" />
                     ) : (
                       <Copy className="w-4 h-4" />
                     )}
                   </Button>
                 </div>
-              </div>
-
-              {/* Contact */}
-              <div className="p-4 rounded-lg bg-muted/30 border border-border">
-                <h3 className="font-semibold text-sm mb-2">Contact</h3>
-                <p className="text-sm text-muted-foreground">
-                  For other inquiries: <span className="font-mono text-primary">{SUPPORT_CONTENT.email}</span>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {SUPPORT_CONTENT.email}
                 </p>
               </div>
             </div>

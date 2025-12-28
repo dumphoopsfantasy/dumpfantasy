@@ -7,7 +7,7 @@ export const LEGAL_LAST_UPDATED = "December 28, 2024";
 
 export const SUPPORT_EMAIL = "dumphoopsfantasy@gmail.com";
 export const VENMO_URL = "https://venmo.com/u/Demitri_Voyiatzis";
-export const GITHUB_ISSUES_URL = "https://github.com/dumphoopsfantasy/dumpfantasy/issues";
+// GitHub URL removed - direct users to email instead
 
 export const DISCLAIMER_CONTENT = {
   title: "Disclaimer (Beta)",
@@ -203,8 +203,9 @@ The app extracts structured data from the text. Different pages have different p
       question: "How do I report bugs or request features?",
       answer: `You can:
 - Use the feedback form in Settings
-- Open an issue on GitHub: ${GITHUB_ISSUES_URL}
-- Email us at: ${SUPPORT_EMAIL}`,
+- Email us at: **${SUPPORT_EMAIL}**
+
+We'd love to hear from you!`,
     },
   ],
 };
@@ -215,6 +216,5 @@ export const SUPPORT_CONTENT = {
     "If DumpHoops helps you save time or win matchups, consider supporting development. Totally optional—the app will always be free.",
   venmoUrl: VENMO_URL,
   venmoHandle: "@Demitri_Voyiatzis",
-  githubIssuesUrl: GITHUB_ISSUES_URL,
   email: SUPPORT_EMAIL,
 };
