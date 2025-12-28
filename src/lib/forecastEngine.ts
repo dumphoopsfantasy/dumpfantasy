@@ -4,8 +4,7 @@
  */
 
 import { LeagueTeam } from '@/types/league';
-import { ScheduleMatchup, LeagueSchedule, getOpponent } from './scheduleParser';
-import { CRIS_WEIGHTS, CATEGORIES } from './crisUtils';
+import { CATEGORIES } from './crisUtils';
 
 export interface TeamStats {
   fgPct: number;
@@ -82,15 +81,29 @@ export interface ProjectedStanding {
 export interface ForecastSettings {
   useCri: boolean;
   useWeightedCri: boolean;
+  /** Optional per-category weights used when useWeightedCri=true */
   dynamicWeights?: Record<string, number>;
   simulationScale: number;
   includeCompletedWeeks: boolean;
   startFromCurrentRecords: boolean;
   completedWeeks: number[];
+  /** Only simulate weeks strictly greater than this cutoff (unless includeCompletedWeeks=true) */
+  currentWeekCutoff?: number;
+}
+
+export interface ForecastMatchup {
+  week: number;
+  dateRangeText: string;
+  awayTeam: string;
+  homeTeam: string;
+}
+
+export interface ForecastSchedule {
+  season: string;
+  matchups: ForecastMatchup[];
 }
 
 const STAT_CATEGORIES = ['fgPct', 'ftPct', 'threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'] as const;
-const COUNTING_CATS = ['threepm', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers', 'points'];
 
 /**
  * Project weekly stats from per-game averages
@@ -241,32 +254,29 @@ export function predictMatchup(
  * Forecast all future matchups for a specific team
  */
 export function forecastTeamMatchups(
-  schedule: LeagueSchedule,
+  schedule: ForecastSchedule,
   focusTeamName: string,
   allTeams: LeagueTeam[],
   settings: ForecastSettings
 ): MatchupPrediction[] {
   const predictions: MatchupPrediction[] = [];
   const focusTeamLower = focusTeamName.toLowerCase();
-  
-  // Find the focus team's stats
-  const focusTeam = allTeams.find(t => t.name.toLowerCase() === focusTeamLower);
+
+  const focusTeam = allTeams.find((t) => t.name.toLowerCase() === focusTeamLower);
   if (!focusTeam) return predictions;
-  
-  // Get all matchups for the focus team
-  const focusTeamMatchups = schedule.matchups.filter(m => 
-    m.awayTeam.toLowerCase() === focusTeamLower ||
-    m.homeTeam.toLowerCase() === focusTeamLower
+
+  const cutoff = settings.currentWeekCutoff ?? 0;
+
+  const focusTeamMatchups = schedule.matchups.filter((m) =>
+    m.awayTeam.toLowerCase() === focusTeamLower || m.homeTeam.toLowerCase() === focusTeamLower
   );
-  
-  // Filter out completed weeks if needed
+
   const relevantMatchups = settings.includeCompletedWeeks
     ? focusTeamMatchups
-    : focusTeamMatchups.filter(m => !settings.completedWeeks.includes(m.week));
-  
-  // Create a map of team names to stats (case-insensitive)
+    : focusTeamMatchups.filter((m) => m.week > cutoff && !settings.completedWeeks.includes(m.week));
+
   const teamStatsMap = new Map<string, TeamStats>();
-  allTeams.forEach(t => {
+  allTeams.forEach((t) => {
     teamStatsMap.set(t.name.toLowerCase(), {
       fgPct: t.fgPct,
       ftPct: t.ftPct,
@@ -279,31 +289,31 @@ export function forecastTeamMatchups(
       points: t.points,
     });
   });
-  
-  // Predict each matchup
-  relevantMatchups.forEach(matchup => {
-    const opponentName = getOpponent(matchup, focusTeamName);
+
+  relevantMatchups.forEach((matchup) => {
+    const opponentName = matchup.awayTeam.toLowerCase() === focusTeamLower ? matchup.homeTeam : matchup.awayTeam;
     const oppStats = teamStatsMap.get(opponentName.toLowerCase());
-    
+
     if (!oppStats) {
-      // Try fuzzy match
-      const fuzzyMatch = allTeams.find(t => 
-        t.name.toLowerCase().includes(opponentName.toLowerCase()) ||
-        opponentName.toLowerCase().includes(t.name.toLowerCase())
+      const fuzzyMatch = allTeams.find(
+        (t) => t.name.toLowerCase().includes(opponentName.toLowerCase()) || opponentName.toLowerCase().includes(t.name.toLowerCase())
       );
-      if (fuzzyMatch) {
-        const oppStatsFromFuzzy: TeamStats = {
-          fgPct: fuzzyMatch.fgPct,
-          ftPct: fuzzyMatch.ftPct,
-          threepm: fuzzyMatch.threepm,
-          rebounds: fuzzyMatch.rebounds,
-          assists: fuzzyMatch.assists,
-          steals: fuzzyMatch.steals,
-          blocks: fuzzyMatch.blocks,
-          turnovers: fuzzyMatch.turnovers,
-          points: fuzzyMatch.points,
-        };
-        predictions.push(predictMatchup(
+      if (!fuzzyMatch) return;
+
+      const oppStatsFromFuzzy: TeamStats = {
+        fgPct: fuzzyMatch.fgPct,
+        ftPct: fuzzyMatch.ftPct,
+        threepm: fuzzyMatch.threepm,
+        rebounds: fuzzyMatch.rebounds,
+        assists: fuzzyMatch.assists,
+        steals: fuzzyMatch.steals,
+        blocks: fuzzyMatch.blocks,
+        turnovers: fuzzyMatch.turnovers,
+        points: fuzzyMatch.points,
+      };
+
+      predictions.push(
+        predictMatchup(
           matchup.week,
           matchup.dateRangeText,
           opponentName,
@@ -320,31 +330,33 @@ export function forecastTeamMatchups(
           },
           oppStatsFromFuzzy,
           settings
-        ));
-      }
+        )
+      );
       return;
     }
-    
-    predictions.push(predictMatchup(
-      matchup.week,
-      matchup.dateRangeText,
-      opponentName,
-      {
-        fgPct: focusTeam.fgPct,
-        ftPct: focusTeam.ftPct,
-        threepm: focusTeam.threepm,
-        rebounds: focusTeam.rebounds,
-        assists: focusTeam.assists,
-        steals: focusTeam.steals,
-        blocks: focusTeam.blocks,
-        turnovers: focusTeam.turnovers,
-        points: focusTeam.points,
-      },
-      oppStats,
-      settings
-    ));
+
+    predictions.push(
+      predictMatchup(
+        matchup.week,
+        matchup.dateRangeText,
+        opponentName,
+        {
+          fgPct: focusTeam.fgPct,
+          ftPct: focusTeam.ftPct,
+          threepm: focusTeam.threepm,
+          rebounds: focusTeam.rebounds,
+          assists: focusTeam.assists,
+          steals: focusTeam.steals,
+          blocks: focusTeam.blocks,
+          turnovers: focusTeam.turnovers,
+          points: focusTeam.points,
+        },
+        oppStats,
+        settings
+      )
+    );
   });
-  
+
   return predictions.sort((a, b) => a.week - b.week);
 }
 
