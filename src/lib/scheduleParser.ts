@@ -56,6 +56,12 @@ const SKIP_LINE_PATTERNS: RegExp[] = [
   /^password$/i,
   /^log\s*in$/i,
   /^sign\s*up$/i,
+  // table controls / headers
+  /^edit$/i,
+  /^away\s*team$/i,
+  /^home\s*team$/i,
+  /^team\s*manager\(s\)$/i,
+  /^score$/i,
 ];
 
 function shouldSkipLine(line: string): boolean {
@@ -71,7 +77,7 @@ function isMatchupHeader(line: string): { week: number; dateRangeText: string } 
 }
 
 function looksLikeColumnHeader(line: string): boolean {
-  return /^(Away|Home|Away\s+Home|vs)$/i.test(line);
+  return /^(Away|Home|Away\s+Home|vs|AWAY\s*TEAM|HOME\s*TEAM|TEAM\s*MANAGER\(S\)|Score)$/i.test(line);
 }
 
 function parseTeamEntity(lines: string[], startIndex: number): { team: ScheduleTeam; nextIndex: number } | null {
@@ -83,6 +89,7 @@ function parseTeamEntity(lines: string[], startIndex: number): { team: ScheduleT
   // Avoid parsing obvious non-team tokens
   if (/^Week\s+\d+$/i.test(raw)) return null;
   if (/^\d+$/.test(raw)) return null;
+  if (isProbablyRecordToken(raw)) return null;
 
   let teamName = raw;
   let managerName: string | undefined;
@@ -171,6 +178,7 @@ export function parseScheduleData(data: string): ScheduleParseResult {
   const warnings: string[] = [];
 
   let pendingAway: ScheduleTeam | null = null;
+  let pendingHomeManagerName: string | null = null;
 
   for (let idx = 0; idx < lines.length; idx++) {
     loopGuard.check();
@@ -183,6 +191,7 @@ export function parseScheduleData(data: string): ScheduleParseResult {
       currentWeek = header.week;
       currentDateRange = header.dateRangeText || currentDateRange;
       pendingAway = null;
+      pendingHomeManagerName = null;
       continue;
     }
 
@@ -198,11 +207,27 @@ export function parseScheduleData(data: string): ScheduleParseResult {
       }
     }
 
+    // Home manager often appears on its own line immediately before the home team.
+    // Example row (scores may be present or not):
+    // AwayTeam(...) -> AwayManager -> (scores...) -> HomeManager -> HomeTeam(...)
+    if (pendingAway) {
+      const next = lines[idx + 1];
+      if (next && /\(\d+-\d+-\d+\)\s*$/.test(next) && !/\(\d+-\d+-\d+\)\s*$/.test(line)) {
+        pendingHomeManagerName = line;
+        continue;
+      }
+    }
+
     const parsed = parseTeamEntity(lines, idx);
     if (!parsed) continue;
 
-    const team = parsed.team;
+    const team: ScheduleTeam = { ...parsed.team };
     idx = parsed.nextIndex - 1;
+
+    // If we're about to use this team as the home team, attach the pending home manager.
+    if (pendingAway && pendingHomeManagerName && !team.managerName) {
+      team.managerName = pendingHomeManagerName;
+    }
 
     // Register team
     const key = makeScheduleTeamKey(team.teamName, team.managerName);
@@ -210,6 +235,7 @@ export function parseScheduleData(data: string): ScheduleParseResult {
 
     if (!pendingAway) {
       pendingAway = team;
+      pendingHomeManagerName = null;
       continue;
     }
 
@@ -222,7 +248,9 @@ export function parseScheduleData(data: string): ScheduleParseResult {
       homeTeamName: team.teamName,
       homeManagerName: team.managerName,
     });
+
     pendingAway = null;
+    pendingHomeManagerName = null;
   }
 
   if (matchups.length === 0) {
