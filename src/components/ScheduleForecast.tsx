@@ -60,6 +60,13 @@ type ResolvedMatchup = {
   homeTeam: string;
 };
 
+type ResolvedScheduleResult = {
+  season: string;
+  matchups: ResolvedMatchup[];
+  waitingForMapping: number;
+  totalMatchups: number;
+};
+
 function parseDateRangeText(dateRangeText: string, seasonYear: number): { start?: Date; end?: Date } {
   // Ex: "Dec 15 - 21" or "Oct 21 - 26" or "Dec 30 - Jan 5"
   const m = dateRangeText.match(/^(\w{3})\s+(\d{1,2})\s*-\s*(?:(\w{3})\s+)?(\d{1,2})/);
@@ -254,11 +261,11 @@ export const ScheduleForecast = ({
   }, [schedule, aliases, leagueTeams, standingsByTeamName, standingsByManagerName, DEBUG]);
 
   // Apply mapping to matchups
-  const resolvedSchedule = useMemo(() => {
-    if (!schedule) return null as { season: string; matchups: ResolvedMatchup[] } | null;
+  const resolvedSchedule = useMemo((): ResolvedScheduleResult | null => {
+    if (!schedule) return null;
 
     const matchups: ResolvedMatchup[] = [];
-    let waitingForMapping = 0;
+    let waitingCount = 0;
 
     for (const m of schedule.matchups) {
       const awayKey = makeScheduleTeamKey(m.awayTeamName, m.awayManagerName);
@@ -268,7 +275,7 @@ export const ScheduleForecast = ({
       const homeResolved = resolution.mapping[homeKey];
 
       if (!awayResolved || !homeResolved) {
-        waitingForMapping++;
+        waitingCount++;
         continue;
       }
 
@@ -283,15 +290,10 @@ export const ScheduleForecast = ({
     return {
       season: schedule.season,
       matchups,
-      // @ts-expect-error - attach meta for UI only
-      waitingForMapping,
-      // @ts-expect-error - attach meta for UI only
+      waitingForMapping: waitingCount,
       totalMatchups: schedule.matchups.length,
     };
   }, [schedule, resolution.mapping]);
-
-  const waitingForMapping = (resolvedSchedule as any)?.waitingForMapping as number | undefined;
-  const totalMatchups = (resolvedSchedule as any)?.totalMatchups as number | undefined;
 
   const weightsForForecast = useMemo(() => {
     if (useCri) return undefined;
@@ -524,11 +526,11 @@ export const ScheduleForecast = ({
         </Alert>
       )}
 
-      {typeof waitingForMapping === "number" && waitingForMapping > 0 && (
+      {resolvedSchedule && resolvedSchedule.waitingForMapping > 0 && (
         <Alert className="border-yellow-500/50 bg-yellow-500/10">
           <AlertTriangle className="h-4 w-4 text-yellow-600" />
           <AlertDescription>
-            {waitingForMapping} / {totalMatchups ?? "?"} matchups are waiting for team mapping.
+            {resolvedSchedule.waitingForMapping} / {resolvedSchedule.totalMatchups} matchups are waiting for team mapping.
           </AlertDescription>
         </Alert>
       )}
