@@ -71,12 +71,14 @@ export function SupportDumpHoopsCard() {
 
         {/* QR Code section */}
         <div className="flex flex-col items-center gap-3 pt-4 border-t border-border">
-          <div className="bg-white p-3 rounded-lg">
+          <div className="bg-white p-4 rounded-lg shadow-md">
             <QRCodeCanvas 
               value={VENMO_URL} 
-              size={120}
-              level="M"
-              includeMargin={false}
+              size={160}
+              level="H"
+              includeMargin={true}
+              bgColor="#ffffff"
+              fgColor="#000000"
             />
           </div>
           <div className="text-center">
