@@ -1,231 +1,245 @@
 /**
  * Schedule Parser for ESPN Fantasy Basketball League Schedule
- * Parses the "League Schedule" page that lists all matchups for the season.
+ * Parses the "League Schedule" page (Matchup 1, Matchup 2...) into structured matchups.
  */
 
-import { validateParseInput, createLoopGuard, MAX_INPUT_SIZE } from './parseUtils';
+import { validateParseInput, createLoopGuard } from "./parseUtils";
+import {
+  isProbablyPersonName,
+  isProbablyRecordToken,
+  makeScheduleTeamKey,
+  stripRecordParens,
+} from "./nameNormalization";
 
-export interface ScheduleMatchup {
+export type ScheduleTeam = {
+  teamName: string;
+  managerName?: string;
+  recordText?: string;
+};
+
+export type ScheduleMatchup = {
   week: number;
   dateRangeText: string;
-  awayTeam: string;
-  homeTeam: string;
-}
+  awayTeamName: string;
+  awayManagerName?: string;
+  homeTeamName: string;
+  homeManagerName?: string;
+};
 
-export interface LeagueSchedule {
+export type LeagueSchedule = {
   season: string;
+  teams: ScheduleTeam[];
   matchups: ScheduleMatchup[];
-}
+};
 
-export interface ScheduleParseResult {
+export type ScheduleParseResult = {
   schedule: LeagueSchedule;
   warnings: string[];
-  unknownTeams: string[];
+};
+
+const SKIP_LINE_PATTERNS: RegExp[] = [
+  // playoff / bracket noise
+  /projected playoff bracket/i,
+  /playoff round/i,
+  /matchups to be determined/i,
+  /winner of/i,
+  /loser of/i,
+  /consolation/i,
+  /championship/i,
+  // navigation/footer noise
+  /^ESPN$/i,
+  /^Fantasy$/i,
+  /fantasy basketball support/i,
+  /^copyright/i,
+  /^\u00a9/i,
+  /^username$/i,
+  /^password$/i,
+  /^log\s*in$/i,
+  /^sign\s*up$/i,
+];
+
+function shouldSkipLine(line: string): boolean {
+  return SKIP_LINE_PATTERNS.some((p) => p.test(line));
 }
 
-/**
- * Parse ESPN League Schedule paste to extract all matchups
- * 
- * Expected format:
- * Matchup 1 (Oct 21 - 26)
- * Away    Home
- * Team A  Team B
- * Team C  Team D
- * ...
- * Matchup 2 (Oct 28 - Nov 3)
- * Away    Home
- * ...
- */
-export function parseScheduleData(
-  data: string,
-  knownTeamNames: string[] = []
-): ScheduleParseResult {
-  validateParseInput(data);
-  
-  const lines = data.trim().split('\n').map(l => l.trim()).filter(l => l);
-  const loopGuard = createLoopGuard();
-  
-  const matchups: ScheduleMatchup[] = [];
-  const warnings: string[] = [];
-  const unknownTeamsSet = new Set<string>();
-  
-  // Detect season from "2025" or "2024-25" pattern
-  let season = '';
-  const seasonMatch = data.match(/20\d{2}(?:-\d{2})?/);
-  if (seasonMatch) {
-    season = seasonMatch[0];
-  } else {
-    season = new Date().getFullYear().toString();
+function isMatchupHeader(line: string): { week: number; dateRangeText: string } | null {
+  const m = line.match(/^Matchup\s+(\d+)\s*(?:\(([^)]+)\))?$/i);
+  if (!m) return null;
+  const week = parseInt(m[1]);
+  const dateRangeText = (m[2] || "").trim();
+  return { week, dateRangeText };
+}
+
+function looksLikeColumnHeader(line: string): boolean {
+  return /^(Away|Home|Away\s+Home|vs)$/i.test(line);
+}
+
+function parseTeamEntity(lines: string[], startIndex: number): { team: ScheduleTeam; nextIndex: number } | null {
+  const raw = lines[startIndex];
+  if (!raw) return null;
+  if (shouldSkipLine(raw)) return null;
+  if (looksLikeColumnHeader(raw)) return null;
+
+  // Avoid parsing obvious non-team tokens
+  if (/^Week\s+\d+$/i.test(raw)) return null;
+  if (/^\d+$/.test(raw)) return null;
+
+  let teamName = raw;
+  let managerName: string | undefined;
+  let recordText: string | undefined;
+
+  // Handle inline record like: "Mr. Bane (7-2-0)"
+  const inlineRecord = teamName.match(/^(.*)\s*\((\d+-\d+-\d+)\)\s*$/);
+  if (inlineRecord) {
+    teamName = inlineRecord[1].trim();
+    recordText = inlineRecord[2];
   }
-  
-  // Skip patterns for playoffs and irrelevant sections
-  const skipPatterns = [
-    /playoff/i,
-    /bracket/i,
-    /determined/i,
-    /championship/i,
-    /consolation/i,
-    /winner of/i,
-    /loser of/i,
-  ];
-  
-  // Track current matchup period
-  let currentWeek = 0;
-  let currentDateRange = '';
-  let expectingTeams = false;
-  let pendingAwayTeam = '';
-  
-  // Known team names for matching (lowercase for comparison)
-  const knownTeamsLower = knownTeamNames.map(t => t.toLowerCase());
-  
-  for (let i = 0; i < lines.length; i++) {
-    loopGuard.check();
-    const line = lines[i];
-    
-    // Skip playoff sections
-    if (skipPatterns.some(p => p.test(line))) {
-      expectingTeams = false;
-      continue;
+
+  // Handle inline manager like: "Mr. Bane (Demitri Voyiatzis)"
+  const inlineManager = teamName.match(/^(.*)\s*\(([^)]+)\)\s*$/);
+  if (inlineManager) {
+    const candidate = inlineManager[2].trim();
+    // Don't treat records as manager
+    if (!isProbablyRecordToken(candidate) && candidate.length > 2) {
+      managerName = candidate;
+      teamName = inlineManager[1].trim();
     }
-    
-    // Skip common ESPN navigation/footer text
-    if (/^(ESPN|Fantasy|Copyright|©|Username|Password|Log\s*In|Sign\s*Up|Members|Settings|Help|Support)/i.test(line)) {
-      continue;
-    }
-    
-    // Match "Matchup N (Date Range)" pattern
-    // Examples: "Matchup 1 (Oct 21 - 26)", "Matchup 12 (Dec 23 - 29)"
-    const matchupHeaderMatch = line.match(/^Matchup\s+(\d+)\s*\(([^)]+)\)/i);
-    if (matchupHeaderMatch) {
-      currentWeek = parseInt(matchupHeaderMatch[1]);
-      currentDateRange = matchupHeaderMatch[2].trim();
-      expectingTeams = true;
-      pendingAwayTeam = '';
-      continue;
-    }
-    
-    // Also handle matchup patterns without parentheses
-    // "Matchup 1" followed by date on next line
-    const matchupSimpleMatch = line.match(/^Matchup\s+(\d+)$/i);
-    if (matchupSimpleMatch) {
-      currentWeek = parseInt(matchupSimpleMatch[1]);
-      // Check next line for date
-      if (i + 1 < lines.length) {
-        const nextLine = lines[i + 1];
-        const dateMatch = nextLine.match(/^[A-Z][a-z]{2}\s+\d+\s*-/i);
-        if (dateMatch) {
-          currentDateRange = nextLine.trim();
-          i++; // Skip date line
-        }
-      }
-      expectingTeams = true;
-      pendingAwayTeam = '';
-      continue;
-    }
-    
-    // Skip "Away" "Home" headers
-    if (/^(Away|Home|Away\s+Home|vs)$/i.test(line)) {
-      continue;
-    }
-    
-    // Skip week-related headers
-    if (/^Week\s+\d+$/i.test(line)) {
-      continue;
-    }
-    
-    // If we're expecting teams and have a current week
-    if (expectingTeams && currentWeek > 0) {
-      // Check if this looks like a team name (not a number, not short, not a header)
-      const isTeamName = (name: string) => {
-        if (name.length < 2) return false;
-        if (/^\d+$/.test(name)) return false;
-        if (/^(Away|Home|vs|@|RK|Team|W|L|T|FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS)$/i.test(name)) return false;
-        return true;
-      };
-      
-      if (isTeamName(line)) {
-        // Check if this team is in known teams
-        const isKnown = knownTeamsLower.length === 0 || 
-          knownTeamsLower.some(kt => line.toLowerCase().includes(kt) || kt.includes(line.toLowerCase()));
-        
-        if (!isKnown && knownTeamsLower.length > 0) {
-          unknownTeamsSet.add(line);
-        }
-        
-        if (!pendingAwayTeam) {
-          // This is the away team
-          pendingAwayTeam = line;
-        } else {
-          // This is the home team - complete the matchup
-          matchups.push({
-            week: currentWeek,
-            dateRangeText: currentDateRange,
-            awayTeam: pendingAwayTeam,
-            homeTeam: line,
-          });
-          pendingAwayTeam = '';
-        }
+  }
+
+  let i = startIndex + 1;
+
+  // Next line might be (Manager)
+  if (!managerName && i < lines.length) {
+    const next = lines[i];
+    const paren = next.match(/^\((.+)\)$/);
+    if (paren) {
+      const candidate = paren[1].trim();
+      if (!isProbablyRecordToken(candidate) && candidate.length > 2) {
+        managerName = candidate;
+        i++;
       }
     }
   }
-  
-  // Generate warnings
-  if (matchups.length === 0) {
-    warnings.push('No matchups found. Make sure you pasted the League Schedule page.');
+
+  // Next line might be manager without parentheses
+  if (!managerName && i < lines.length) {
+    const next = lines[i];
+    if (isProbablyPersonName(next)) {
+      managerName = next.trim();
+      i++;
+    }
   }
-  
-  const uniqueWeeks = new Set(matchups.map(m => m.week));
-  if (uniqueWeeks.size < 5) {
-    warnings.push(`Only ${uniqueWeeks.size} matchup weeks found. Expected more for a full season.`);
+
+  // Next line might be record
+  if (i < lines.length) {
+    const next = lines[i];
+    if (isProbablyRecordToken(next)) {
+      recordText = stripRecordParens(next);
+      i++;
+    }
   }
-  
+
+  // Guard: teamName must be meaningful
+  if (!teamName || teamName.length < 2) return null;
+
   return {
-    schedule: { season, matchups },
-    warnings,
-    unknownTeams: Array.from(unknownTeamsSet),
+    team: { teamName, managerName, recordText },
+    nextIndex: i,
   };
 }
 
-/**
- * Extract unique team names from a schedule
- */
-export function getScheduleTeams(schedule: LeagueSchedule): string[] {
-  const teams = new Set<string>();
-  schedule.matchups.forEach(m => {
-    teams.add(m.awayTeam);
-    teams.add(m.homeTeam);
-  });
-  return Array.from(teams).sort();
-}
+export function parseScheduleData(data: string): ScheduleParseResult {
+  validateParseInput(data);
 
-/**
- * Get all matchups for a specific team
- */
-export function getTeamMatchups(schedule: LeagueSchedule, teamName: string): ScheduleMatchup[] {
-  const teamLower = teamName.toLowerCase();
-  return schedule.matchups.filter(m => 
-    m.awayTeam.toLowerCase() === teamLower || 
-    m.homeTeam.toLowerCase() === teamLower
-  );
-}
+  const lines = data
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l);
 
-/**
- * Get opponent for a given team in a matchup
- */
-export function getOpponent(matchup: ScheduleMatchup, teamName: string): string {
-  const teamLower = teamName.toLowerCase();
-  if (matchup.awayTeam.toLowerCase() === teamLower) {
-    return matchup.homeTeam;
+  const loopGuard = createLoopGuard();
+
+  // Detect season from a year mention
+  const seasonMatch = data.match(/20\d{2}(?:-\d{2})?/);
+  const season = seasonMatch ? seasonMatch[0] : new Date().getFullYear().toString();
+
+  let currentWeek = 0;
+  let currentDateRange = "";
+
+  const matchups: ScheduleMatchup[] = [];
+  const teamMap = new Map<string, ScheduleTeam>();
+  const warnings: string[] = [];
+
+  let pendingAway: ScheduleTeam | null = null;
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    loopGuard.check();
+    const line = lines[idx];
+
+    if (shouldSkipLine(line)) continue;
+
+    const header = isMatchupHeader(line);
+    if (header) {
+      currentWeek = header.week;
+      currentDateRange = header.dateRangeText || currentDateRange;
+      pendingAway = null;
+      continue;
+    }
+
+    if (!currentWeek) continue;
+    if (looksLikeColumnHeader(line)) continue;
+
+    // If the date range is on the next line after "Matchup N"
+    if (!currentDateRange && idx > 0 && /^Matchup\s+\d+$/i.test(lines[idx - 1])) {
+      // Heuristic: date line often like "Oct 21 - 26" or "Dec 15 - 21"
+      if (/^[A-Z][a-z]{2}\s+\d{1,2}\s*-/i.test(line)) {
+        currentDateRange = line;
+        continue;
+      }
+    }
+
+    const parsed = parseTeamEntity(lines, idx);
+    if (!parsed) continue;
+
+    const team = parsed.team;
+    idx = parsed.nextIndex - 1;
+
+    // Register team
+    const key = makeScheduleTeamKey(team.teamName, team.managerName);
+    if (!teamMap.has(key)) teamMap.set(key, team);
+
+    if (!pendingAway) {
+      pendingAway = team;
+      continue;
+    }
+
+    // Complete matchup
+    matchups.push({
+      week: currentWeek,
+      dateRangeText: currentDateRange || "",
+      awayTeamName: pendingAway.teamName,
+      awayManagerName: pendingAway.managerName,
+      homeTeamName: team.teamName,
+      homeManagerName: team.managerName,
+    });
+    pendingAway = null;
   }
-  return matchup.awayTeam;
-}
 
-/**
- * Determine completed weeks based on current date
- * This is a heuristic - assumes matchups are in chronological order
- */
-export function getCompletedWeeks(schedule: LeagueSchedule): number[] {
-  // For now, return empty - we'll use the user toggle "Include completed weeks"
-  // In a real implementation, we'd parse the dateRangeText and compare to today
-  return [];
+  if (matchups.length === 0) {
+    warnings.push("No matchups found. Paste the ESPN League → Schedule page (Matchup 1, Matchup 2...).");
+  }
+
+  const uniqueWeeks = new Set(matchups.map((m) => m.week));
+  if (matchups.length > 0 && uniqueWeeks.size < 5) {
+    warnings.push(`Only ${uniqueWeeks.size} matchup weeks found. If this is a full season schedule, re-paste the full page.`);
+  }
+
+  return {
+    schedule: {
+      season,
+      teams: Array.from(teamMap.values()),
+      matchups,
+    },
+    warnings,
+  };
 }
