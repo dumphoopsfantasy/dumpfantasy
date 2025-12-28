@@ -676,8 +676,10 @@ The page should include the "Season Stats" section with team names, managers, an
     );
   }
 
+  const [activeTab, setActiveTab] = useState("standings");
+
   return (
-    <Tabs defaultValue="standings" className="space-y-4">
+    <Tabs defaultValue="standings" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-display font-bold">League Category Rankings ({teams.length} teams)</h2>
@@ -695,10 +697,12 @@ The page should include the "Season Stats" section with team names, managers, an
             </TabsTrigger>
           </TabsList>
           <CrisToggle useCris={useCris} onChange={setUseCris} />
-          <Button variant="outline" size="sm" onClick={handleReset}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            New Import
-          </Button>
+          {activeTab === "standings" && (
+            <Button variant="outline" size="sm" onClick={handleReset}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              New Import
+            </Button>
+          )}
         </div>
       </div>
 
