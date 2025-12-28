@@ -364,7 +364,7 @@ export function forecastTeamMatchups(
  * Project final standings for the entire league
  */
 export function projectFinalStandings(
-  schedule: LeagueSchedule,
+  schedule: ForecastSchedule,
   allTeams: LeagueTeam[],
   settings: ForecastSettings
 ): ProjectedStanding[] {
@@ -410,11 +410,13 @@ export function projectFinalStandings(
     });
   });
   
+  const cutoff = settings.currentWeekCutoff ?? 0;
+  
   // Get unique weeks from schedule
   const weekSet = new Set(schedule.matchups.map(m => m.week));
   const relevantWeeks = settings.includeCompletedWeeks
     ? Array.from(weekSet)
-    : Array.from(weekSet).filter(w => !settings.completedWeeks.includes(w));
+    : Array.from(weekSet).filter(w => w > cutoff && !settings.completedWeeks.includes(w));
   
   // Simulate each remaining matchup
   relevantWeeks.forEach(week => {
