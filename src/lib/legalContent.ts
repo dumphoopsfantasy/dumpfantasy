@@ -182,12 +182,6 @@ export const FAQ_CONTENT = {
 - **Parsing errors** if the ESPN page format changes`,
     },
     {
-      id: "last-15",
-      question: 'What does "Last 15" mean?',
-      answer:
-        '"Last 15" shows player stats from their most recent 15 games. This is useful for identifying hot/cold streaks and recent form vs. season averages.',
-    },
-    {
       id: "espn-login",
       question: "Do you store my ESPN login?",
       answer:

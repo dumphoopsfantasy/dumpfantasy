@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   ArrowRight,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   Info,
   RefreshCw,
   Settings,
@@ -22,7 +24,9 @@ import {
   Upload,
   Users,
   Minus,
+  Bug,
 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { usePersistedState } from "@/hooks/usePersistedState";
@@ -32,6 +36,7 @@ import type { LeagueTeam } from "@/types/league";
 import {
   LeagueSchedule,
   ScheduleTeam,
+  ScheduleDebugInfo,
   parseScheduleData,
 } from "@/lib/scheduleParser";
 import {
@@ -155,6 +160,8 @@ export const ScheduleForecast = ({
   const [showSettings, setShowSettings] = useState(false);
   const [selectedMatchup, setSelectedMatchup] = useState<MatchupPrediction | null>(null);
   const [parseWarnings, setParseWarnings] = useState<string[]>([]);
+  const [debugInfo, setDebugInfo] = useState<ScheduleDebugInfo | null>(null);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   // Auto-detect focus team (fallback)
   const effectiveFocusTeam = useMemo(() => {
@@ -361,25 +368,21 @@ export const ScheduleForecast = ({
     }
 
     try {
-      const result = parseScheduleData(rawScheduleData);
+      // Pass known team names from standings for whitelist matching
+      const knownTeamNames = leagueTeams.map((t) => t.name);
+      const result = parseScheduleData(rawScheduleData, knownTeamNames);
+      
       setSchedule(result.schedule);
       setParseWarnings(result.warnings);
+      setDebugInfo(result.debugInfo || null);
 
-      // Auto-store ONLY high-confidence exact matches (teamName/manager)
+      // With the whitelist approach, teams should already match standings directly
+      // Auto-populate aliases for any parsed teams
       const autoAliases: TeamAliasMap = {};
       for (const st of result.schedule.teams) {
         const key = makeScheduleTeamKey(st.teamName, st.managerName);
-        const byTeam = standingsByTeamName.get(normalizeName(st.teamName));
-        if (byTeam) {
-          autoAliases[key] = byTeam.name;
-          continue;
-        }
-        if (st.managerName) {
-          const byMgr = standingsByManagerName.get(normalizeName(st.managerName));
-          if (byMgr) {
-            autoAliases[key] = byMgr.name;
-          }
-        }
+        // Since we used whitelist matching, teamName should already be canonical
+        autoAliases[key] = st.teamName;
       }
       setAliases((prev) => ({ ...autoAliases, ...prev }));
 
@@ -397,7 +400,7 @@ export const ScheduleForecast = ({
         variant: "destructive",
       });
     }
-  }, [rawScheduleData, toast, setSchedule, setParseWarnings, setRawScheduleData, setAliases, standingsByTeamName, standingsByManagerName]);
+  }, [rawScheduleData, toast, setSchedule, setParseWarnings, setRawScheduleData, setAliases, leagueTeams]);
 
   const handleAliasChange = (scheduleKey: string, leagueTeamName: string) => {
     setAliases((prev) => ({ ...prev, [scheduleKey]: leagueTeamName }));
@@ -409,6 +412,8 @@ export const ScheduleForecast = ({
     setParseWarnings([]);
     setRawScheduleData("");
     setSelectedMatchup(null);
+    setDebugInfo(null);
+    setShowDebugPanel(false);
   };
 
   const outcomeColor = (wins: number, losses: number) => {
@@ -533,6 +538,84 @@ export const ScheduleForecast = ({
             {resolvedSchedule.waitingForMapping} / {resolvedSchedule.totalMatchups} matchups are waiting for team mapping.
           </AlertDescription>
         </Alert>
+      )}
+
+      {/* Debug Panel (collapsed by default) */}
+      {debugInfo && (
+        <Collapsible open={showDebugPanel} onOpenChange={setShowDebugPanel}>
+          <Card className="p-3 border-border bg-muted/30">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-between">
+                <span className="flex items-center gap-2 text-xs">
+                  <Bug className="w-3 h-3" />
+                  Parser Diagnostics
+                </span>
+                {showDebugPanel ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3 space-y-3">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="p-2 bg-background/50 rounded">
+                  <p className="text-lg font-bold text-primary">{debugInfo.weeksDetected}</p>
+                  <p className="text-xs text-muted-foreground">Weeks Detected</p>
+                </div>
+                <div className="p-2 bg-background/50 rounded">
+                  <p className="text-lg font-bold text-primary">{debugInfo.totalMatchups}</p>
+                  <p className="text-xs text-muted-foreground">Total Matchups</p>
+                </div>
+                <div className="p-2 bg-background/50 rounded">
+                  <p className="text-lg font-bold text-primary">{debugInfo.knownTeamsUsed.length}</p>
+                  <p className="text-xs text-muted-foreground">Known Teams</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold">Known Teams Used:</p>
+                <div className="flex flex-wrap gap-1">
+                  {debugInfo.knownTeamsUsed.map((team) => (
+                    <Badge key={team} variant="secondary" className="text-xs">
+                      {team}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              {debugInfo.weekDetails.length > 0 && (
+                <div className="space-y-2 max-h-48 overflow-auto">
+                  <p className="text-xs font-semibold">Week-by-Week:</p>
+                  {debugInfo.weekDetails.slice(0, 5).map((week) => (
+                    <div
+                      key={week.week}
+                      className={cn(
+                        "text-xs p-2 rounded bg-background/50",
+                        week.errors.length > 0 && "border border-stat-negative/50"
+                      )}
+                    >
+                      <div className="flex justify-between">
+                        <span className="font-medium">Week {week.week}</span>
+                        <span className="text-muted-foreground">
+                          {week.matchupsCreated} matchups • {week.teamsFound.length} teams
+                        </span>
+                      </div>
+                      {week.errors.length > 0 && (
+                        <p className="text-stat-negative mt-1">{week.errors.join("; ")}</p>
+                      )}
+                    </div>
+                  ))}
+                  {debugInfo.weekDetails.length > 5 && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      +{debugInfo.weekDetails.length - 5} more weeks...
+                    </p>
+                  )}
+                </div>
+              )}
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
       )}
 
       {resolution.unknownTeams.length > 0 && (
