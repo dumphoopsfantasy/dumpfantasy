@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { DataUpload } from "@/components/DataUpload";
 import { TeamAverages } from "@/components/TeamAverages";
 import { PlayerRankings } from "@/components/PlayerRankings";
@@ -16,6 +16,11 @@ import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentS
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { DataCompletenessBar } from "@/components/DataCompletenessBar";
+import { DisclaimerFooter } from "@/components/settings/LegalSupportSection";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { AlertTriangle } from "lucide-react";
+import { DISCLAIMER_CONTENT } from "@/lib/legalContent";
 // CustomCRIBuilder removed - no longer needed
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { CustomWeights } from "@/components/WeightSettings";
@@ -880,8 +885,59 @@ const Index = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Footer Disclaimer */}
+      <DisclaimerFooterWithSheet />
     </div>
   );
 };
+
+// Internal component that includes the sheet for disclaimer
+function DisclaimerFooterWithSheet() {
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  const renderMarkdown = (text: string) => {
+    return text.split(/(\*\*[^*]+\*\*)/).map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={i} className="font-semibold text-foreground">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
+  };
+
+  return (
+    <>
+      <DisclaimerFooter onOpenDisclaimer={() => setShowDisclaimer(true)} />
+
+      <Sheet open={showDisclaimer} onOpenChange={setShowDisclaimer}>
+        <SheetContent className="w-full sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2 text-primary">
+              <AlertTriangle className="w-5 h-5" />
+              {DISCLAIMER_CONTENT.title}
+            </SheetTitle>
+            <SheetDescription>Last updated: {DISCLAIMER_CONTENT.lastUpdated}</SheetDescription>
+          </SheetHeader>
+          <ScrollArea className="h-[calc(100vh-140px)] mt-4 pr-4">
+            <div className="space-y-6">
+              {DISCLAIMER_CONTENT.sections.map((section, idx) => (
+                <div key={idx}>
+                  <h3 className="font-semibold text-sm text-foreground mb-2">{section.heading}</h3>
+                  <div className="text-sm text-muted-foreground leading-relaxed">
+                    {renderMarkdown(section.content)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
 
 export default Index;
