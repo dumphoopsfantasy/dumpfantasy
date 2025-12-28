@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MessageSquare, Palette, RotateCcw, Send, Settings2, Target, AlertCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { SupportDumpHoopsCard } from "@/components/SupportDumpHoopsCard";
 import {
   NBA_THEMES,
   NBATheme,
@@ -319,6 +320,9 @@ export const Settings = ({
           )}
         </CardContent>
       </Card>
+
+      {/* Support / Donate */}
+      <SupportDumpHoopsCard />
 
       {/* About */}
       <Card className="gradient-card border-border">
