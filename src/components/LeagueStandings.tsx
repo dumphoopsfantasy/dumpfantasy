@@ -2,13 +2,15 @@ import { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Upload, Trophy, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Target } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Upload, Trophy, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Target, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { LeagueTeam } from "@/types/league";
 import { cn } from "@/lib/utils";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
+import { ScheduleForecast } from "@/components/ScheduleForecast";
 
 // Playoff Contenders Profile Component
 const PlayoffContendersProfile = ({ teams }: { teams: TeamWithCris[] }) => {
@@ -675,13 +677,23 @@ The page should include the "Season Stats" section with team names, managers, an
   }
 
   return (
-    <div className="space-y-4">
+    <Tabs defaultValue="standings" className="space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-display font-bold">League Category Rankings ({teams.length} teams)</h2>
           <CrisExplanation />
         </div>
         <div className="flex items-center gap-3">
+          <TabsList>
+            <TabsTrigger value="standings" className="gap-2">
+              <Trophy className="w-4 h-4" />
+              Standings
+            </TabsTrigger>
+            <TabsTrigger value="forecast" className="gap-2">
+              <Calendar className="w-4 h-4" />
+              Schedule Forecast
+            </TabsTrigger>
+          </TabsList>
           <CrisToggle useCris={useCris} onChange={setUseCris} />
           <Button variant="outline" size="sm" onClick={handleReset}>
             <RefreshCw className="w-4 h-4 mr-2" />
@@ -690,8 +702,7 @@ The page should include the "Season Stats" section with team names, managers, an
         </div>
       </div>
 
-      {/* Full-width table first, contenders panel below */}
-      <div className="space-y-6">
+      <TabsContent value="standings" className="space-y-6">
         {/* Main standings table - full width, no horizontal scroll */}
         <div className="overflow-x-auto bg-card/30 rounded-lg border border-border">
           <table className="w-full text-sm">
@@ -761,7 +772,14 @@ The page should include the "Season Stats" section with team names, managers, an
 
         {/* Playoff Contenders Category Profile - below table */}
         <PlayoffContendersProfile teams={teams} />
-      </div>
-    </div>
+      </TabsContent>
+
+      <TabsContent value="forecast">
+        <ScheduleForecast 
+          leagueTeams={rawTeams} 
+          userTeamName={rawTeams.find(t => t.name.toLowerCase().includes('bane'))?.name}
+        />
+      </TabsContent>
+    </Tabs>
   );
 };
