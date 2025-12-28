@@ -358,8 +358,34 @@ export const ScheduleForecast = ({
       ? futureMatchups.reduce((sum, m) => sum + m.edge, 0) / futureMatchups.length
       : 0;
 
-    return { matchWins, matchLosses, matchTies, totalCatWins, totalCatLosses, avgEdge };
-  }, [futureMatchups]);
+    // Parse current record from focused team
+    const focusedTeam = leagueTeams.find(
+      (t) => t.name.toLowerCase() === effectiveFocusTeam.toLowerCase()
+    );
+    let currW = 0, currL = 0, currT = 0;
+    let hasCurrentRecord = false;
+    if (focusedTeam?.record) {
+      const parts = focusedTeam.record.split("-").map((p) => parseInt(p.trim()));
+      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        currW = parts[0];
+        currL = parts[1];
+        currT = parts[2] || 0;
+        hasCurrentRecord = true;
+      }
+    }
+
+    // Compute final projected record
+    const finalW = currW + matchWins;
+    const finalL = currL + matchLosses;
+    const finalT = currT + matchTies;
+
+    return { 
+      matchWins, matchLosses, matchTies, 
+      totalCatWins, totalCatLosses, avgEdge,
+      currW, currL, currT, hasCurrentRecord,
+      finalW, finalL, finalT
+    };
+  }, [futureMatchups, leagueTeams, effectiveFocusTeam]);
 
   const handleParseSchedule = useCallback(() => {
     if (!rawScheduleData.trim()) {
@@ -540,83 +566,7 @@ export const ScheduleForecast = ({
         </Alert>
       )}
 
-      {/* Debug Panel (collapsed by default) */}
-      {debugInfo && (
-        <Collapsible open={showDebugPanel} onOpenChange={setShowDebugPanel}>
-          <Card className="p-3 border-border bg-muted/30">
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" size="sm" className="w-full justify-between">
-                <span className="flex items-center gap-2 text-xs">
-                  <Bug className="w-3 h-3" />
-                  Parser Diagnostics
-                </span>
-                {showDebugPanel ? (
-                  <ChevronUp className="w-4 h-4" />
-                ) : (
-                  <ChevronDown className="w-4 h-4" />
-                )}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3 space-y-3">
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div className="p-2 bg-background/50 rounded">
-                  <p className="text-lg font-bold text-primary">{debugInfo.weeksDetected}</p>
-                  <p className="text-xs text-muted-foreground">Weeks Detected</p>
-                </div>
-                <div className="p-2 bg-background/50 rounded">
-                  <p className="text-lg font-bold text-primary">{debugInfo.totalMatchups}</p>
-                  <p className="text-xs text-muted-foreground">Total Matchups</p>
-                </div>
-                <div className="p-2 bg-background/50 rounded">
-                  <p className="text-lg font-bold text-primary">{debugInfo.knownTeamsUsed.length}</p>
-                  <p className="text-xs text-muted-foreground">Known Teams</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-semibold">Known Teams Used:</p>
-                <div className="flex flex-wrap gap-1">
-                  {debugInfo.knownTeamsUsed.map((team) => (
-                    <Badge key={team} variant="secondary" className="text-xs">
-                      {team}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              {debugInfo.weekDetails.length > 0 && (
-                <div className="space-y-2 max-h-48 overflow-auto">
-                  <p className="text-xs font-semibold">Week-by-Week:</p>
-                  {debugInfo.weekDetails.slice(0, 5).map((week) => (
-                    <div
-                      key={week.week}
-                      className={cn(
-                        "text-xs p-2 rounded bg-background/50",
-                        week.errors.length > 0 && "border border-stat-negative/50"
-                      )}
-                    >
-                      <div className="flex justify-between">
-                        <span className="font-medium">Week {week.week}</span>
-                        <span className="text-muted-foreground">
-                          {week.matchupsCreated} matchups • {week.teamsFound.length} teams
-                        </span>
-                      </div>
-                      {week.errors.length > 0 && (
-                        <p className="text-stat-negative mt-1">{week.errors.join("; ")}</p>
-                      )}
-                    </div>
-                  ))}
-                  {debugInfo.weekDetails.length > 5 && (
-                    <p className="text-xs text-muted-foreground text-center">
-                      +{debugInfo.weekDetails.length - 5} more weeks...
-                    </p>
-                  )}
-                </div>
-              )}
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-      )}
+      {/* Debug Panel removed per requirements */}
 
       {resolution.unknownTeams.length > 0 && (
         <Card className="p-4 border-yellow-500/50 bg-yellow-500/10">
@@ -656,96 +606,42 @@ export const ScheduleForecast = ({
         </Card>
       )}
 
-      <Card className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-display font-semibold text-sm">Forecast Settings</h3>
-          <Button variant="ghost" size="sm" onClick={() => setShowSettings((v) => !v)}>
-            {showSettings ? "Hide" : "Show"}
-          </Button>
-        </div>
-
-        {showSettings && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-sm">Current matchup week (cutoff)</Label>
-              <Select
-                value={String(currentWeekCutoff)}
-                onValueChange={(v) => setCurrentWeekCutoff(parseInt(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select week" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0">0 (simulate all weeks)</SelectItem>
-                  {scheduleWeekOptions.map((w) => (
-                    <SelectItem key={w} value={String(w)}>
-                      Week {w}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Only weeks after this will be simulated (unless you include completed).</p>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-sm">Include completed weeks</Label>
-                <p className="text-xs text-muted-foreground">Include weeks ≤ cutoff in tables and simulation</p>
-              </div>
-              <Switch checked={includeCompletedWeeks} onCheckedChange={setIncludeCompletedWeeks} />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-sm">Start from current records</Label>
-                <p className="text-xs text-muted-foreground">Adds predicted W/L/T to imported standings record</p>
-              </div>
-              <Switch checked={startFromCurrentRecords} onCheckedChange={setStartFromCurrentRecords} />
-            </div>
-
-            {!useCri && (
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-sm">Use dynamic weights</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {dynamicWeightsActive ? `Active (${dynamicWeightsModeLabel || "mode"})` : "Not active"}
-                  </p>
-                </div>
-                <Switch checked={useDynamic} onCheckedChange={setUseDynamic} disabled={!dynamicWeightsActive} />
-              </div>
-            )}
-
-            <div className="text-xs text-muted-foreground flex items-start gap-2 p-2 bg-muted/30 rounded md:col-span-2">
-              <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-              <span>
-                Baseline forecast only (no trades/injuries/streaming). Uses your imported team stats.
-              </span>
-            </div>
-          </div>
-        )}
-      </Card>
-
       <Card className="gradient-card p-4">
         <div className="flex items-center gap-2 mb-3">
           <Target className="w-5 h-5 text-primary" />
           <h3 className="font-display font-bold">{effectiveFocusTeam} — Forecast Summary</h3>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className={cn(
+          "grid gap-4",
+          focusTeamSummary.hasCurrentRecord ? "grid-cols-2 md:grid-cols-5" : "grid-cols-2 md:grid-cols-4"
+        )}>
+          {focusTeamSummary.hasCurrentRecord && (
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">Current Record</p>
+              <p className="font-display font-bold text-lg text-muted-foreground">
+                {focusTeamSummary.currW}-{focusTeamSummary.currL}-{focusTeamSummary.currT}
+              </p>
+            </div>
+          )}
           <div className="text-center">
-            <p className="text-[10px] text-muted-foreground uppercase">Projected Record</p>
+            <p className="text-[10px] text-muted-foreground uppercase">Proj. Remaining</p>
             <p className="font-display font-bold text-lg">
               {focusTeamSummary.matchWins}-{focusTeamSummary.matchLosses}-{focusTeamSummary.matchTies}
             </p>
           </div>
+          {focusTeamSummary.hasCurrentRecord && (
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase">Proj. Final</p>
+              <p className="font-display font-bold text-lg text-primary">
+                {focusTeamSummary.finalW}-{focusTeamSummary.finalL}-{focusTeamSummary.finalT}
+              </p>
+            </div>
+          )}
           <div className="text-center">
             <p className="text-[10px] text-muted-foreground uppercase">Category W-L</p>
             <p className="font-display font-bold text-lg">
               {focusTeamSummary.totalCatWins}-{focusTeamSummary.totalCatLosses}
             </p>
-          </div>
-          <div className="text-center">
-            <p className="text-[10px] text-muted-foreground uppercase">Remaining Matchups</p>
-            <p className="font-display font-bold text-lg">{futureMatchups.length}</p>
           </div>
           <div className="text-center">
             <p className="text-[10px] text-muted-foreground uppercase">Avg Edge</p>
@@ -888,6 +784,76 @@ export const ScheduleForecast = ({
             </tbody>
           </table>
         </div>
+      </Card>
+
+      {/* Forecast Settings - moved to bottom */}
+      <Card className="p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display font-semibold text-sm">Forecast Settings</h3>
+          <Button variant="ghost" size="sm" onClick={() => setShowSettings((v) => !v)}>
+            {showSettings ? "Hide" : "Show"}
+          </Button>
+        </div>
+
+        {showSettings && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm">Current matchup week (cutoff)</Label>
+              <Select
+                value={String(currentWeekCutoff)}
+                onValueChange={(v) => setCurrentWeekCutoff(parseInt(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select week" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">0 (simulate all weeks)</SelectItem>
+                  {scheduleWeekOptions.map((w) => (
+                    <SelectItem key={w} value={String(w)}>
+                      Week {w}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Only weeks after this will be simulated (unless you include completed).</p>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm">Include completed weeks</Label>
+                <p className="text-xs text-muted-foreground">Include weeks ≤ cutoff in tables and simulation</p>
+              </div>
+              <Switch checked={includeCompletedWeeks} onCheckedChange={setIncludeCompletedWeeks} />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm">Start from current records</Label>
+                <p className="text-xs text-muted-foreground">Adds predicted W/L/T to imported standings record</p>
+              </div>
+              <Switch checked={startFromCurrentRecords} onCheckedChange={setStartFromCurrentRecords} />
+            </div>
+
+            {!useCri && (
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">Use dynamic weights</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {dynamicWeightsActive ? `Active (${dynamicWeightsModeLabel || "mode"})` : "Not active"}
+                  </p>
+                </div>
+                <Switch checked={useDynamic} onCheckedChange={setUseDynamic} disabled={!dynamicWeightsActive} />
+              </div>
+            )}
+
+            <div className="text-xs text-muted-foreground flex items-start gap-2 p-2 bg-muted/30 rounded md:col-span-2">
+              <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <span>
+                Baseline forecast only (no trades/injuries/streaming). Uses your imported team stats.
+              </span>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Sheet open={!!selectedMatchup} onOpenChange={() => setSelectedMatchup(null)}>
