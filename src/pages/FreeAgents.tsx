@@ -1627,42 +1627,44 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             />
           </div>
           
-          {/* View Mode Toggle */}
-          <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1">
-            <Button
-              variant={viewMode === 'stats' ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode('stats')}
-              className="h-8 px-3"
-            >
-              <BarChart3 className="w-4 h-4 mr-1" />
-              Stats
-            </Button>
-            <Button
-              variant={viewMode === 'rankings' ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode('rankings')}
-              className="h-8 px-3"
-            >
-              <Hash className="w-4 h-4 mr-1" />
-              Rankings
-            </Button>
-            <Button
-              variant={viewMode === 'advanced' ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode('advanced')}
-              className="h-8 px-3"
-            >
-              <Sliders className="w-4 h-4 mr-1" />
-              Advanced
-            </Button>
-          </div>
-          {viewMode === 'rankings' && <CrisToggle useCris={useCris} onChange={setUseCris} />}
+          {/* View Mode Toggle - hidden in trade analyzer mode */}
+          {!tradeAnalyzerMode && (
+            <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1">
+              <Button
+                variant={viewMode === 'stats' ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode('stats')}
+                className="h-8 px-3"
+              >
+                <BarChart3 className="w-4 h-4 mr-1" />
+                Stats
+              </Button>
+              <Button
+                variant={viewMode === 'rankings' ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode('rankings')}
+                className="h-8 px-3"
+              >
+                <Hash className="w-4 h-4 mr-1" />
+                Rankings
+              </Button>
+              <Button
+                variant={viewMode === 'advanced' ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode('advanced')}
+                className="h-8 px-3"
+              >
+                <Sliders className="w-4 h-4 mr-1" />
+                Advanced
+              </Button>
+            </div>
+          )}
+          {!tradeAnalyzerMode && viewMode === 'rankings' && <CrisToggle useCris={useCris} onChange={setUseCris} />}
         </div>
       </div>
 
-      {/* Advanced Stats Configuration Panel */}
-      {viewMode === 'advanced' && (
+      {/* Advanced Stats Configuration Panel - hidden in trade mode */}
+      {viewMode === 'advanced' && !tradeAnalyzerMode && (
         <Card className="gradient-card border-primary/30 p-4">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -1772,27 +1774,30 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {/* Filters */}
+      {/* Filters - simplified in trade analyzer mode */}
       <Card className="gradient-card border-border p-4">
         <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1 w-fit">
-            <Button
-              variant={availabilityFilter === "available" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setAvailabilityFilter("available")}
-              className="h-8 px-3"
-            >
-              Available
-            </Button>
-            <Button
-              variant={availabilityFilter === "all" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setAvailabilityFilter("all")}
-              className="h-8 px-3"
-            >
-              All Players
-            </Button>
-          </div>
+          {/* Available/All toggle - hidden in trade mode (defaults to All) */}
+          {!tradeAnalyzerMode && (
+            <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1 w-fit">
+              <Button
+                variant={availabilityFilter === "available" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setAvailabilityFilter("available")}
+                className="h-8 px-3"
+              >
+                Available
+              </Button>
+              <Button
+                variant={availabilityFilter === "all" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setAvailabilityFilter("all")}
+                className="h-8 px-3"
+              >
+                All Players
+              </Button>
+            </div>
+          )}
 
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1816,53 +1821,60 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectItem value="C">C</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={scheduleFilter} onValueChange={setScheduleFilter}>
-            <SelectTrigger className="w-full md:w-[160px]">
-              <SelectValue placeholder="Schedule" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Games</SelectItem>
-              <SelectItem value="playing">Playing Today</SelectItem>
-              <SelectItem value="not-playing">Not Playing</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={healthFilter} onValueChange={setHealthFilter}>
-            <SelectTrigger className="w-full md:w-[140px]">
-              <SelectValue placeholder="Health" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Players</SelectItem>
-              <SelectItem value="healthy">Healthy Only</SelectItem>
-              <SelectItem value="injured">Injured Only</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={statsFilter} onValueChange={(v) => setStatsFilter(v as "all" | "with-stats" | "missing-stats")}>
-            <SelectTrigger className="w-full md:w-[160px]">
-              <SelectValue placeholder="Stats" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Stats</SelectItem>
-              <SelectItem value="with-stats">With Stats</SelectItem>
-              <SelectItem value="missing-stats">Missing Stats</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Advanced filters - collapsed in trade mode */}
+          {!tradeAnalyzerMode && (
+            <>
+              <Select value={scheduleFilter} onValueChange={setScheduleFilter}>
+                <SelectTrigger className="w-full md:w-[160px]">
+                  <SelectValue placeholder="Schedule" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Games</SelectItem>
+                  <SelectItem value="playing">Playing Today</SelectItem>
+                  <SelectItem value="not-playing">Not Playing</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={healthFilter} onValueChange={setHealthFilter}>
+                <SelectTrigger className="w-full md:w-[140px]">
+                  <SelectValue placeholder="Health" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Players</SelectItem>
+                  <SelectItem value="healthy">Healthy Only</SelectItem>
+                  <SelectItem value="injured">Injured Only</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statsFilter} onValueChange={(v) => setStatsFilter(v as "all" | "with-stats" | "missing-stats")}>
+                <SelectTrigger className="w-full md:w-[160px]">
+                  <SelectValue placeholder="Stats" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Stats</SelectItem>
+                  <SelectItem value="with-stats">With Stats</SelectItem>
+                  <SelectItem value="missing-stats">Missing Stats</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
           <Button variant="outline" size="icon" onClick={handleReset}>
             <RefreshCw className="w-4 h-4" />
           </Button>
-          <Button 
-            variant={tableOnlyMode ? "default" : "outline"} 
-            size="sm"
-            onClick={() => setTableOnlyMode(!tableOnlyMode)}
-            className="gap-1"
-          >
-            <TableIcon className="w-4 h-4" />
-            <span className="hidden md:inline">Table Only</span>
-          </Button>
+          {!tradeAnalyzerMode && (
+            <Button 
+              variant={tableOnlyMode ? "default" : "outline"} 
+              size="sm"
+              onClick={() => setTableOnlyMode(!tableOnlyMode)}
+              className="gap-1"
+            >
+              <TableIcon className="w-4 h-4" />
+              <span className="hidden md:inline">Table Only</span>
+            </Button>
+          )}
         </div>
       </Card>
 
-      {/* Compare Panel - hidden in table only mode */}
-      {!tableOnlyMode && compareList.length > 0 && (
+      {/* Compare Panel - hidden in table only mode and trade mode */}
+      {!tableOnlyMode && !tradeAnalyzerMode && compareList.length > 0 && (
         <Card className="gradient-card border-primary/50 p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-display font-bold flex items-center gap-2">
@@ -1909,8 +1921,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {/* Matchup-Based Research Panel - hidden in table only mode */}
-      {!tableOnlyMode && matchupData && filteredPlayers.length > 0 && (
+      {/* Matchup-Based Research Panel - hidden in table only mode and trade mode */}
+      {!tableOnlyMode && !tradeAnalyzerMode && matchupData && filteredPlayers.length > 0 && (
         <MatchupNeedsPanel
           matchupData={matchupData}
           freeAgents={filteredPlayers}
@@ -1919,8 +1931,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         />
       )}
 
-      {/* Best Pickups Recommendations - hidden in table only mode */}
-      {!tableOnlyMode && !bestPickupRecommendations.hasStandingsData && leagueTeams.length === 0 && (
+      {/* Best Pickups Recommendations - hidden in table only mode and trade mode */}
+      {!tableOnlyMode && !tradeAnalyzerMode && !bestPickupRecommendations.hasStandingsData && leagueTeams.length === 0 && (
         <Card className="gradient-card border-border p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -1936,7 +1948,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {!tableOnlyMode && (bestPickupRecommendations.bestForWeak.length > 0 || bestPickupRecommendations.hasStandingsData) && (
+      {!tableOnlyMode && !tradeAnalyzerMode && (bestPickupRecommendations.bestForWeak.length > 0 || bestPickupRecommendations.hasStandingsData) && (
         <Collapsible open={bestPickupsOpen} onOpenChange={setBestPickupsOpen}>
           <Card className="gradient-card border-border p-4">
             <CollapsibleTrigger className="w-full">
