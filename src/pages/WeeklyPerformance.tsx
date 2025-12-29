@@ -2,10 +2,13 @@ import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { Trophy, Upload, RefreshCw } from "lucide-react";
+import { Trophy, Upload, RefreshCw, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
+import { LiveStandings } from "@/components/LiveStandings";
+import { LeagueTeam } from "@/types/league";
 
 // ============================================================================
 // TYPES (local to Weekly tab)
@@ -42,6 +45,8 @@ interface WeeklyPerformanceProps {
   persistedTitle?: string;
   onMatchupsChange?: (matchups: ParsedMatchup[]) => void;
   onTitleChange?: (title: string) => void;
+  leagueTeams?: LeagueTeam[];
+  userTeamName?: string;
 }
 
 // ============================================================================
@@ -320,12 +325,15 @@ export const WeeklyPerformance = ({
   persistedMatchups = [], 
   persistedTitle = "",
   onMatchupsChange,
-  onTitleChange 
+  onTitleChange,
+  leagueTeams = [],
+  userTeamName = "",
 }: WeeklyPerformanceProps) => {
   const [rawData, setRawData] = useState("");
   const [matchups, setMatchups] = useState<ParsedMatchup[]>(persistedMatchups as ParsedMatchup[]);
   const [weekTitle, setWeekTitle] = useState(persistedTitle);
   const [isParsing, setIsParsing] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState("scoreboard");
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -567,7 +575,21 @@ The page should include all 5 matchups with team names, records, and stats.`}
           New Import
         </Button>
       </div>
-      
+
+      {/* Tabs for Scoreboard vs Live Standings */}
+      <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="scoreboard" className="flex items-center gap-2">
+            <Trophy className="w-4 h-4" />
+            Scoreboard
+          </TabsTrigger>
+          <TabsTrigger value="live-standings" className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" />
+            Live Standings
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="scoreboard" className="mt-4">
 
       {/* Weekly Performance Table */}
       <Card className="gradient-card border-border overflow-hidden">
@@ -709,6 +731,16 @@ The page should include all 5 matchups with team names, records, and stats.`}
           );
         })}
       </div>
+        </TabsContent>
+
+        <TabsContent value="live-standings" className="mt-4">
+          <LiveStandings 
+            leagueTeams={leagueTeams} 
+            weeklyMatchups={matchups} 
+            userTeamName={userTeamName}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

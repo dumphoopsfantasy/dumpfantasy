@@ -827,6 +827,8 @@ const Index = () => {
               persistedTitle={weeklyTitle}
               onMatchupsChange={setWeeklyMatchups}
               onTitleChange={setWeeklyTitle}
+              leagueTeams={leagueTeams}
+              userTeamName={matchupData?.myTeam?.name || ""}
             />
           </TabsContent>
 
