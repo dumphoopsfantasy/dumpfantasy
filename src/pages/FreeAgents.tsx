@@ -1725,7 +1725,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               onClick={() => setAvailabilityFilter("all")}
               className="h-8 px-3"
             >
-              All Imported
+              All Players
             </Button>
           </div>
 
@@ -2142,7 +2142,19 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       <PlayerPhoto name={player.name} size="sm" />
                       <NBATeamLogo teamCode={player.nbaTeam} size="sm" />
                       <div>
-                        <div className="font-semibold">{player.name}</div>
+                        <div className="font-semibold flex items-center gap-1.5">
+                          {player.name}
+                          {/* Availability badge */}
+                          {(player as any).availability === 'FA' && (
+                            <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-green-500/20 text-green-400 border-green-500/30">FA</Badge>
+                          )}
+                          {(player as any).availability === 'WA' && (
+                            <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-blue-500/20 text-blue-400 border-blue-500/30">WA</Badge>
+                          )}
+                          {(player as any).availability === 'UNK' && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-muted-foreground border-muted-foreground/30">Rostered</Badge>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {player.nbaTeam} • {player.positions.join("/")}
                           {player.status && player.status !== 'healthy' && (
