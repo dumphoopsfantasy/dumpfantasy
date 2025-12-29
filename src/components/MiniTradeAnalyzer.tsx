@@ -9,7 +9,7 @@ import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { Player } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
-import { CATEGORIES, CRIS_WEIGHTS, calculateCRISForAll } from "@/lib/crisUtils";
+import { CATEGORIES } from "@/lib/crisUtils";
 import { cn } from "@/lib/utils";
 import { X, ArrowRight, ArrowLeft, Plus, RotateCcw, Users, Scale, Trophy, TrendingUp, TrendingDown } from "lucide-react";
 
@@ -110,8 +110,7 @@ export const MiniTradeAnalyzer = ({
     if (players.length === 0) {
       return {
         fgPct: 0, ftPct: 0, threepm: 0, rebounds: 0, assists: 0,
-        steals: 0, blocks: 0, turnovers: 0, points: 0,
-        totalWcri: 0, avgWcri: 0
+        steals: 0, blocks: 0, turnovers: 0, points: 0
       };
     }
 
@@ -135,12 +134,7 @@ export const MiniTradeAnalyzer = ({
     const fgPct = totalFGA > 0 ? totalFGM / totalFGA : 0;
     const ftPct = totalFTA > 0 ? totalFTM / totalFTA : 0;
 
-    // Calculate wCRI for each player and sum
-    const playersWithCri = calculateCRISForAll(players);
-    const totalWcri = playersWithCri.reduce((sum, p) => sum + p.wCri, 0);
-    const avgWcri = players.length > 0 ? totalWcri / players.length : 0;
-
-    return { fgPct, ftPct, threepm, rebounds, assists, steals, blocks, turnovers, points, totalWcri, avgWcri };
+    return { fgPct, ftPct, threepm, rebounds, assists, steals, blocks, turnovers, points };
   }, []);
 
   const sideAStats = useMemo(() => calcSideStats(sideA.players), [calcSideStats, sideA.players]);
@@ -173,10 +167,10 @@ export const MiniTradeAnalyzer = ({
 
   const overallWinner = useMemo(() => {
     if (sideA.players.length === 0 || sideB.players.length === 0) return null;
-    if (sideAStats.totalWcri > sideBStats.totalWcri) return 'A';
-    if (sideBStats.totalWcri > sideAStats.totalWcri) return 'B';
+    if (winsA > winsB) return 'A';
+    if (winsB > winsA) return 'B';
     return 'tie';
-  }, [sideA.players.length, sideB.players.length, sideAStats.totalWcri, sideBStats.totalWcri]);
+  }, [sideA.players.length, sideB.players.length, winsA, winsB]);
 
   const formatValue = (val: number, format: string) => {
     if (format === 'pct') return val > 0 ? `.${(val * 1000).toFixed(0).padStart(3, '0')}` : '.000';
@@ -304,22 +298,14 @@ export const MiniTradeAnalyzer = ({
                       <p className="text-xs text-muted-foreground">{player.nbaTeam} • {player.positions.join('/')}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      wCRI: {((player as any).wCri || 0).toFixed(1)}
-                    </Badge>
-                    <button
-                      onClick={() => removeFromSide(player.id, 'A')}
-                      className="p-1 rounded hover:bg-destructive/20 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => removeFromSide(player.id, 'A')}
+                    className="p-1 rounded hover:bg-destructive/20 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
               ))}
-              <div className="pt-2 border-t border-blue-500/30">
-                <p className="text-xs text-muted-foreground">Total wCRI: <span className="font-bold text-blue-400">{sideAStats.totalWcri.toFixed(1)}</span></p>
-              </div>
             </div>
           )}
         </Card>
@@ -368,22 +354,14 @@ export const MiniTradeAnalyzer = ({
                       <p className="text-xs text-muted-foreground">{player.nbaTeam} • {player.positions.join('/')}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      wCRI: {((player as any).wCri || 0).toFixed(1)}
-                    </Badge>
-                    <button
-                      onClick={() => removeFromSide(player.id, 'B')}
-                      className="p-1 rounded hover:bg-destructive/20 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => removeFromSide(player.id, 'B')}
+                    className="p-1 rounded hover:bg-destructive/20 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
               ))}
-              <div className="pt-2 border-t border-orange-500/30">
-                <p className="text-xs text-muted-foreground">Total wCRI: <span className="font-bold text-orange-400">{sideBStats.totalWcri.toFixed(1)}</span></p>
-              </div>
             </div>
           )}
         </Card>
@@ -414,27 +392,23 @@ export const MiniTradeAnalyzer = ({
             </div>
           </div>
 
-          {/* Overall Winner */}
+          {/* Overall Winner - Category Wins */}
           {overallWinner && (
             <div className={cn(
-              "mb-4 p-3 rounded-lg text-center",
+              "mb-4 p-4 rounded-lg text-center",
               overallWinner === 'A' ? "bg-blue-500/20 border border-blue-500/50" :
               overallWinner === 'B' ? "bg-orange-500/20 border border-orange-500/50" :
               "bg-muted/30 border border-border"
             )}>
-              <p className="text-sm font-medium">
-                {overallWinner === 'tie' ? (
-                  "Even Trade (by wCRI)"
-                ) : (
-                  <>
-                    <span className={overallWinner === 'A' ? "text-blue-400" : "text-orange-400"}>
-                      Side {overallWinner}
-                    </span> wins by wCRI ({Math.abs(sideAStats.totalWcri - sideBStats.totalWcri).toFixed(1)} difference)
-                  </>
-                )}
+              <p className="text-2xl font-bold mb-1">
+                <span className="text-blue-400">{winsA}</span>
+                <span className="text-muted-foreground mx-2">-</span>
+                <span className="text-orange-400">{winsB}</span>
+                {ties > 0 && <span className="text-muted-foreground mx-2">-</span>}
+                {ties > 0 && <span className="text-muted-foreground">{ties}</span>}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Categories: Side A wins {winsA}, Side B wins {winsB}{ties > 0 ? `, ${ties} tied` : ''}
+              <p className="text-sm text-muted-foreground">
+                {overallWinner === 'tie' ? "Even Trade" : `Side ${overallWinner} wins`}
               </p>
             </div>
           )}
