@@ -145,8 +145,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     return null;
   };
 
-  type Availability = "FA" | "WA" | "UNK";
-  type ImportedFreeAgent = Player & { availability?: Availability };
+  type Availability = "FA" | "WA" | "rostered" | "unknown";
+  type ImportedFreeAgent = Player & { availability?: Availability; ownedBy?: string };
 
   const normalizeKey = (s: string) =>
     s
@@ -206,6 +206,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       team: string;
       positions: string[];
       availability?: Availability;
+      ownedBy?: string;
       status?: string;
       opponent?: string;
       gameTime?: string;
@@ -277,6 +278,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       let opponent = '';
       let gameTime = '';
       let availability: Availability | undefined;
+      let ownedBy: string | undefined;
       
       // Look ahead for player metadata (up to 25 lines)
       for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
@@ -309,7 +311,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           continue;
         }
         
-        // Availability marker (FA / WA)
+        // Availability marker (FA / WA / Rostered team abbreviation)
         if (!availability) {
           if (nextLine === 'FA') {
             availability = 'FA';
@@ -317,6 +319,13 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           }
           if (nextLine.match(/^WA(\s|\(|$)/)) {
             availability = 'WA';
+            continue;
+          }
+          // Check for rostered player: short team abbreviation (2-6 chars, uppercase or mixed)
+          // This catches fantasy team abbreviations like "DEM", "Bilb", "DUMP", "SS", "SAS"
+          if (/^[A-Za-z]{2,6}$/.test(nextLine) && !NBA_TEAMS.includes(nextLine.toUpperCase())) {
+            availability = 'rostered';
+            ownedBy = nextLine;
             continue;
           }
         }
@@ -368,7 +377,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         name,
         team,
         positions,
-        availability: availability ?? 'UNK',
+        availability: availability ?? 'unknown',
+        ownedBy: ownedBy || undefined,
         status: status || undefined,
         opponent: opponent || undefined,
         gameTime: gameTime || undefined
@@ -827,8 +837,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
       const countAvail = (list: ImportedFreeAgent[]) => {
         const availableCount = list.filter(p => p.availability === 'FA' || p.availability === 'WA').length;
-        const unknownCount = list.length - availableCount;
-        return { availableCount, unknownCount };
+        const rosteredCount = list.filter(p => p.availability === 'rostered').length;
+        const unknownCount = list.filter(p => p.availability === 'unknown' || !p.availability).length;
+        return { availableCount, rosteredCount, unknownCount };
       };
 
       // Sanity: if ESPN says paginated but we didn't get ~50 rows, likely copy/virtualization issue
@@ -878,7 +889,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           const { merged, newCount, dupCount } = mergePlayers(rawPlayers, players);
           const mergedBonus = mergeBonusStats(bonusStats, bonus);
 
-          const { availableCount: mergedAvailable, unknownCount: mergedUnknown } = countAvail(merged);
+          const { availableCount: mergedAvailable, rosteredCount: mergedRostered, unknownCount: mergedUnknown } = countAvail(merged);
 
           setRawPlayers(merged);
           setBonusStats(mergedBonus);
@@ -906,26 +917,23 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           });
           
           const statsSuffix = missingStatsCount > 0 ? ` (${missingStatsCount} missing stats)` : '';
+          const availDesc = mergedAvailable > 0 
+            ? `${mergedAvailable} available` 
+            : mergedRostered > 0 
+              ? `${mergedRostered} rostered` 
+              : `${merged.length} players`;
           toast({
             title: `Page ${pageNum} imported`,
-            description: `Added ${newCount} new (${dupCount} dupes). Total: ${merged.length} unique (${mergedAvailable} available).${statsSuffix}`,
+            description: `Added ${newCount} new (${dupCount} dupes). Total: ${merged.length} unique (${availDesc}).${statsSuffix}`,
           });
           
           // Clear textarea for next paste
           setRawData("");
         } else {
           // First paste or fresh import
-          const { availableCount: firstAvailable, unknownCount: firstUnknown } = countAvail(players);
+          const { availableCount: firstAvailable, rosteredCount: firstRostered, unknownCount: firstUnknown } = countAvail(players);
 
-          if (firstAvailable === 0) {
-            toast({
-              title: "No available players detected",
-              description: `Parsed ${players.length} rows but found 0 marked FA/WA. Make sure ESPN is set to Free Agents / Available, then copy again.`,
-              variant: "destructive",
-            });
-            return;
-          }
-
+          // Import regardless of availability - just proceed with analysis
           setRawPlayers(players);
           setBonusStats(bonus);
           
@@ -943,9 +951,14 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
             });
 
             const statsSuffix = missingStatsCount > 0 ? ` (${missingStatsCount} missing stats)` : '';
+            const availDesc = firstAvailable > 0 
+              ? `${firstAvailable} available` 
+              : firstRostered > 0 
+                ? `${firstRostered} rostered — All Players list detected` 
+                : `${players.length} players`;
             toast({
               title: "Page 1 imported",
-              description: `Loaded ${players.length} players (${firstAvailable} available). Paste page 2 to continue.${statsSuffix}`,
+              description: `Loaded ${players.length} players (${availDesc}). Paste page 2 to continue.${statsSuffix}`,
             });
 
             // Clear textarea for next paste
@@ -959,10 +972,20 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
               ? " (Pagination detected — enable Multi-page Free Agents Import in Settings to merge pages.)"
               : "";
             const statsSuffix = missingStatsCount > 0 ? ` ⚠️ ${missingStatsCount} players missing stats.` : '';
+            
+            // Build availability description
+            let availDesc = '';
+            if (firstAvailable > 0) {
+              availDesc = `${firstAvailable} available`;
+            } else if (firstRostered > 0) {
+              availDesc = `0 available, ${firstRostered} rostered — this looks like an All Players list. We'll still analyze them.`;
+            } else {
+              availDesc = `${players.length} players`;
+            }
 
             toast({
               title: debug.isComplete ? "Success!" : "Partial import",
-              description: `Loaded ${players.length} players (${firstAvailable} available)${window ? ` (${window})` : ''}${suffix}${statsSuffix}`,
+              description: `Imported ${players.length} players. ${availDesc}${window ? ` (${window})` : ''}${suffix}${statsSuffix}`,
               variant: debug.isComplete ? "default" : "destructive",
             });
           }
@@ -2151,8 +2174,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                           {(player as any).availability === 'WA' && (
                             <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-blue-500/20 text-blue-400 border-blue-500/30">WA</Badge>
                           )}
-                          {(player as any).availability === 'UNK' && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-muted-foreground border-muted-foreground/30">Rostered</Badge>
+                          {(player as any).availability === 'rostered' && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-amber-400 border-amber-500/30">
+                              {(player as any).ownedBy ? `${(player as any).ownedBy}` : 'Rostered'}
+                            </Badge>
+                          )}
+                          {(player as any).availability === 'unknown' && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-muted-foreground border-muted-foreground/30">?</Badge>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">
