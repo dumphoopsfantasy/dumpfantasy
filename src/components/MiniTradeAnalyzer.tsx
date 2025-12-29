@@ -154,6 +154,7 @@ export const MiniTradeAnalyzer = ({
   const [selectedTeamA, setSelectedTeamA] = useState<string>("");
   const [selectedTeamB, setSelectedTeamB] = useState<string>("");
   const [showHelp, setShowHelp] = useState(false);
+  const [playerTeamFilter, setPlayerTeamFilter] = useState<string>("all");
   
   // Winner mode with localStorage persistence
   const [winnerMode, setWinnerMode] = useState<WinnerMode>(() => {
@@ -187,13 +188,32 @@ export const MiniTradeAnalyzer = ({
     return 1;
   }, [sideA.players.length, sideB.players.length, selectedPlayers.length]);
 
-  // Get unassigned players
+  // Get unique owner keys from selected players
+  const availableOwnerKeys = useMemo(() => {
+    const keys = new Set<string>();
+    selectedPlayers.forEach(p => {
+      const ownerKey = (p as any).ownerKey;
+      if (ownerKey) keys.add(ownerKey);
+    });
+    return Array.from(keys).sort();
+  }, [selectedPlayers]);
+
+  // Get unassigned players (with team filter applied)
   const unassignedPlayers = useMemo(() => {
-    return selectedPlayers.filter(p => 
-      !sideA.players.some(sp => sp.id === p.id) && 
-      !sideB.players.some(sp => sp.id === p.id)
-    );
-  }, [selectedPlayers, sideA.players, sideB.players]);
+    return selectedPlayers.filter(p => {
+      // Check if not already assigned to a side
+      if (sideA.players.some(sp => sp.id === p.id) || sideB.players.some(sp => sp.id === p.id)) {
+        return false;
+      }
+      // Apply team filter
+      if (playerTeamFilter !== "all") {
+        const ownerKey = (p as any).ownerKey || 'FA';
+        if (playerTeamFilter === "FA" && ownerKey !== 'FA') return false;
+        if (playerTeamFilter !== "FA" && ownerKey !== playerTeamFilter) return false;
+      }
+      return true;
+    });
+  }, [selectedPlayers, sideA.players, sideB.players, playerTeamFilter]);
 
   const handleDragStart = useCallback((e: React.DragEvent, player: Player) => {
     setDraggedPlayer(player);
@@ -522,16 +542,33 @@ export const MiniTradeAnalyzer = ({
         <div className="space-y-4">
           {/* Unassigned Players Bucket */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <h4 className="text-sm font-semibold text-muted-foreground">
                 Unassigned ({unassignedPlayers.length})
               </h4>
-              {(selectedPlayers.length > 0 || hasPlayers) && (
-                <Button variant="ghost" size="sm" onClick={handleReset} className="h-6 text-xs gap-1">
-                  <RotateCcw className="w-3 h-3" />
-                  Reset
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Team Filter Dropdown */}
+                {availableOwnerKeys.length > 0 && (
+                  <Select value={playerTeamFilter} onValueChange={setPlayerTeamFilter}>
+                    <SelectTrigger className="w-[90px] h-6 text-[10px]">
+                      <SelectValue placeholder="Team" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" className="text-xs">All Teams</SelectItem>
+                      <SelectItem value="FA" className="text-xs">FA Only</SelectItem>
+                      {availableOwnerKeys.filter(k => k !== 'FA').map(key => (
+                        <SelectItem key={key} value={key} className="text-xs">{key}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {(selectedPlayers.length > 0 || hasPlayers) && (
+                  <Button variant="ghost" size="sm" onClick={handleReset} className="h-6 text-xs gap-1">
+                    <RotateCcw className="w-3 h-3" />
+                    Reset
+                  </Button>
+                )}
+              </div>
             </div>
             
             {unassignedPlayers.length === 0 && selectedPlayers.length === 0 ? (
