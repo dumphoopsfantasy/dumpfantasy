@@ -250,6 +250,36 @@ export const MiniTradeAnalyzer = ({
     return 'tie';
   }, [sideA.players.length, sideB.players.length, winsA, winsB]);
 
+  // Calculate combined CRI for each side
+  const sideACRI = useMemo(() => {
+    return sideA.players.reduce((sum, p) => sum + (p.cri || 0), 0);
+  }, [sideA.players]);
+
+  const sideBCRI = useMemo(() => {
+    return sideB.players.reduce((sum, p) => sum + (p.cri || 0), 0);
+  }, [sideB.players]);
+
+  // Calculate trade confidence percentage
+  // Based on: category win margin (60%) + CRI differential (40%)
+  const tradeConfidence = useMemo(() => {
+    if (sideA.players.length === 0 || sideB.players.length === 0) return null;
+    
+    const totalCats = 9;
+    const catMargin = (winsA - winsB) / totalCats; // -1 to 1 range
+    
+    const totalCRI = sideACRI + sideBCRI;
+    const criMargin = totalCRI > 0 ? (sideACRI - sideBCRI) / totalCRI : 0; // -1 to 1 range
+    
+    // Combined score: positive = Side A favored, negative = Side B favored
+    const combinedScore = (catMargin * 0.6) + (criMargin * 0.4);
+    
+    // Convert to 50-100% confidence for the winning side
+    const confidence = Math.round(50 + Math.abs(combinedScore) * 50);
+    const favoredSide = combinedScore > 0 ? 'A' : combinedScore < 0 ? 'B' : null;
+    
+    return { confidence, favoredSide };
+  }, [sideA.players.length, sideB.players.length, winsA, winsB, sideACRI, sideBCRI]);
+
   // Get close/coin-flip categories and big swings
   const closeCats = categoryComparisons.filter(c => c.isClose && c.winner !== 'tie').map(c => c.label);
   const bigSwings = categoryComparisons
@@ -384,19 +414,26 @@ export const MiniTradeAnalyzer = ({
                   Drag here or click A on a player
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-1">
-                  {sideA.players.map(player => (
-                    <div key={player.id} className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/20 border border-blue-500/40 text-xs">
-                      <span className="font-medium">{player.name.split(' ').pop()}</span>
-                      <span className="text-[10px] text-blue-300">{player.positions[0]}</span>
-                      <button
-                        onClick={() => removeFromSide(player.id, 'A')}
-                        className="ml-1 hover:text-destructive"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap gap-1">
+                    {sideA.players.map(player => (
+                      <div key={player.id} className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/20 border border-blue-500/40 text-xs">
+                        <span className="font-medium">{player.name.split(' ').pop()}</span>
+                        <span className="text-[10px] text-blue-300">{player.positions[0]}</span>
+                        <button
+                          onClick={() => removeFromSide(player.id, 'A')}
+                          className="ml-1 hover:text-destructive"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {sideACRI > 0 && (
+                    <div className="text-[10px] text-blue-300 mt-1">
+                      Combined CRI: <span className="font-bold">{sideACRI.toFixed(1)}</span>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
@@ -433,19 +470,26 @@ export const MiniTradeAnalyzer = ({
                   Drag here or click B on a player
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-1">
-                  {sideB.players.map(player => (
-                    <div key={player.id} className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/20 border border-orange-500/40 text-xs">
-                      <span className="font-medium">{player.name.split(' ').pop()}</span>
-                      <span className="text-[10px] text-orange-300">{player.positions[0]}</span>
-                      <button
-                        onClick={() => removeFromSide(player.id, 'B')}
-                        className="ml-1 hover:text-destructive"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap gap-1">
+                    {sideB.players.map(player => (
+                      <div key={player.id} className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/20 border border-orange-500/40 text-xs">
+                        <span className="font-medium">{player.name.split(' ').pop()}</span>
+                        <span className="text-[10px] text-orange-300">{player.positions[0]}</span>
+                        <button
+                          onClick={() => removeFromSide(player.id, 'B')}
+                          className="ml-1 hover:text-destructive"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {sideBCRI > 0 && (
+                    <div className="text-[10px] text-orange-300 mt-1">
+                      Combined CRI: <span className="font-bold">{sideBCRI.toFixed(1)}</span>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
@@ -536,6 +580,55 @@ export const MiniTradeAnalyzer = ({
                   }
                   <span className="text-muted-foreground text-xs ml-1">(W-L-T)</span>
                 </p>
+                
+                {/* Trade Confidence */}
+                {tradeConfidence && tradeConfidence.favoredSide && (
+                  <div className="mt-2 flex items-center justify-center gap-2">
+                    <Badge 
+                      variant="outline" 
+                      className={cn(
+                        "text-sm font-bold px-3 py-1",
+                        tradeConfidence.favoredSide === 'A' 
+                          ? "border-blue-500 text-blue-400 bg-blue-500/10" 
+                          : "border-orange-500 text-orange-400 bg-orange-500/10"
+                      )}
+                    >
+                      {tradeConfidence.confidence}% confidence
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      Side {tradeConfidence.favoredSide} wins this trade
+                    </span>
+                  </div>
+                )}
+                {tradeConfidence && !tradeConfidence.favoredSide && (
+                  <div className="mt-2">
+                    <Badge variant="outline" className="text-sm font-bold px-3 py-1 border-muted-foreground text-muted-foreground">
+                      50% — Too close to call
+                    </Badge>
+                  </div>
+                )}
+                
+                {/* CRI Comparison */}
+                {(sideACRI > 0 || sideBCRI > 0) && (
+                  <div className="mt-2 text-xs">
+                    <span className="text-muted-foreground">CRI: </span>
+                    <span className={cn("font-mono", sideACRI > sideBCRI ? "text-blue-400 font-bold" : "text-muted-foreground")}>
+                      {sideACRI.toFixed(1)}
+                    </span>
+                    <span className="text-muted-foreground mx-1">vs</span>
+                    <span className={cn("font-mono", sideBCRI > sideACRI ? "text-orange-400 font-bold" : "text-muted-foreground")}>
+                      {sideBCRI.toFixed(1)}
+                    </span>
+                    {sideACRI !== sideBCRI && (
+                      <span className={cn(
+                        "ml-2",
+                        sideACRI > sideBCRI ? "text-blue-400" : "text-orange-400"
+                      )}>
+                        ({sideACRI > sideBCRI ? 'A' : 'B'} +{Math.abs(sideACRI - sideBCRI).toFixed(1)})
+                      </span>
+                    )}
+                  </div>
+                )}
                 
                 {/* Insights */}
                 <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
