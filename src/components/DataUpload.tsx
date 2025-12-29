@@ -67,6 +67,8 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
     }
     
     const playerInfos: PlayerInfo[] = [];
+    // Track if we've encountered an Empty slot (to account for it in stats matching)
+    let emptySlotCount = 0;
     let currentSlot = '';
     const loopGuard = createLoopGuard();
     
@@ -80,6 +82,13 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       // Check for slot
       if (slotPatterns.includes(line)) {
         currentSlot = line;
+        continue;
+      }
+      
+      // Check for "Empty" slot (ESPN shows empty roster slots)
+      if (line === 'Empty') {
+        emptySlotCount++;
+        devLog(`Found Empty slot #${emptySlotCount}`);
         continue;
       }
       
@@ -230,50 +239,77 @@ export const DataUpload = ({ onDataParsed }: DataUploadProps) => {
       statsData.push(numericSlice);
     }
 
-    devLog(`Built ${statsData.length} stat rows`);
+    devLog(`Built ${statsData.length} stat rows, emptySlotCount=${emptySlotCount}`);
 
     // Match players with stats
-    const maxLen = Math.min(playerInfos.length, statsData.length);
+    // ESPN stats section includes rows for Empty slots too (all "--")
+    // We need to account for empty slots when matching stats to players
+    // Stats row order: [player1, player2, ..., empty_slot (if any), ..., ir_players]
     
-    for (let i = 0; i < maxLen; i++) {
+    // Strategy: Match stats by index, but skip stats rows that are all zeros 
+    // AND correspond to empty slots (appear between bench and IR)
+    
+    // First, identify if there are more stat rows than players (due to Empty slots)
+    const expectedStatRows = playerInfos.length + emptySlotCount;
+    devLog(`Expected ${expectedStatRows} stat rows (${playerInfos.length} players + ${emptySlotCount} empty)`);
+    
+    // Build a mapping: for each player, find their corresponding stat row
+    // Players before empty slots get their direct index
+    // Players after empty slots need to account for the empty slot rows
+    
+    // Find where IR players start in playerInfos
+    const irStartIndex = playerInfos.findIndex(p => p.slot === 'IR');
+    
+    for (let i = 0; i < playerInfos.length; i++) {
       const p = playerInfos[i];
-      const stats = statsData[i];
       
-      result.push({
-        slot: p.slot,
-        player: p.name,
-        team: p.team,
-        position: p.position,
-        opponent: p.opponent || '',
-        status: p.status,
-        minutes: stats[0] || 0,
-        fgPct: stats[2] || 0,
-        ftPct: stats[4] || 0,
-        threepm: stats[5] || 0,
-        rebounds: stats[6] || 0,
-        assists: stats[7] || 0,
-        steals: stats[8] || 0,
-        blocks: stats[9] || 0,
-        turnovers: stats[10] || 0,
-        points: stats[11] || 0,
-      });
+      // Calculate the stats index - if this player is at or after IR, add empty slot offset
+      let statsIndex = i;
+      if (emptySlotCount > 0 && irStartIndex !== -1 && i >= irStartIndex) {
+        // IR players' stats come after the empty slot rows in ESPN
+        statsIndex = i + emptySlotCount;
+      } else if (emptySlotCount > 0 && irStartIndex === -1) {
+        // No IR players, empty slots at the end - no adjustment needed
+        statsIndex = i;
+      }
+      
+      const stats = statsData[statsIndex];
+      
+      if (stats) {
+        result.push({
+          slot: p.slot,
+          player: p.name,
+          team: p.team,
+          position: p.position,
+          opponent: p.opponent || '',
+          status: p.status,
+          minutes: stats[0] || 0,
+          fgPct: stats[2] || 0,
+          ftPct: stats[4] || 0,
+          threepm: stats[5] || 0,
+          rebounds: stats[6] || 0,
+          assists: stats[7] || 0,
+          steals: stats[8] || 0,
+          blocks: stats[9] || 0,
+          turnovers: stats[10] || 0,
+          points: stats[11] || 0,
+        });
+      } else {
+        // No stats row for this player
+        result.push({
+          slot: p.slot,
+          player: p.name,
+          team: p.team,
+          position: p.position,
+          opponent: p.opponent || '',
+          status: p.status,
+          minutes: 0, fgPct: 0, ftPct: 0, threepm: 0,
+          rebounds: 0, assists: 0, steals: 0, blocks: 0,
+          turnovers: 0, points: 0
+        });
+      }
     }
 
-    // Add remaining players without stats
-    for (let i = maxLen; i < playerInfos.length; i++) {
-      const p = playerInfos[i];
-      result.push({
-        slot: p.slot,
-        player: p.name,
-        team: p.team,
-        position: p.position,
-        opponent: p.opponent || '',
-        status: p.status,
-        minutes: 0, fgPct: 0, ftPct: 0, threepm: 0,
-        rebounds: 0, assists: 0, steals: 0, blocks: 0,
-        turnovers: 0, points: 0
-      });
-    }
 
     devLog(`Returning ${result.length} complete player records`);
     return result;
