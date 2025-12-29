@@ -169,10 +169,16 @@ export const MiniTradeAnalyzer = ({
     let threepm = 0, rebounds = 0, assists = 0, steals = 0, blocks = 0, turnovers = 0, points = 0;
 
     players.forEach(p => {
-      totalFGM += p.fgm || 0;
-      totalFGA += p.fga || 0;
-      totalFTM += p.ftm || 0;
-      totalFTA += p.fta || 0;
+      // Use raw made/attempts if available, otherwise estimate from percentage
+      const fgm = p.fgm ?? (p.fgPct && p.fga ? p.fgPct * p.fga : 0);
+      const fga = p.fga ?? 0;
+      const ftm = p.ftm ?? (p.ftPct && p.fta ? p.ftPct * p.fta : 0);
+      const fta = p.fta ?? 0;
+      
+      totalFGM += fgm;
+      totalFGA += fga;
+      totalFTM += ftm;
+      totalFTA += fta;
       threepm += p.threepm || 0;
       rebounds += p.rebounds || 0;
       assists += p.assists || 0;
@@ -182,8 +188,9 @@ export const MiniTradeAnalyzer = ({
       points += p.points || 0;
     });
 
-    const fgPct = totalFGA >= 5 ? totalFGM / totalFGA : null;
-    const ftPct = totalFTA >= 5 ? totalFTM / totalFTA : null;
+    // Always calculate percentage if we have any attempts (no threshold)
+    const fgPct = totalFGA > 0 ? totalFGM / totalFGA : null;
+    const ftPct = totalFTA > 0 ? totalFTM / totalFTA : null;
 
     return { 
       fgPct, ftPct, threepm, rebounds, assists, steals, blocks, turnovers, points,
@@ -262,16 +269,15 @@ export const MiniTradeAnalyzer = ({
   const formatValue = (val: number | null, format: string, isValid?: boolean) => {
     if (val === null || isValid === false) return 'N/A';
     if (format === 'pct') {
-      return val > 0 ? `.${(val * 1000).toFixed(0).padStart(3, '0')}` : 'N/A';
+      return val > 0 ? `.${(val * 1000).toFixed(0).padStart(3, '0')}` : '.000';
     }
     return val.toFixed(1);
   };
 
-  const formatValueWithAttempts = (val: number | null, format: string, made: number, attempts: number) => {
-    if (format !== 'pct') return formatValue(val, format);
-    if (attempts < 5) return 'N/A';
-    const pctStr = val !== null ? `.${(val * 1000).toFixed(0).padStart(3, '0')}` : 'N/A';
-    return `${pctStr} (${made}/${attempts})`;
+  const formatPctWithAttempts = (val: number | null, made: number, attempts: number) => {
+    if (attempts === 0) return 'N/A';
+    const pctStr = val !== null && val > 0 ? `.${(val * 1000).toFixed(0).padStart(3, '0')}` : '.000';
+    return `${pctStr} (${Math.round(made)}/${Math.round(attempts)})`;
   };
 
   const hasPlayers = sideA.players.length > 0 || sideB.players.length > 0;
@@ -553,13 +559,20 @@ export const MiniTradeAnalyzer = ({
                   const total = (cat.aVal || 0) + (cat.bVal || 0);
                   const aPct = total > 0 ? ((cat.aVal || 0) / total) * 100 : 50;
                   
-                  // Format values with attempts for percentages
-                  const aDisplay = cat.format === 'pct' 
-                    ? formatValueWithAttempts(cat.aIsValid ? cat.aVal : null, cat.format, sideAStats.fgMade, cat.key === 'fgPct' ? sideAStats.fgAttempts : sideAStats.ftAttempts)
-                    : formatValue(cat.aVal, cat.format);
-                  const bDisplay = cat.format === 'pct'
-                    ? formatValueWithAttempts(cat.bIsValid ? cat.bVal : null, cat.format, sideBStats.fgMade, cat.key === 'fgPct' ? sideBStats.fgAttempts : sideBStats.ftAttempts)
-                    : formatValue(cat.bVal, cat.format);
+                  // Format values - use correct made/attempts for each percentage
+                  let aDisplay: string;
+                  let bDisplay: string;
+                  
+                  if (cat.key === 'fgPct') {
+                    aDisplay = formatPctWithAttempts(cat.aIsValid ? cat.aVal : null, sideAStats.fgMade, sideAStats.fgAttempts);
+                    bDisplay = formatPctWithAttempts(cat.bIsValid ? cat.bVal : null, sideBStats.fgMade, sideBStats.fgAttempts);
+                  } else if (cat.key === 'ftPct') {
+                    aDisplay = formatPctWithAttempts(cat.aIsValid ? cat.aVal : null, sideAStats.ftMade, sideAStats.ftAttempts);
+                    bDisplay = formatPctWithAttempts(cat.bIsValid ? cat.bVal : null, sideBStats.ftMade, sideBStats.ftAttempts);
+                  } else {
+                    aDisplay = formatValue(cat.aVal, cat.format);
+                    bDisplay = formatValue(cat.bVal, cat.format);
+                  }
                   
                   return (
                     <div key={cat.key} className="flex items-center gap-2 text-xs">
