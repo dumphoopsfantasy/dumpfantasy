@@ -259,6 +259,15 @@ export const MiniTradeAnalyzer = ({
     return sideB.players.reduce((sum, p) => sum + (p.cri || 0), 0);
   }, [sideB.players]);
 
+  // Calculate combined wCRI for each side
+  const sideAwCRI = useMemo(() => {
+    return sideA.players.reduce((sum, p) => sum + (p.wCri || 0), 0);
+  }, [sideA.players]);
+
+  const sideBwCRI = useMemo(() => {
+    return sideB.players.reduce((sum, p) => sum + (p.wCri || 0), 0);
+  }, [sideB.players]);
+
   // Calculate trade confidence percentage
   // Based on: category win margin (60%) + CRI differential (40%)
   const tradeConfidence = useMemo(() => {
@@ -429,9 +438,10 @@ export const MiniTradeAnalyzer = ({
                       </div>
                     ))}
                   </div>
-                  {sideACRI > 0 && (
-                    <div className="text-[10px] text-blue-300 mt-1">
-                      Combined CRI: <span className="font-bold">{sideACRI.toFixed(1)}</span>
+                  {(sideACRI > 0 || sideAwCRI > 0) && (
+                    <div className="text-[10px] text-blue-300 mt-1 flex gap-3">
+                      {sideACRI > 0 && <span>CRI: <span className="font-bold">{sideACRI.toFixed(1)}</span></span>}
+                      {sideAwCRI > 0 && <span>wCRI: <span className="font-bold">{sideAwCRI.toFixed(1)}</span></span>}
                     </div>
                   )}
                 </div>
@@ -485,9 +495,10 @@ export const MiniTradeAnalyzer = ({
                       </div>
                     ))}
                   </div>
-                  {sideBCRI > 0 && (
-                    <div className="text-[10px] text-orange-300 mt-1">
-                      Combined CRI: <span className="font-bold">{sideBCRI.toFixed(1)}</span>
+                  {(sideBCRI > 0 || sideBwCRI > 0) && (
+                    <div className="text-[10px] text-orange-300 mt-1 flex gap-3">
+                      {sideBCRI > 0 && <span>CRI: <span className="font-bold">{sideBCRI.toFixed(1)}</span></span>}
+                      {sideBwCRI > 0 && <span>wCRI: <span className="font-bold">{sideBwCRI.toFixed(1)}</span></span>}
                     </div>
                   )}
                 </div>
@@ -608,24 +619,48 @@ export const MiniTradeAnalyzer = ({
                   </div>
                 )}
                 
-                {/* CRI Comparison */}
-                {(sideACRI > 0 || sideBCRI > 0) && (
-                  <div className="mt-2 text-xs">
-                    <span className="text-muted-foreground">CRI: </span>
-                    <span className={cn("font-mono", sideACRI > sideBCRI ? "text-blue-400 font-bold" : "text-muted-foreground")}>
-                      {sideACRI.toFixed(1)}
-                    </span>
-                    <span className="text-muted-foreground mx-1">vs</span>
-                    <span className={cn("font-mono", sideBCRI > sideACRI ? "text-orange-400 font-bold" : "text-muted-foreground")}>
-                      {sideBCRI.toFixed(1)}
-                    </span>
-                    {sideACRI !== sideBCRI && (
-                      <span className={cn(
-                        "ml-2",
-                        sideACRI > sideBCRI ? "text-blue-400" : "text-orange-400"
-                      )}>
-                        ({sideACRI > sideBCRI ? 'A' : 'B'} +{Math.abs(sideACRI - sideBCRI).toFixed(1)})
-                      </span>
+                {/* CRI & wCRI Comparison */}
+                {(sideACRI > 0 || sideBCRI > 0 || sideAwCRI > 0 || sideBwCRI > 0) && (
+                  <div className="mt-2 flex flex-wrap justify-center gap-4 text-xs">
+                    {(sideACRI > 0 || sideBCRI > 0) && (
+                      <div>
+                        <span className="text-muted-foreground">CRI: </span>
+                        <span className={cn("font-mono", sideACRI > sideBCRI ? "text-blue-400 font-bold" : "text-muted-foreground")}>
+                          {sideACRI.toFixed(1)}
+                        </span>
+                        <span className="text-muted-foreground mx-1">vs</span>
+                        <span className={cn("font-mono", sideBCRI > sideACRI ? "text-orange-400 font-bold" : "text-muted-foreground")}>
+                          {sideBCRI.toFixed(1)}
+                        </span>
+                        {sideACRI !== sideBCRI && (
+                          <span className={cn(
+                            "ml-1",
+                            sideACRI > sideBCRI ? "text-blue-400" : "text-orange-400"
+                          )}>
+                            ({sideACRI > sideBCRI ? 'A' : 'B'} +{Math.abs(sideACRI - sideBCRI).toFixed(1)})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {(sideAwCRI > 0 || sideBwCRI > 0) && (
+                      <div>
+                        <span className="text-muted-foreground">wCRI: </span>
+                        <span className={cn("font-mono", sideAwCRI > sideBwCRI ? "text-blue-400 font-bold" : "text-muted-foreground")}>
+                          {sideAwCRI.toFixed(1)}
+                        </span>
+                        <span className="text-muted-foreground mx-1">vs</span>
+                        <span className={cn("font-mono", sideBwCRI > sideAwCRI ? "text-orange-400 font-bold" : "text-muted-foreground")}>
+                          {sideBwCRI.toFixed(1)}
+                        </span>
+                        {sideAwCRI !== sideBwCRI && (
+                          <span className={cn(
+                            "ml-1",
+                            sideAwCRI > sideBwCRI ? "text-blue-400" : "text-orange-400"
+                          )}>
+                            ({sideAwCRI > sideBwCRI ? 'A' : 'B'} +{Math.abs(sideAwCRI - sideBwCRI).toFixed(1)})
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
