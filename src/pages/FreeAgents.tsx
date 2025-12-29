@@ -1,17 +1,20 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Player } from "@/types/fantasy";
 import { LeagueTeam } from "@/types/league";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { FreeAgentImpactSheet } from "@/components/FreeAgentImpactSheet";
 import { MatchupNeedsPanel } from "@/components/MatchupNeedsPanel";
+import { MiniTradeAnalyzer } from "@/components/MiniTradeAnalyzer";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -105,10 +108,33 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [bestPickupsOpen, setBestPickupsOpen] = useState(true);
   const [tableOnlyMode, setTableOnlyMode] = useState(false);
   
+  // Trade Analyzer state
+  const [tradeAnalyzerMode, setTradeAnalyzerMode] = useState(false);
+  const [tradeSelectedPlayers, setTradeSelectedPlayers] = useState<FreeAgent[]>([]);
+  
   // Multi-paste import tracking
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isMultiPasteMode, setIsMultiPasteMode] = useState(false);
   const multiPageEnabled = !!multiPageImportEnabled;
+  
+  // Trade Analyzer handlers
+  const toggleTradeSelect = useCallback((player: FreeAgent) => {
+    setTradeSelectedPlayers(prev => {
+      const exists = prev.some(p => p.id === player.id);
+      if (exists) {
+        return prev.filter(p => p.id !== player.id);
+      }
+      return [...prev, player];
+    });
+  }, []);
+  
+  const removeFromTradeSelection = useCallback((playerId: string) => {
+    setTradeSelectedPlayers(prev => prev.filter(p => p.id !== playerId));
+  }, []);
+  
+  const clearTradeSelection = useCallback(() => {
+    setTradeSelectedPlayers([]);
+  }, []);
 
   useEffect(() => {
     if (!multiPageEnabled && isMultiPasteMode) {
@@ -1585,6 +1611,22 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         )}
       </div>
         <div className="flex items-center gap-3">
+          {/* Trade Analyzer Toggle */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border">
+            <Scale className="w-4 h-4 text-primary" />
+            <Label htmlFor="trade-analyzer" className="text-xs font-medium cursor-pointer">Trade Analyzer</Label>
+            <Switch
+              id="trade-analyzer"
+              checked={tradeAnalyzerMode}
+              onCheckedChange={(checked) => {
+                setTradeAnalyzerMode(checked);
+                if (!checked) {
+                  setTradeSelectedPlayers([]);
+                }
+              }}
+            />
+          </div>
+          
           {/* View Mode Toggle */}
           <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1">
             <Button
@@ -2094,12 +2136,37 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Collapsible>
       )}
 
+      {/* Mini Trade Analyzer */}
+      {tradeAnalyzerMode && (
+        <MiniTradeAnalyzer
+          selectedPlayers={tradeSelectedPlayers}
+          onRemoveFromSelection={removeFromTradeSelection}
+          onClearSelection={clearTradeSelection}
+          leagueTeams={leagueTeams}
+          currentRoster={currentRoster}
+        />
+      )}
+
        {/* Stats Table */}
       <Card className="gradient-card border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-accent/20">
+                {tradeAnalyzerMode && (
+                  <th className="text-center p-2 w-10">
+                    <Checkbox
+                      checked={tradeSelectedPlayers.length > 0 && tradeSelectedPlayers.length === filteredPlayers.length}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setTradeSelectedPlayers(filteredPlayers);
+                        } else {
+                          setTradeSelectedPlayers([]);
+                        }
+                      }}
+                    />
+                  </th>
+                )}
                 <th className="text-left p-3 font-display">#</th>
                 <th className="text-left p-3 font-display min-w-[180px]">Player</th>
                 <th className="text-center p-2 font-display">OPP</th>
@@ -2153,12 +2220,31 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </tr>
             </thead>
             <tbody>
-              {filteredPlayers.map((player, idx) => (
+              {filteredPlayers.map((player, idx) => {
+                const isSelected = tradeSelectedPlayers.some(p => p.id === player.id);
+                return (
                 <tr 
                   key={player.id} 
-                  className="border-b border-border/50 hover:bg-muted/30 cursor-pointer"
-                  onClick={() => setSelectedPlayer(player)}
+                  className={cn(
+                    "border-b border-border/50 hover:bg-muted/30 cursor-pointer",
+                    tradeAnalyzerMode && isSelected && "bg-primary/10"
+                  )}
+                  onClick={() => {
+                    if (tradeAnalyzerMode) {
+                      toggleTradeSelect(player);
+                    } else {
+                      setSelectedPlayer(player);
+                    }
+                  }}
                 >
+                  {tradeAnalyzerMode && (
+                    <td className="text-center p-2" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleTradeSelect(player)}
+                      />
+                    </td>
+                  )}
                   <td className="p-2 font-bold text-primary">{idx + 1}</td>
                   <td className="p-2">
                     <div className="flex items-center gap-2">
@@ -2296,7 +2382,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     </>
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
