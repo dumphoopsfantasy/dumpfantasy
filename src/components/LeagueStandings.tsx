@@ -499,10 +499,6 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
   };
 
   const handleReset = useCallback(() => {
-    if (!window.confirm("Reset all standings and schedule forecast data? This will clear imported standings, schedule, team mappings, and forecast settings.")) {
-      return;
-    }
-    
     setIsResetting(true);
     
     // Yield to UI thread before heavy work
@@ -522,11 +518,6 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
           setRawTeams([]);
           setRawData("");
           if (onTeamsChange) onTeamsChange([]);
-        });
-        
-        toast({
-          title: "Standings reset",
-          description: "All standings and schedule data has been cleared.",
         });
         
         setIsResetting(false);
