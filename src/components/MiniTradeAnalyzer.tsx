@@ -218,6 +218,7 @@ export const MiniTradeAnalyzer = ({
       let winner: 'A' | 'B' | 'tie' = 'tie';
       let delta = 0;
       
+      // Only compare if BOTH sides have valid data; otherwise treat as neutral tie
       if (aIsValid && bIsValid) {
         delta = aNum - bNum;
         if (isLowerBetter) {
@@ -227,11 +228,8 @@ export const MiniTradeAnalyzer = ({
           if (aNum > bNum) winner = 'A';
           else if (bNum > aNum) winner = 'B';
         }
-      } else if (aIsValid && !bIsValid) {
-        winner = isLowerBetter ? 'B' : 'A';
-      } else if (!aIsValid && bIsValid) {
-        winner = isLowerBetter ? 'A' : 'B';
       }
+      // If either side lacks data (FG%/FT% with no attempts), it's a tie (neutral)
       
       // Determine if it's a "close" category (delta within 10% of average)
       const avg = (Math.abs(aNum) + Math.abs(bNum)) / 2;
@@ -267,16 +265,17 @@ export const MiniTradeAnalyzer = ({
     }));
 
   const formatValue = (val: number | null, format: string, isValid?: boolean) => {
-    if (val === null || isValid === false) return 'N/A';
+    if (val === null || isValid === false) return '—';
     if (format === 'pct') {
-      return val > 0 ? `.${(val * 1000).toFixed(0).padStart(3, '0')}` : '.000';
+      // Display as percentage (e.g., 47.4%)
+      return val > 0 ? `${(val * 100).toFixed(1)}%` : '0.0%';
     }
     return val.toFixed(1);
   };
 
   const formatPctWithAttempts = (val: number | null, made: number, attempts: number) => {
-    if (attempts === 0) return 'N/A';
-    const pctStr = val !== null && val > 0 ? `.${(val * 1000).toFixed(0).padStart(3, '0')}` : '.000';
+    if (attempts === 0) return '—';
+    const pctStr = val !== null && val > 0 ? `${(val * 100).toFixed(1)}%` : '0.0%';
     return `${pctStr} (${Math.round(made)}/${Math.round(attempts)})`;
   };
 
