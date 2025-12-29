@@ -87,7 +87,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
   const [search, setSearch] = useState("");
-  const [availabilityFilter, setAvailabilityFilter] = useState<"available" | "all">("all");
+  const [onlyAvailableFilter, setOnlyAvailableFilter] = useState(false);
+  const [ownerFilter, setOwnerFilter] = useState<string>("all");
   const [positionFilter, setPositionFilter] = useState<string>("all");
   const [scheduleFilter, setScheduleFilter] = useState<string>("all");
   const [healthFilter, setHealthFilter] = useState<string>("all");
@@ -176,7 +177,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   };
 
   type Availability = "FA" | "WA" | "rostered" | "unknown";
-  type ImportedFreeAgent = Player & { availability?: Availability; ownedBy?: string };
+  type OwnerStatus = "FA" | "ROSTERED";
+  type ImportedFreeAgent = Player & { availability?: Availability; ownedBy?: string; ownerKey?: string; ownerStatus?: OwnerStatus };
 
   const normalizeKey = (s: string) =>
     s
@@ -184,6 +186,48 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       .replace(/[^a-z0-9]+/g, " ")
       .trim()
       .replace(/\s+/g, " ");
+
+  // Normalize owner type to ownerKey - maps FA/WA/empty/--/AVAILABLE to 'FA'
+  const normalizeOwnerType = (type: string | undefined): { ownerKey: string; ownerStatus: OwnerStatus } => {
+    if (!type) return { ownerKey: 'FA', ownerStatus: 'FA' };
+    const normalized = type.trim().toUpperCase();
+    if (['', '--', 'FA', 'WA', 'WAIVERS', 'AVAILABLE', 'FREE AGENT'].includes(normalized)) {
+      return { ownerKey: 'FA', ownerStatus: 'FA' };
+    }
+    // It's a team key (rostered player)
+    return { ownerKey: normalized, ownerStatus: 'ROSTERED' };
+  };
+
+  // Build team key lookup from league standings
+  const leagueTeamKeys = useMemo(() => {
+    const keys = new Map<string, { name: string; manager?: string }>();
+    leagueTeams.forEach(team => {
+      // Extract abbreviation from team name if available, or create one
+      const name = team.name;
+      const manager = team.manager;
+      
+      // Try to find abbreviation patterns in data (e.g., "(SAS)" or manager-based keys)
+      // For now, use normalized team name as key and manager name as secondary
+      const teamKey = name.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 6);
+      keys.set(teamKey, { name, manager });
+      
+      // Also add manager-based key
+      if (manager) {
+        const managerKey = manager.split(' ')[0].toUpperCase().substring(0, 6);
+        if (!keys.has(managerKey)) {
+          keys.set(managerKey, { name, manager });
+        }
+      }
+    });
+    return keys;
+  }, [leagueTeams]);
+
+  // Get team name from owner key
+  const getTeamNameFromOwnerKey = (ownerKey: string): string | null => {
+    if (ownerKey === 'FA') return null;
+    const team = leagueTeamKeys.get(ownerKey);
+    return team?.name || null;
+  };
 
   const makeFallbackId = (name: string, team: string, positions: string[]) =>
     `fa:${normalizeKey(name).replace(/\s/g, "_")}:${team.toLowerCase()}:${positions.join("-").toLowerCase()}`;
@@ -663,12 +707,20 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         playersMissingStats.push(p.name);
       }
 
+      // Compute ownerKey and ownerStatus
+      const { ownerKey, ownerStatus } = normalizeOwnerType(p.ownedBy || (p.availability === 'rostered' ? p.ownedBy : undefined));
+      const finalOwnerKey = p.availability === 'FA' || p.availability === 'WA' ? 'FA' : ownerKey;
+      const finalOwnerStatus = p.availability === 'FA' || p.availability === 'WA' ? 'FA' as OwnerStatus : ownerStatus;
+
       players.push({
         id,
         name: p.name,
         nbaTeam: p.team,
         positions: p.positions,
         availability: p.availability ?? "UNK",
+        ownedBy: p.ownedBy,
+        ownerKey: finalOwnerKey,
+        ownerStatus: finalOwnerStatus,
         status: p.status as any,
         opponent: p.opponent,
         gameTime: p.gameTime,
@@ -1114,9 +1166,18 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const filteredPlayers = useMemo(() => {
     let result = playersWithRanks;
 
-    // Availability filter (default: pickup-eligible only)
-    if (availabilityFilter === "available") {
+    // Only Available filter - show only FA/WA players
+    if (onlyAvailableFilter) {
       result = result.filter(p => (p as any).availability === 'FA' || (p as any).availability === 'WA');
+    }
+    
+    // Owner filter
+    if (ownerFilter !== "all") {
+      if (ownerFilter === "FA") {
+        result = result.filter(p => (p as any).ownerKey === 'FA' || !(p as any).ownerKey);
+      } else {
+        result = result.filter(p => (p as any).ownerKey === ownerFilter);
+      }
     }
 
     if (search) {
@@ -1183,7 +1244,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     });
     
     return sorted;
-  }, [playersWithRanks, availabilityFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories]);
+  }, [playersWithRanks, onlyAvailableFilter, ownerFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories, statsFilter]);
 
   // Pagination computed values - show all players on one page when multi-page import is enabled
   const totalCount = filteredPlayers.length;
@@ -1201,7 +1262,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, availabilityFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc]);
+  }, [search, onlyAvailableFilter, ownerFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -1826,26 +1887,39 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       {/* Filters - simplified in trade analyzer mode */}
       <Card className="gradient-card border-border p-4">
         <div className="flex flex-col md:flex-row gap-4">
-          {/* Available/All toggle - hidden in trade mode (defaults to All) */}
+          {/* Only Available checkbox + Owner dropdown - hidden in trade mode */}
           {!tradeAnalyzerMode && (
-            <div className="flex items-center gap-1 bg-secondary/30 rounded-lg p-1 w-fit">
-              <Button
-                variant={availabilityFilter === "available" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setAvailabilityFilter("available")}
-                className="h-8 px-3"
-              >
-                Available
-              </Button>
-              <Button
-                variant={availabilityFilter === "all" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setAvailabilityFilter("all")}
-                className="h-8 px-3"
-              >
-                All Players
-              </Button>
-            </div>
+            <>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border h-10">
+                <Checkbox
+                  id="only-available"
+                  checked={onlyAvailableFilter}
+                  onCheckedChange={(checked) => setOnlyAvailableFilter(!!checked)}
+                />
+                <Label htmlFor="only-available" className="text-xs font-medium cursor-pointer whitespace-nowrap">
+                  Only Available
+                </Label>
+              </div>
+              
+              <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+                <SelectTrigger className="w-full md:w-[150px]">
+                  <SelectValue placeholder="Owner" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Owners</SelectItem>
+                  <SelectItem value="FA">FA Only</SelectItem>
+                  {/* Dynamic owner options from parsed data */}
+                  {Array.from(new Set(rawPlayers.map(p => (p as any).ownerKey).filter((k: string) => k && k !== 'FA'))).map((ownerKey: string) => {
+                    const teamName = getTeamNameFromOwnerKey(ownerKey);
+                    return (
+                      <SelectItem key={ownerKey} value={ownerKey}>
+                        {teamName ? `${ownerKey} (${teamName})` : ownerKey}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </>
           )}
 
           <div className="relative flex-1">
@@ -2230,6 +2304,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 )}
                 <th className="text-left p-3 font-display">#</th>
                 <th className="text-left p-3 font-display min-w-[180px]">Player</th>
+                <th className="text-center p-2 font-display">Owner</th>
                 <th className="text-center p-2 font-display">OPP</th>
                 {viewMode === 'stats' && (
                   <>
@@ -2313,23 +2388,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       <PlayerPhoto name={player.name} size="sm" />
                       <NBATeamLogo teamCode={player.nbaTeam} size="sm" />
                       <div>
-                        <div className="font-semibold flex items-center gap-1.5">
+                        <div className="font-semibold">
                           {player.name}
-                          {/* Availability badge */}
-                          {(player as any).availability === 'FA' && (
-                            <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-green-500/20 text-green-400 border-green-500/30">FA</Badge>
-                          )}
-                          {(player as any).availability === 'WA' && (
-                            <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-blue-500/20 text-blue-400 border-blue-500/30">WA</Badge>
-                          )}
-                          {(player as any).availability === 'rostered' && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-amber-400 border-amber-500/30">
-                              {(player as any).ownedBy ? `${(player as any).ownedBy}` : 'Rostered'}
-                            </Badge>
-                          )}
-                          {(player as any).availability === 'unknown' && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-muted-foreground border-muted-foreground/30">?</Badge>
-                          )}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {player.nbaTeam} • {player.positions.join("/")}
@@ -2343,6 +2403,23 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                         </div>
                       </div>
                     </div>
+                  </td>
+                  {/* Owner column */}
+                  <td className="text-center p-2">
+                    {(player as any).ownerKey === 'FA' ? (
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0.5 bg-green-500/20 text-green-400 border-green-500/30">FA</Badge>
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 text-amber-400 border-amber-500/30">
+                          {(player as any).ownerKey}
+                        </Badge>
+                        {getTeamNameFromOwnerKey((player as any).ownerKey) && (
+                          <span className="text-[8px] text-muted-foreground mt-0.5 max-w-[80px] truncate">
+                            {getTeamNameFromOwnerKey((player as any).ownerKey)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="text-center p-2 text-xs">
                     {player.opponent ? (

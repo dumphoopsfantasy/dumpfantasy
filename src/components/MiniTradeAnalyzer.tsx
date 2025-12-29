@@ -553,6 +553,17 @@ export const MiniTradeAnalyzer = ({
                     className="flex items-center gap-1 px-2 py-1 rounded-md bg-muted/50 border border-border cursor-grab active:cursor-grabbing text-xs"
                   >
                     <span className="font-medium truncate max-w-[80px]">{player.name.split(' ').pop()}</span>
+                    {/* Owner tag */}
+                    {(player as any).ownerKey && (
+                      <span className={cn(
+                        "text-[8px] px-1 py-0 rounded",
+                        (player as any).ownerKey === 'FA' 
+                          ? "bg-green-500/20 text-green-400" 
+                          : "bg-amber-500/20 text-amber-400"
+                      )}>
+                        {(player as any).ownerKey}
+                      </span>
+                    )}
                     <div className="flex gap-0.5">
                       <button
                         onClick={() => addToSide(player, 'A')}
@@ -619,6 +630,17 @@ export const MiniTradeAnalyzer = ({
                       <div key={player.id} className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/20 border border-blue-500/40 text-xs">
                         <span className="font-medium">{player.name.split(' ').pop()}</span>
                         <span className="text-[10px] text-blue-300">{player.positions[0]}</span>
+                        {/* Owner tag */}
+                        {(player as any).ownerKey && (
+                          <span className={cn(
+                            "text-[8px] px-0.5 rounded",
+                            (player as any).ownerKey === 'FA' 
+                              ? "text-green-400" 
+                              : "text-amber-400"
+                          )}>
+                            {(player as any).ownerKey}
+                          </span>
+                        )}
                         <button
                           onClick={() => removeFromSide(player.id, 'A')}
                           className="ml-1 hover:text-destructive"
@@ -676,6 +698,17 @@ export const MiniTradeAnalyzer = ({
                       <div key={player.id} className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/20 border border-orange-500/40 text-xs">
                         <span className="font-medium">{player.name.split(' ').pop()}</span>
                         <span className="text-[10px] text-orange-300">{player.positions[0]}</span>
+                        {/* Owner tag */}
+                        {(player as any).ownerKey && (
+                          <span className={cn(
+                            "text-[8px] px-0.5 rounded",
+                            (player as any).ownerKey === 'FA' 
+                              ? "text-green-400" 
+                              : "text-amber-400"
+                          )}>
+                            {(player as any).ownerKey}
+                          </span>
+                        )}
                         <button
                           onClick={() => removeFromSide(player.id, 'B')}
                           className="ml-1 hover:text-destructive"
