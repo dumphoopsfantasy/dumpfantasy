@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Trophy, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Target, Calendar } from "lucide-react";
+import { Upload, Trophy, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Target, Calendar, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { LeagueTeam } from "@/types/league";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,7 @@ import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { ScheduleForecast } from "@/components/ScheduleForecast";
-
+import { executeHardReset } from "@/lib/standingsResetUtils";
 // Playoff Contenders Profile Component
 const PlayoffContendersProfile = ({ teams }: { teams: TeamWithCris[] }) => {
   if (teams.length < 6) return null;
@@ -272,6 +272,7 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
   const [useCris, setUseCris] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('originalRank');
   const [sortAsc, setSortAsc] = useState(true);
+  const [isResetting, setIsResetting] = useState(false);
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -496,11 +497,20 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     toast({ title: "Success!", description: `Loaded ${parsed.length} teams` });
   };
 
-  const handleReset = () => {
-    setRawTeams([]);
-    setRawData("");
-    if (onTeamsChange) onTeamsChange([]);
-  };
+  const handleReset = useCallback(() => {
+    if (!window.confirm("Reset all standings and schedule forecast data? This will clear imported standings, schedule, team mappings, and forecast settings.")) {
+      return;
+    }
+    
+    setIsResetting(true);
+    
+    executeHardReset(() => {
+      // Clear all in-memory state in one batch call
+      setRawTeams([]);
+      setRawData("");
+      if (onTeamsChange) onTeamsChange([]);
+    }, true); // Reload page for reliability
+  }, [onTeamsChange]);
 
   // Calculate CRIS for all teams
   const teams = useMemo((): TeamWithCris[] => {
@@ -698,9 +708,18 @@ The page should include the "Season Stats" section with team names, managers, an
           </TabsList>
           <CrisToggle useCris={useCris} onChange={setUseCris} />
           {activeTab === "standings" && (
-            <Button variant="outline" size="sm" onClick={handleReset}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              New Import
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleReset}
+              disabled={isResetting}
+            >
+              {isResetting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              {isResetting ? "Resetting..." : "New Import"}
             </Button>
           )}
         </div>
