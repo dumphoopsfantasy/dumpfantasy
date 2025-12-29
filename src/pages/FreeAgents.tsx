@@ -1185,13 +1185,18 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     return sorted;
   }, [playersWithRanks, availabilityFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories]);
 
-  // Pagination computed values
+  // Pagination computed values - show all players on one page when multi-page import is enabled
   const totalCount = filteredPlayers.length;
-  const totalPages = Math.ceil(totalCount / pageSize);
+  const effectivePageSize = multiPageEnabled ? totalCount : pageSize;
+  const totalPages = multiPageEnabled ? 1 : Math.ceil(totalCount / pageSize);
   const pagedPlayers = useMemo(() => {
+    if (multiPageEnabled) {
+      // Show all players on one page when multi-page import is enabled
+      return filteredPlayers;
+    }
     const start = (currentPage - 1) * pageSize;
     return filteredPlayers.slice(start, start + pageSize);
-  }, [filteredPlayers, currentPage, pageSize]);
+  }, [filteredPlayers, currentPage, pageSize, multiPageEnabled]);
 
   // Reset page when filters change
   useEffect(() => {
