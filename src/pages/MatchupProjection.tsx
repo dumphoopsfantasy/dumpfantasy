@@ -70,10 +70,21 @@ interface MatchupTeam extends TeamInfo {
   stats: TeamStats;
 }
 
+// Parse result with player counts for UI feedback
+interface ParseResult {
+  info: TeamInfo;
+  stats: TeamStats;
+  playerCount: number;
+  emptySlots: number;
+  playersWithMissingStats: number;
+}
+
 interface MatchupData {
   myTeam: MatchupTeam;
   opponent: MatchupTeam;
   opponentRoster?: RosterSlot[];
+  myParseInfo?: { playerCount: number; emptySlots: number; playersWithMissingStats: number };
+  oppParseInfo?: { playerCount: number; emptySlots: number; playersWithMissingStats: number };
 }
 
 interface WeeklyTeamStats {
@@ -672,7 +683,8 @@ export const MatchupProjection = ({
   };
 
   // Parse ESPN full page paste - extract team info and calculate averages from active players
-  const parseESPNTeamPage = (data: string): { info: TeamInfo; stats: TeamStats } | null => {
+  // Returns ParseResult with player counts for UI feedback
+  const parseESPNTeamPage = (data: string): ParseResult | null => {
     // Validate input
     validateParseInput(data);
     
@@ -884,6 +896,16 @@ export const MatchupProjection = ({
     const numStatRows = Math.floor(statTokens.length / COLS);
     devLog(`[parseESPNTeamPage] Expected rows: ${numStatRows} (${statTokens.length} tokens / ${COLS} cols)`);
     
+    // Count empty slots by looking for "Empty" in the text before stats
+    let emptySlots = 0;
+    const emptyPattern = /^Empty$/i;
+    for (const line of lines) {
+      if (emptyPattern.test(line)) {
+        emptySlots++;
+        devLog(`[parseESPNTeamPage] Found Empty slot`);
+      }
+    }
+    
     // Parse all player stats first
     interface PlayerParsedStats {
       row: number;
@@ -900,10 +922,12 @@ export const MatchupProjection = ({
       blocks: number;
       turnovers: number;
       points: number;
+      hasMissingStats: boolean;
     }
     
     const allPlayerStats: PlayerParsedStats[] = [];
     const seenRows = new Set<number>();
+    let playersWithMissingStats = 0;
     
     for (let i = 0; i < numStatRows; i++) {
       if (seenRows.has(i)) {
@@ -913,26 +937,38 @@ export const MatchupProjection = ({
       seenRows.add(i);
       
       const base = i * COLS;
+      let rowHasMissing = false;
+      
       const parseVal = (key: string): number => {
         const idx = indexMap[key];
         if (idx === undefined) return 0;
         const val = statTokens[base + idx];
-        if (!val || val === '--') return 0;
-        return parseFloat(val);
+        if (!val || val === '--') {
+          rowHasMissing = true;
+          return 0;
+        }
+        const parsed = parseFloat(val);
+        if (isNaN(parsed)) {
+          rowHasMissing = true;
+          return 0;
+        }
+        return parsed;
       };
 
       const min = parseVal('MIN');
-      // Sanity: MIN should be 0-48
-      if (!min || isNaN(min) || min === 0 || min > 48) {
-        if (min > 48) devWarn(`[parseESPNTeamPage] Row ${i}: MIN=${min} > 48, skipping`);
+      // Allow players with 0 MIN if they have other stats (partial data case)
+      // Only skip if MIN > 48 (invalid)
+      if (min > 48) {
+        devWarn(`[parseESPNTeamPage] Row ${i}: MIN=${min} > 48, skipping`);
         continue;
       }
-
+      
+      // Skip rows that are completely empty (all zeros/dashes)
+      // But keep rows with at least some valid data
       const fgm = parseVal('FGM');
       const fga = parseVal('FGA');
       const ftm = parseVal('FTM');
       const fta = parseVal('FTA');
-
       const threepm = parseVal('3PM');
       const rebounds = parseVal('REB');
       const assists = parseVal('AST');
@@ -941,7 +977,20 @@ export const MatchupProjection = ({
       const turnovers = parseVal('TO');
       const points = parseVal('PTS');
       
+      // Check if row has any meaningful data
+      const hasAnyData = min > 0 || fgm > 0 || fga > 0 || points > 0 || rebounds > 0 || assists > 0;
+      if (!hasAnyData) {
+        devLog(`[parseESPNTeamPage] Row ${i}: No meaningful data, skipping`);
+        continue;
+      }
+      
+      if (rowHasMissing) {
+        playersWithMissingStats++;
+        devLog(`[parseESPNTeamPage] Row ${i}: Has missing stats (--)`);
+      }
+      
       // Sanity: individual player stats should be reasonable (per-game averages)
+      // Log warnings but don't skip - allow partial data
       if (threepm > 8) devWarn(`[parseESPNTeamPage] Row ${i}: 3PM=${threepm} > 8 - suspicious`);
       if (blocks > 6) devWarn(`[parseESPNTeamPage] Row ${i}: BLK=${blocks} > 6 - suspicious`);
       if (points > 60) devWarn(`[parseESPNTeamPage] Row ${i}: PTS=${points} > 60 - suspicious`);
@@ -953,162 +1002,147 @@ export const MatchupProjection = ({
         min,
         fgm, fga, ftm, fta,
         threepm, rebounds, assists, steals, blocks, turnovers, points,
+        hasMissingStats: rowHasMissing,
       });
     }
     
-    devLog(`[parseESPNTeamPage] Total players parsed: ${allPlayerStats.length}`);
+    devLog(`[parseESPNTeamPage] Total players parsed: ${allPlayerStats.length}, empty slots: ${emptySlots}, with missing stats: ${playersWithMissingStats}`);
     devLog(`[parseESPNTeamPage] All player stats:`, allPlayerStats);
 
-    if (allPlayerStats.length > 0) {
-      // BASELINE DEFINITION:
-      // - Use first 8 players (starters: PG, SG, SF, PF, C, G, F/C, UTIL)
-      // - Compute MEAN of their per-game stats (not sum!)
-      // - Baseline = mean × 40
-      // 
-      // This simulates 40 "roster games" where each game slot gets the average production.
-      
-      const STARTER_COUNT = 8;
-      const starters = allPlayerStats.slice(0, STARTER_COUNT);
-      const starterCount = starters.length;
-      
-      devLog(`[parseESPNTeamPage] Using ${starterCount} STARTERS for baseline (first ${STARTER_COUNT} players):`);
-      devLog(`[parseESPNTeamPage] Starters:`, starters.map((p, i) => ({
-        slot: i,
-        tpm: p.threepm.toFixed(1),
-        reb: p.rebounds.toFixed(1),
-        ast: p.assists.toFixed(1),
-        stl: p.steals.toFixed(1),
-        blk: p.blocks.toFixed(1),
-        to: p.turnovers.toFixed(1),
-        pts: p.points.toFixed(1),
-        fgm: p.fgm.toFixed(1),
-        fga: p.fga.toFixed(1),
-      })));
-      
-      // Sum starters' stats
-      const starterSums = starters.reduce((acc, p) => ({
-        fgm: acc.fgm + p.fgm,
-        fga: acc.fga + p.fga,
-        ftm: acc.ftm + p.ftm,
-        fta: acc.fta + p.fta,
-        threepm: acc.threepm + p.threepm,
-        rebounds: acc.rebounds + p.rebounds,
-        assists: acc.assists + p.assists,
-        steals: acc.steals + p.steals,
-        blocks: acc.blocks + p.blocks,
-        turnovers: acc.turnovers + p.turnovers,
-        points: acc.points + p.points,
-      }), { fgm: 0, fga: 0, ftm: 0, fta: 0, threepm: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0 });
-      
-      devLog(`[parseESPNTeamPage] Starter sums:`, starterSums);
-      
-      // Compute MEAN (per roster-game average)
-      const meanStats = {
-        fgm: starterSums.fgm / starterCount,
-        fga: starterSums.fga / starterCount,
-        ftm: starterSums.ftm / starterCount,
-        fta: starterSums.fta / starterCount,
-        threepm: starterSums.threepm / starterCount,
-        rebounds: starterSums.rebounds / starterCount,
-        assists: starterSums.assists / starterCount,
-        steals: starterSums.steals / starterCount,
-        blocks: starterSums.blocks / starterCount,
-        turnovers: starterSums.turnovers / starterCount,
-        points: starterSums.points / starterCount,
-      };
-      
-      devLog(`[parseESPNTeamPage] MEAN per roster-game (sum / ${starterCount}):`, meanStats);
-      
-      // Sanity check: MEAN values should be within single-player bounds
-      if (meanStats.points > 60) {
-        throw new Error(`[SANITY FAIL] Mean PTS/roster-game = ${meanStats.points.toFixed(1)} > 60. This is impossible.`);
-      }
-      if (meanStats.blocks > 6) {
-        throw new Error(`[SANITY FAIL] Mean BLK/roster-game = ${meanStats.blocks.toFixed(1)} > 6. This is impossible.`);
-      }
-      if (meanStats.threepm > 8) {
-        devWarn(`[SANITY] Mean 3PM/roster-game = ${meanStats.threepm.toFixed(1)} > 8. High but possible.`);
-      }
-      
-      // TEAM COMPOSITE: the MEAN stats that will be multiplied by 40 in BaselinePacePanel
-      // FG%/FT% are attempt-weighted from the starters
-      const teamComposite = {
-        fgPct: starterSums.fga > 0 ? starterSums.fgm / starterSums.fga : 0,
-        ftPct: starterSums.fta > 0 ? starterSums.ftm / starterSums.fta : 0,
-        threepm: meanStats.threepm,
-        rebounds: meanStats.rebounds,
-        assists: meanStats.assists,
-        steals: meanStats.steals,
-        blocks: meanStats.blocks,
-        turnovers: meanStats.turnovers,
-        points: meanStats.points,
-      };
-      
-      devLog(`[parseESPNTeamPage] Team composite (MEAN per roster-game):`, teamComposite);
-      
-      // Compute expected baseline (×40) for verification
-      const expectedBaseline = {
-        threepm: Math.round(teamComposite.threepm * 40),
-        rebounds: Math.round(teamComposite.rebounds * 40),
-        assists: Math.round(teamComposite.assists * 40),
-        steals: Math.round(teamComposite.steals * 40),
-        blocks: Math.round(teamComposite.blocks * 40),
-        turnovers: Math.round(teamComposite.turnovers * 40),
-        points: Math.round(teamComposite.points * 40),
-      };
-      
-      devLog(`[parseESPNTeamPage] Expected Baseline (×40):`, expectedBaseline);
-      devLog(`[parseESPNTeamPage] FG% = ${(teamComposite.fgPct * 100).toFixed(1)}%, FT% = ${(teamComposite.ftPct * 100).toFixed(1)}%`);
-      
-      // Final sanity: baseline should be in realistic weekly ranges
-      const REALISTIC_WEEKLY_RANGES: Record<string, [number, number]> = {
-        threepm: [30, 150],
-        rebounds: [100, 350],
-        assists: [80, 250],
-        steals: [20, 80],
-        blocks: [10, 60],
-        turnovers: [40, 120],
-        points: [350, 1000],
-      };
-      
-      for (const [cat, [min, max]] of Object.entries(REALISTIC_WEEKLY_RANGES)) {
-        const val = expectedBaseline[cat as keyof typeof expectedBaseline];
-        if (val < min || val > max) {
-          devWarn(`[SANITY] Baseline ${cat} = ${val} outside typical range [${min}, ${max}]`);
-        }
-      }
-      
-      return {
-        info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
-        stats: teamComposite,
-      };
+    // Minimum viable parse: need at least 1 player with stats
+    if (allPlayerStats.length === 0) {
+      devWarn(`[parseESPNTeamPage] No players with valid stats found`);
+      return null;
     }
 
-    // Fallback: simple number extraction
-    const simpleNumbers: number[] = [];
-    for (const line of lines) {
-      const numMatch = line.match(/^([.\d]+)$/);
-      if (numMatch) simpleNumbers.push(parseFloat(numMatch[1]));
+    // BASELINE DEFINITION:
+    // - Use first 8 players (starters: PG, SG, SF, PF, C, G, F/C, UTIL) or all if fewer
+    // - Compute MEAN of their per-game stats (not sum!)
+    // - Baseline = mean × 40
+    // 
+    // This simulates 40 "roster games" where each game slot gets the average production.
+    
+    const STARTER_COUNT = 8;
+    const starters = allPlayerStats.slice(0, Math.min(STARTER_COUNT, allPlayerStats.length));
+    const starterCount = starters.length;
+    
+    devLog(`[parseESPNTeamPage] Using ${starterCount} STARTERS for baseline (first ${STARTER_COUNT} players):`);
+    devLog(`[parseESPNTeamPage] Starters:`, starters.map((p, i) => ({
+      slot: i,
+      tpm: p.threepm.toFixed(1),
+      reb: p.rebounds.toFixed(1),
+      ast: p.assists.toFixed(1),
+      stl: p.steals.toFixed(1),
+      blk: p.blocks.toFixed(1),
+      to: p.turnovers.toFixed(1),
+      pts: p.points.toFixed(1),
+      fgm: p.fgm.toFixed(1),
+      fga: p.fga.toFixed(1),
+      hasMissing: p.hasMissingStats,
+    })));
+    
+    // Sum starters' stats (ignoring null/missing - they're already 0)
+    const starterSums = starters.reduce((acc, p) => ({
+      fgm: acc.fgm + p.fgm,
+      fga: acc.fga + p.fga,
+      ftm: acc.ftm + p.ftm,
+      fta: acc.fta + p.fta,
+      threepm: acc.threepm + p.threepm,
+      rebounds: acc.rebounds + p.rebounds,
+      assists: acc.assists + p.assists,
+      steals: acc.steals + p.steals,
+      blocks: acc.blocks + p.blocks,
+      turnovers: acc.turnovers + p.turnovers,
+      points: acc.points + p.points,
+    }), { fgm: 0, fga: 0, ftm: 0, fta: 0, threepm: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0 });
+    
+    devLog(`[parseESPNTeamPage] Starter sums:`, starterSums);
+    
+    // Compute MEAN (per roster-game average)
+    const meanStats = {
+      fgm: starterSums.fgm / starterCount,
+      fga: starterSums.fga / starterCount,
+      ftm: starterSums.ftm / starterCount,
+      fta: starterSums.fta / starterCount,
+      threepm: starterSums.threepm / starterCount,
+      rebounds: starterSums.rebounds / starterCount,
+      assists: starterSums.assists / starterCount,
+      steals: starterSums.steals / starterCount,
+      blocks: starterSums.blocks / starterCount,
+      turnovers: starterSums.turnovers / starterCount,
+      points: starterSums.points / starterCount,
+    };
+    
+    devLog(`[parseESPNTeamPage] MEAN per roster-game (sum / ${starterCount}):`, meanStats);
+    
+    // Relaxed sanity checks - warn but don't throw for partial data scenarios
+    if (meanStats.points > 60) {
+      devWarn(`[SANITY] Mean PTS/roster-game = ${meanStats.points.toFixed(1)} > 60. Unusually high.`);
     }
-
-    if (simpleNumbers.length >= 9) {
-      return {
-        info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
-        stats: {
-          fgPct: simpleNumbers[0] < 1 ? simpleNumbers[0] : simpleNumbers[0] / 100,
-          ftPct: simpleNumbers[1] < 1 ? simpleNumbers[1] : simpleNumbers[1] / 100,
-          threepm: simpleNumbers[2],
-          rebounds: simpleNumbers[3],
-          assists: simpleNumbers[4],
-          steals: simpleNumbers[5],
-          blocks: simpleNumbers[6],
-          turnovers: simpleNumbers[7],
-          points: simpleNumbers[8],
-        },
-      };
+    if (meanStats.blocks > 6) {
+      devWarn(`[SANITY] Mean BLK/roster-game = ${meanStats.blocks.toFixed(1)} > 6. Unusually high.`);
     }
+    if (meanStats.threepm > 8) {
+      devWarn(`[SANITY] Mean 3PM/roster-game = ${meanStats.threepm.toFixed(1)} > 8. High but possible.`);
+    }
+    
+    // TEAM COMPOSITE: the MEAN stats that will be multiplied by 40 in BaselinePacePanel
+    // FG%/FT% are attempt-weighted from the starters
+    const teamComposite = {
+      fgPct: starterSums.fga > 0 ? starterSums.fgm / starterSums.fga : 0,
+      ftPct: starterSums.fta > 0 ? starterSums.ftm / starterSums.fta : 0,
+      threepm: meanStats.threepm,
+      rebounds: meanStats.rebounds,
+      assists: meanStats.assists,
+      steals: meanStats.steals,
+      blocks: meanStats.blocks,
+      turnovers: meanStats.turnovers,
+      points: meanStats.points,
+    };
+    
+    devLog(`[parseESPNTeamPage] Team composite (MEAN per roster-game):`, teamComposite);
+    
+    // Compute expected baseline (×40) for verification
+    const expectedBaseline = {
+      threepm: Math.round(teamComposite.threepm * 40),
+      rebounds: Math.round(teamComposite.rebounds * 40),
+      assists: Math.round(teamComposite.assists * 40),
+      steals: Math.round(teamComposite.steals * 40),
+      blocks: Math.round(teamComposite.blocks * 40),
+      turnovers: Math.round(teamComposite.turnovers * 40),
+      points: Math.round(teamComposite.points * 40),
+    };
+    
+    devLog(`[parseESPNTeamPage] Expected Baseline (×40):`, expectedBaseline);
+    devLog(`[parseESPNTeamPage] FG% = ${(teamComposite.fgPct * 100).toFixed(1)}%, FT% = ${(teamComposite.ftPct * 100).toFixed(1)}%`);
+    
+    // Final sanity: baseline should be in realistic weekly ranges (warn only)
+    const REALISTIC_WEEKLY_RANGES: Record<string, [number, number]> = {
+      threepm: [30, 150],
+      rebounds: [100, 350],
+      assists: [80, 250],
+      steals: [20, 80],
+      blocks: [10, 60],
+      turnovers: [40, 120],
+      points: [350, 1000],
+    };
+    
+    for (const [cat, [min, max]] of Object.entries(REALISTIC_WEEKLY_RANGES)) {
+      const val = expectedBaseline[cat as keyof typeof expectedBaseline];
+      if (val < min || val > max) {
+        devWarn(`[SANITY] Baseline ${cat} = ${val} outside typical range [${min}, ${max}]`);
+      }
+    }
+    
+    return {
+      info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
+      stats: teamComposite,
+      playerCount: allPlayerStats.length,
+      emptySlots,
+      playersWithMissingStats,
+    };
 
-    return null;
+    // Note: removed fallback simple number extraction - better to return null and show clear error
   };
 
   const handleCompare = async () => {
@@ -1160,7 +1194,7 @@ export const MatchupProjection = ({
         setStatWindowMismatch(null);
       }
 
-      // Check if parsing succeeded
+      // Check if parsing succeeded - use soft validation (at least 1 player)
       if (!myParsed) {
         toast({
           title: "Parse failed",
@@ -1178,6 +1212,10 @@ export const MatchupProjection = ({
         });
         return;
       }
+
+      // Log parse results for debugging
+      devLog(`[handleCompare] My team: ${myParsed.playerCount} players, ${myParsed.emptySlots} empty, ${myParsed.playersWithMissingStats} with missing stats`);
+      devLog(`[handleCompare] Opponent: ${oppParsed.playerCount} players, ${oppParsed.emptySlots} empty, ${oppParsed.playersWithMissingStats} with missing stats`);
 
       const finalOppInfo = { ...oppParsed.info };
       
@@ -1229,11 +1267,35 @@ export const MatchupProjection = ({
         myTeam: { ...myParsed.info, stats: myParsed.stats },
         opponent: { ...finalOppInfo, stats: oppParsed.stats },
         opponentRoster: oppRoster,
+        myParseInfo: {
+          playerCount: myParsed.playerCount,
+          emptySlots: myParsed.emptySlots,
+          playersWithMissingStats: myParsed.playersWithMissingStats,
+        },
+        oppParseInfo: {
+          playerCount: oppParsed.playerCount,
+          emptySlots: oppParsed.emptySlots,
+          playersWithMissingStats: oppParsed.playersWithMissingStats,
+        },
       });
       
+      // Show success with data completeness info
+      const myIssues: string[] = [];
+      const oppIssues: string[] = [];
+      
+      if (myParsed.emptySlots > 0) myIssues.push(`${myParsed.emptySlots} empty`);
+      if (myParsed.playersWithMissingStats > 0) myIssues.push(`${myParsed.playersWithMissingStats} partial`);
+      if (oppParsed.emptySlots > 0) oppIssues.push(`${oppParsed.emptySlots} empty`);
+      if (oppParsed.playersWithMissingStats > 0) oppIssues.push(`${oppParsed.playersWithMissingStats} partial`);
+      
+      const hasIssues = myIssues.length > 0 || oppIssues.length > 0;
+      
       toast({
-        title: "Matchup loaded",
-        description: `${myParsed.info.name} vs ${finalOppInfo.name}`,
+        title: hasIssues ? "Matchup loaded (with warnings)" : "Matchup loaded",
+        description: hasIssues 
+          ? `Your Team: ${myParsed.playerCount} players${myIssues.length > 0 ? ` (${myIssues.join(', ')})` : ''} • Opponent: ${oppParsed.playerCount} players${oppIssues.length > 0 ? ` (${oppIssues.join(', ')})` : ''}`
+          : `${myParsed.info.name} vs ${finalOppInfo.name}`,
+        variant: hasIssues ? "default" : "default",
       });
     } catch (error) {
       devError('Parse error:', error);
@@ -1481,6 +1543,11 @@ Navigate to their team page and copy the whole page.`}
   // Get current record from Weekly if available
   const currentRecord = dynamicProjection?.currentRecord;
 
+  // Check for data completeness warnings
+  const hasMyWarnings = (persistedMatchup.myParseInfo?.emptySlots || 0) > 0 || (persistedMatchup.myParseInfo?.playersWithMissingStats || 0) > 0;
+  const hasOppWarnings = (persistedMatchup.oppParseInfo?.emptySlots || 0) > 0 || (persistedMatchup.oppParseInfo?.playersWithMissingStats || 0) > 0;
+  const hasDataWarnings = hasMyWarnings || hasOppWarnings;
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -1504,6 +1571,35 @@ Navigate to their team page and copy the whole page.`}
           New Matchup
         </Button>
       </div>
+
+      {/* Data Completeness Warning Banner */}
+      {hasDataWarnings && (
+        <Alert className="border-amber-500/50 bg-amber-500/10">
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="text-sm">
+            <span className="font-medium">Data Completeness:</span>
+            <div className="flex flex-wrap gap-3 mt-1">
+              {persistedMatchup.myParseInfo && (
+                <span className="text-muted-foreground">
+                  Your Team: {persistedMatchup.myParseInfo.playerCount} players
+                  {persistedMatchup.myParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.emptySlots} empty slots)</span>}
+                  {persistedMatchup.myParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.playersWithMissingStats} with partial stats)</span>}
+                </span>
+              )}
+              {persistedMatchup.oppParseInfo && (
+                <span className="text-muted-foreground">
+                  • Opponent: {persistedMatchup.oppParseInfo.playerCount} players
+                  {persistedMatchup.oppParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.emptySlots} empty slots)</span>}
+                  {persistedMatchup.oppParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.playersWithMissingStats} with partial stats)</span>}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Empty slots are ignored. Players with partial stats (--) use 0 for missing values.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Baseline Week Projection (collapsed by default) */}
       <Collapsible defaultOpen={true}>
