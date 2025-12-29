@@ -108,6 +108,10 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [bestPickupsOpen, setBestPickupsOpen] = useState(true);
   const [tableOnlyMode, setTableOnlyMode] = useState(false);
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
+  
   // Trade Analyzer state
   const [tradeAnalyzerMode, setTradeAnalyzerMode] = useState(false);
   const [tradeSelectedPlayers, setTradeSelectedPlayers] = useState<FreeAgent[]>([]);
@@ -457,7 +461,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     
     interface StatRow {
       min: number;
+      fgm: number;
+      fga: number;
       fgPct: number;
+      ftm: number;
+      fta: number;
       ftPct: number;
       threepm: number;
       reb: number;
@@ -542,10 +550,25 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           return parseFloat(cleaned) || 0;
         };
         
+        // Parse FGM/FGA fraction (e.g., "5.9/12.3")
+        const parseFraction = (idx: number): { made: number; attempts: number } => {
+          const val = statTokens[base + idx];
+          if (!val || val === '--') return { made: 0, attempts: 0 };
+          const parts = val.split('/');
+          if (parts.length === 2) {
+            return { made: parseFloat(parts[0]) || 0, attempts: parseFloat(parts[1]) || 0 };
+          }
+          return { made: 0, attempts: 0 };
+        };
+        
         // Column mapping:
         // 0: MIN, 1: FGM/FGA, 2: FG%, 3: FTM/FTA, 4: FT%
         // 5: 3PM, 6: REB, 7: AST, 8: STL, 9: BLK, 10: TO, 11: PTS
         // 12: PR15, 13: %ROST, 14: +/-
+        
+        // Parse FGM/FGA and FTM/FTA fractions
+        const fg = parseFraction(1);
+        const ft = parseFraction(3);
         
         // FG% is at index 2 - should be in .XXX format like .477
         let fgPct = parseVal(2);
@@ -564,7 +587,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         
         statsList.push({
           min: parseVal(0),
+          fgm: fg.made,
+          fga: fg.attempts,
           fgPct,
+          ftm: ft.made,
+          fta: ft.attempts,
           ftPct,
           threepm: parseVal(5),
           reb: parseVal(6),
@@ -597,7 +624,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
     const emptyStats: StatRow = {
       min: 0,
+      fgm: 0,
+      fga: 0,
       fgPct: 0,
+      ftm: 0,
+      fta: 0,
       ftPct: 0,
       threepm: 0,
       reb: 0,
@@ -642,11 +673,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
         opponent: p.opponent,
         gameTime: p.gameTime,
         minutes: s.min,
-        fgm: 0,
-        fga: 0,
+        fgm: s.fgm,
+        fga: s.fga,
         fgPct: s.fgPct,
-        ftm: 0,
-        fta: 0,
+        ftm: s.ftm,
+        fta: s.fta,
         ftPct: s.ftPct,
         threepm: s.threepm,
         rebounds: s.reb,
@@ -1154,6 +1185,19 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     return sorted;
   }, [playersWithRanks, availabilityFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories]);
 
+  // Pagination computed values
+  const totalCount = filteredPlayers.length;
+  const totalPages = Math.ceil(totalCount / pageSize);
+  const pagedPlayers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredPlayers.slice(start, start + pageSize);
+  }, [filteredPlayers, currentPage, pageSize]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, availabilityFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc]);
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
@@ -1512,7 +1556,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         <div>
           <h2 className="text-xl font-display font-bold">
             Free Agents
-            <span className="text-sm font-normal text-muted-foreground"> (showing {filteredPlayers.length} of {playersWithRanks.length})</span>
+            <span className="text-sm font-normal text-muted-foreground"> (showing {Math.min(currentPage * pageSize, totalCount) - (currentPage - 1) * pageSize} of {totalCount})</span>
             {detectedStatWindow && (
               <Badge variant="outline" className="ml-2 text-xs font-normal">
                 {detectedStatWindow}
@@ -2168,10 +2212,10 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 {tradeAnalyzerMode && (
                   <th className="text-center p-2 w-10">
                     <Checkbox
-                      checked={tradeSelectedPlayers.length > 0 && tradeSelectedPlayers.length === filteredPlayers.length}
+                      checked={tradeSelectedPlayers.length > 0 && tradeSelectedPlayers.length === pagedPlayers.length}
                       onCheckedChange={(checked) => {
                         if (checked) {
-                          setTradeSelectedPlayers(filteredPlayers);
+                          setTradeSelectedPlayers(pagedPlayers);
                         } else {
                           setTradeSelectedPlayers([]);
                         }
@@ -2232,8 +2276,9 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </tr>
             </thead>
             <tbody>
-              {filteredPlayers.map((player, idx) => {
+              {pagedPlayers.map((player, idx) => {
                 const isSelected = tradeSelectedPlayers.some(p => p.id === player.id);
+                const displayIndex = (currentPage - 1) * pageSize + idx + 1;
                 return (
                 <tr 
                   key={player.id} 
@@ -2257,7 +2302,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       />
                     </td>
                   )}
-                  <td className="p-2 font-bold text-primary">{idx + 1}</td>
+                  <td className="p-2 font-bold text-primary">{displayIndex}</td>
                   <td className="p-2">
                     <div className="flex items-center gap-2">
                       <PlayerPhoto name={player.name} size="sm" />
@@ -2399,6 +2444,36 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+            <span className="text-sm text-muted-foreground">
+              Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)} of {totalCount}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => p - 1)}
+              >
+                Previous
+              </Button>
+              <span className="text-sm">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(p => p + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       {selectedPlayer && (
