@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, startTransition } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,7 +11,7 @@ import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { ScheduleForecast } from "@/components/ScheduleForecast";
-import { executeHardReset } from "@/lib/standingsResetUtils";
+import { STANDINGS_RESET_KEYS } from "@/lib/standingsResetUtils";
 // Playoff Contenders Profile Component
 const PlayoffContendersProfile = ({ teams }: { teams: TeamWithCris[] }) => {
   if (teams.length < 6) return null;
@@ -273,6 +273,7 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
   const [sortKey, setSortKey] = useState<SortKey>('originalRank');
   const [sortAsc, setSortAsc] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
+  const [activeTab, setActiveTab] = useState("standings"); // MUST be before any early returns
   const { toast } = useToast();
 
   // Sync with persisted data
@@ -504,13 +505,42 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     
     setIsResetting(true);
     
-    executeHardReset(() => {
-      // Clear all in-memory state in one batch call
-      setRawTeams([]);
-      setRawData("");
-      if (onTeamsChange) onTeamsChange([]);
-    }, true); // Reload page for reliability
-  }, [onTeamsChange]);
+    // Yield to UI thread before heavy work
+    setTimeout(() => {
+      try {
+        // Clear localStorage keys
+        STANDINGS_RESET_KEYS.forEach(key => {
+          try {
+            localStorage.removeItem(key);
+          } catch (e) {
+            console.warn(`Failed to remove key "${key}":`, e);
+          }
+        });
+        
+        // Use startTransition to prevent blocking UI during state updates
+        startTransition(() => {
+          setRawTeams([]);
+          setRawData("");
+          if (onTeamsChange) onTeamsChange([]);
+        });
+        
+        toast({
+          title: "Standings reset",
+          description: "All standings and schedule data has been cleared.",
+        });
+        
+        setIsResetting(false);
+      } catch (error) {
+        console.error("Reset failed:", error);
+        toast({
+          title: "Reset failed",
+          description: "An error occurred while resetting. Please refresh the page.",
+          variant: "destructive",
+        });
+        setIsResetting(false);
+      }
+    }, 0);
+  }, [onTeamsChange, toast]);
 
   // Calculate CRIS for all teams
   const teams = useMemo((): TeamWithCris[] => {
@@ -685,8 +715,6 @@ The page should include the "Season Stats" section with team names, managers, an
       </Card>
     );
   }
-
-  const [activeTab, setActiveTab] = useState("standings");
 
   return (
     <Tabs defaultValue="standings" value={activeTab} onValueChange={setActiveTab} className="space-y-4">

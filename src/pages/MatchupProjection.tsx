@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X, ChevronDown, Calendar, Users } from "lucide-react";
+import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X, ChevronDown, Calendar, Users, Loader2 } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 import { RosterSlot, Player } from "@/types/fantasy";
@@ -1112,9 +1112,33 @@ export const MatchupProjection = ({
   };
 
   const handleCompare = async () => {
+    // Validate that both fields have data
+    if (!myTeamData.trim()) {
+      toast({
+        title: "Missing data",
+        description: "Please paste your team's ESPN page in the 'Your Team' field.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (!opponentData.trim()) {
+      toast({
+        title: "Missing data",
+        description: "Please paste your opponent's ESPN page in the 'Opponent' field.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     // Validate input sizes
     if (myTeamData.length > MAX_INPUT_SIZE || opponentData.length > MAX_INPUT_SIZE) {
-      return; // Size validation message would show inline
+      toast({
+        title: "Input too large",
+        description: "The pasted data is too large. Try copying just the team stats section.",
+        variant: "destructive",
+      });
+      return;
     }
     
     setIsParsing(true);
@@ -1136,61 +1160,88 @@ export const MatchupProjection = ({
         setStatWindowMismatch(null);
       }
 
-      if (myParsed && oppParsed) {
-        const finalOppInfo = { ...oppParsed.info };
-        
-        // Try to extract opponent from "Current Matchup" section of my team's paste
-        const opponentFromCurrentMatchup = extractOpponentFromCurrentMatchup(myTeamData, myParsed.info.name);
-        
-        // If opponent name is same as my team or empty, try to find the correct opponent
-        if (finalOppInfo.name === myParsed.info.name || !finalOppInfo.name || finalOppInfo.name === "Team") {
-          if (opponentFromCurrentMatchup) {
-            finalOppInfo.name = opponentFromCurrentMatchup;
-          } else {
-            // Fallback: Try to find a different team name in opponent data
-            const oppLines = opponentData.trim().split("\n").map(l => l.trim()).filter(l => l);
-            const skipPatterns = /^(Team Settings|LM Tools|hsb\.|ESPN|Settings|Get Another Team)$/i;
-            
-            for (let i = 0; i < oppLines.length; i++) {
-              const line = oppLines[i];
-              // Look for record pattern and get preceding line
-              if (/^\d+-\d+-\d+$/.test(line) && i > 0) {
-                const prevLine = oppLines[i - 1];
-                if (prevLine !== myParsed.info.name && 
-                    !skipPatterns.test(prevLine) &&
-                    prevLine.length >= 2 && 
-                    prevLine.length <= 50 && 
-                    !/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN)/i.test(prevLine)) {
-                  finalOppInfo.name = prevLine;
-                  finalOppInfo.record = line;
-                  break;
-                }
+      // Check if parsing succeeded
+      if (!myParsed) {
+        toast({
+          title: "Parse failed",
+          description: "Could not parse your team data. Make sure you copied the entire ESPN team page.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (!oppParsed) {
+        toast({
+          title: "Parse failed", 
+          description: "Could not parse opponent data. Make sure you copied the entire ESPN team page.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const finalOppInfo = { ...oppParsed.info };
+      
+      // Try to extract opponent from "Current Matchup" section of my team's paste
+      const opponentFromCurrentMatchup = extractOpponentFromCurrentMatchup(myTeamData, myParsed.info.name);
+      
+      // If opponent name is same as my team or empty, try to find the correct opponent
+      if (finalOppInfo.name === myParsed.info.name || !finalOppInfo.name || finalOppInfo.name === "Team") {
+        if (opponentFromCurrentMatchup) {
+          finalOppInfo.name = opponentFromCurrentMatchup;
+        } else {
+          // Fallback: Try to find a different team name in opponent data
+          const oppLines = opponentData.trim().split("\n").map(l => l.trim()).filter(l => l);
+          const skipPatterns = /^(Team Settings|LM Tools|hsb\.|ESPN|Settings|Get Another Team)$/i;
+          
+          for (let i = 0; i < oppLines.length; i++) {
+            const line = oppLines[i];
+            // Look for record pattern and get preceding line
+            if (/^\d+-\d+-\d+$/.test(line) && i > 0) {
+              const prevLine = oppLines[i - 1];
+              if (prevLine !== myParsed.info.name && 
+                  !skipPatterns.test(prevLine) &&
+                  prevLine.length >= 2 && 
+                  prevLine.length <= 50 && 
+                  !/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN)/i.test(prevLine)) {
+                finalOppInfo.name = prevLine;
+                finalOppInfo.record = line;
+                break;
               }
             }
-            
-            // If still same name, set to "—" to indicate parsing failure
-            if (finalOppInfo.name === myParsed.info.name) {
-              finalOppInfo.name = "—";
-            }
+          }
+          
+          // If still same name, set to "—" to indicate parsing failure
+          if (finalOppInfo.name === myParsed.info.name) {
+            finalOppInfo.name = "—";
           }
         }
-        
-        // Validate: opponent name must differ from my team name
-        if (finalOppInfo.name.toLowerCase() === myParsed.info.name.toLowerCase()) {
-          finalOppInfo.name = "—";
-        }
-        
-        // Parse opponent roster to get players with game info
-        const oppRoster = parseOpponentRoster(opponentData);
-        
-        onMatchupChange({
-          myTeam: { ...myParsed.info, stats: myParsed.stats },
-          opponent: { ...finalOppInfo, stats: oppParsed.stats },
-          opponentRoster: oppRoster,
-        });
       }
+      
+      // Validate: opponent name must differ from my team name
+      if (finalOppInfo.name.toLowerCase() === myParsed.info.name.toLowerCase()) {
+        finalOppInfo.name = "—";
+      }
+      
+      // Parse opponent roster to get players with game info
+      const oppRoster = parseOpponentRoster(opponentData);
+      
+      onMatchupChange({
+        myTeam: { ...myParsed.info, stats: myParsed.stats },
+        opponent: { ...finalOppInfo, stats: oppParsed.stats },
+        opponentRoster: oppRoster,
+      });
+      
+      toast({
+        title: "Matchup loaded",
+        description: `${myParsed.info.name} vs ${finalOppInfo.name}`,
+      });
     } catch (error) {
       devError('Parse error:', error);
+      toast({
+        title: "Parse error",
+        description: "An error occurred while parsing. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsParsing(false);
     }
@@ -1343,9 +1394,22 @@ Navigate to their team page and copy the whole page.`}
           </Card>
         </div>
 
-        <Button onClick={handleCompare} className="w-full gradient-primary font-display font-bold">
-          <Upload className="w-4 h-4 mr-2" />
-          Compare Matchup
+        <Button 
+          onClick={handleCompare} 
+          className="w-full gradient-primary font-display font-bold"
+          disabled={isParsing}
+        >
+          {isParsing ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Parsing...
+            </>
+          ) : (
+            <>
+              <Upload className="w-4 h-4 mr-2" />
+              Compare Matchup
+            </>
+          )}
         </Button>
       </div>
     );
