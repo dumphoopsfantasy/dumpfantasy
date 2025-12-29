@@ -11,11 +11,16 @@ export function usePersistedState<T>(key: string, defaultValue: T): [T, React.Di
   const [state, setState] = useState<T>(() => {
     try {
       const stored = localStorage.getItem(key);
-      if (stored) {
+      // Check for valid stored value (not null, not empty, not literal "undefined")
+      if (stored && stored !== "undefined" && stored !== "null") {
         return JSON.parse(stored);
       }
     } catch (error) {
       console.warn(`Error reading localStorage key "${key}":`, error);
+      // Remove corrupted localStorage entry
+      try {
+        localStorage.removeItem(key);
+      } catch {}
     }
     return defaultValue;
   });
