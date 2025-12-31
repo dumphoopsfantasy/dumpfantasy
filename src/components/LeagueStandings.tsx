@@ -508,21 +508,25 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     setIsResetting(true);
     setHasResetTriggered(true); // Prevent useEffect from re-syncing persisted data
     
-    // Clear localStorage keys synchronously
-    STANDINGS_RESET_KEYS.forEach(key => {
-      try {
-        localStorage.removeItem(key);
-      } catch (e) {
-        console.warn(`Failed to remove key "${key}":`, e);
-      }
+    // Use requestAnimationFrame to yield to UI thread and prevent freeze
+    requestAnimationFrame(() => {
+      // Clear localStorage keys
+      STANDINGS_RESET_KEYS.forEach(key => {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {
+          console.warn(`Failed to remove key "${key}":`, e);
+        }
+      });
+      
+      // Clear state in next frame to allow UI to update
+      requestAnimationFrame(() => {
+        setRawTeams([]);
+        setRawData("");
+        if (onTeamsChange) onTeamsChange([]);
+        setIsResetting(false);
+      });
     });
-    
-    // Clear state
-    setRawTeams([]);
-    setRawData("");
-    if (onTeamsChange) onTeamsChange([]);
-    
-    setIsResetting(false);
   }, [onTeamsChange]);
   // Calculate CRIS for all teams (use dynamic weights if available)
   const teams = useMemo((): TeamWithCris[] => {
@@ -599,6 +603,8 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     onUpdateStandingsContext(userCategoryAvgs, leagueCategoryAvgs, categoryRanks);
   }, [teams, onUpdateStandingsContext]);
   const sortedTeams = useMemo(() => {
+    if (teams.length === 0) return [];
+    
     return [...teams].sort((a, b) => {
       let aVal: number, bVal: number;
       
@@ -609,13 +615,15 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
         aVal = aWins;
         bVal = bWins;
       } else if (sortKey === 'turnovers') {
-        // Lower is better for turnovers
+        // Lower is better for turnovers - invert sort direction
         aVal = a[sortKey] as number;
         bVal = b[sortKey] as number;
+        // For turnovers: sortAsc=true means show lowest first (best)
         return sortAsc ? aVal - bVal : bVal - aVal;
       } else {
-        aVal = a[sortKey] as number;
-        bVal = b[sortKey] as number;
+        // All other numeric columns (including fgPct, ftPct which are already decimals)
+        aVal = a[sortKey] as number ?? 0;
+        bVal = b[sortKey] as number ?? 0;
       }
       
       return sortAsc ? aVal - bVal : bVal - aVal;
@@ -662,21 +670,32 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     return '';
   };
 
-  const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => (
-    <th 
-      className={cn("p-2 font-display cursor-pointer hover:bg-muted/50 select-none", className)}
-      onClick={() => handleSort(sortKeyProp)}
-    >
-      <div className="flex items-center justify-center gap-1">
-        {label}
-        {sortKey === sortKeyProp ? (
-          sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
-        ) : (
-          <ArrowUpDown className="w-3 h-3 opacity-30" />
+  const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => {
+    const isActive = sortKey === sortKeyProp;
+    return (
+      <th 
+        className={cn(
+          "p-2 font-display cursor-pointer select-none transition-colors",
+          isActive ? "bg-primary/20" : "hover:bg-muted/50",
+          className
         )}
-      </div>
-    </th>
-  );
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleSort(sortKeyProp);
+        }}
+      >
+        <div className="flex items-center justify-center gap-1">
+          <span>{label}</span>
+          {isActive ? (
+            sortAsc ? <ArrowUp className="w-3 h-3 text-primary" /> : <ArrowDown className="w-3 h-3 text-primary" />
+          ) : (
+            <ArrowUpDown className="w-3 h-3 opacity-30" />
+          )}
+        </div>
+      </th>
+    );
+  };
 
   const scoreKey = useCris ? 'cri' : 'wCri';
   const scoreLabel = useCris ? 'CRI' : 'wCRI';
