@@ -780,6 +780,9 @@ const Index = () => {
               currentRoster={rosterWithCRI.map((slot) => slot.player)}
               leagueTeams={leagueTeams}
               matchupData={matchupData}
+              dynamicWeights={dynamicWeights.effectiveWeightsResult.isActive ? dynamicWeights.effectiveWeightsResult.weights : undefined}
+              isDynamicWeightsActive={dynamicWeights.effectiveWeightsResult.isActive}
+              dynamicWeightsMode={dynamicWeights.settings.mode}
             />
           </TabsContent>
 
@@ -789,6 +792,9 @@ const Index = () => {
                 persistedTeams={leagueTeams} 
                 onTeamsChange={setLeagueTeams}
                 onUpdateStandingsContext={dynamicWeights.updateStandingsContext}
+                dynamicWeights={dynamicWeights.effectiveWeightsResult.isActive ? dynamicWeights.effectiveWeightsResult.weights : undefined}
+                isDynamicWeightsActive={dynamicWeights.effectiveWeightsResult.isActive}
+                dynamicWeightsMode={dynamicWeights.settings.mode}
               />
             </div>
           </TabsContent>

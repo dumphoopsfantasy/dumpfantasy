@@ -51,12 +51,16 @@ export const CATEGORIES = [
  */
 export function calculateCRISForAll<T extends CategoryStats>(
   items: T[],
-  useWeighted = false
+  useWeighted = false,
+  customWeights?: Record<string, number>
 ): (T & { cri: number; wCri: number })[] {
   if (items.length === 0) return [];
   
   const N = items.length;
   const categoryRanks: Record<string, number[]> = {};
+  
+  // Use custom weights if provided, otherwise use default CRIS_WEIGHTS
+  const weights = customWeights || CRIS_WEIGHTS;
   
   // Calculate ranks for each category
   CATEGORIES.forEach(cat => {
@@ -81,7 +85,7 @@ export function calculateCRISForAll<T extends CategoryStats>(
       const rank = categoryRanks[cat.key][idx];
       const invertedRank = (N + 1) - rank;
       cri += invertedRank;
-      wCri += invertedRank * CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS];
+      wCri += invertedRank * (weights[cat.key] ?? CRIS_WEIGHTS[cat.key as keyof typeof CRIS_WEIGHTS]);
     });
     
     return { ...item, cri, wCri };

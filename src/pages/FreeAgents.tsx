@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
+import { DynamicWeightsIndicator } from "@/components/DynamicWeightsPanel";
 import { calculateCRISForAll, calculateCustomCRI, formatPct, CATEGORIES, CATEGORY_PRESETS } from "@/lib/crisUtils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -63,6 +64,9 @@ interface FreeAgentsProps {
   leagueTeams?: LeagueTeam[];
   matchupData?: MatchupData | null;
   multiPageImportEnabled?: boolean;
+  dynamicWeights?: Record<string, number>;
+  isDynamicWeightsActive?: boolean;
+  dynamicWeightsMode?: "matchup" | "standings";
 }
 
 // Known NBA team codes
@@ -82,7 +86,7 @@ interface ImportProgress {
   paginationDetected: boolean;
 }
 
-export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [], matchupData, multiPageImportEnabled = false }: FreeAgentsProps) => {
+export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], leagueTeams = [], matchupData, multiPageImportEnabled = false, dynamicWeights, isDynamicWeightsActive = false, dynamicWeightsMode = "matchup" }: FreeAgentsProps) => {
   const [rawPlayers, setRawPlayers] = useState<ImportedFreeAgent[]>(persistedPlayers as ImportedFreeAgent[]);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
@@ -1120,6 +1124,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   };
 
   // Calculate CRI/wCRI for all players using only 9-cat stats
+  // Use dynamic weights if available
   const playersWithCRI = useMemo(() => {
     if (rawPlayers.length === 0) return [];
     return calculateCRISForAll(rawPlayers.map(p => ({
@@ -1133,8 +1138,8 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       blocks: p.blocks,
       turnovers: p.turnovers,
       points: p.points,
-    })));
-  }, [rawPlayers]);
+    })), false, dynamicWeights);
+  }, [rawPlayers, dynamicWeights]);
 
   // Compute CRI and wCRI ranks (1 = best)
   const playersWithRanks = useMemo((): FreeAgent[] => {
@@ -1769,7 +1774,12 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </Button>
             </div>
           )}
-          {!tradeAnalyzerMode && viewMode === 'rankings' && <CrisToggle useCris={useCris} onChange={setUseCris} />}
+          {!tradeAnalyzerMode && viewMode === 'rankings' && (
+            <div className="flex items-center gap-2">
+              <CrisToggle useCris={useCris} onChange={setUseCris} />
+              {!useCris && <DynamicWeightsIndicator isActive={isDynamicWeightsActive} mode={dynamicWeightsMode} />}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1781,6 +1791,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <h3 className="font-display font-bold text-sm">Custom CRI Builder</h3>
               <div className="flex items-center gap-2">
                 <CrisToggle useCris={useCris} onChange={setUseCris} />
+                {!useCris && <DynamicWeightsIndicator isActive={isDynamicWeightsActive} mode={dynamicWeightsMode} />}
               </div>
             </div>
             
