@@ -9,6 +9,7 @@ import { LeagueTeam } from "@/types/league";
 import { cn } from "@/lib/utils";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
+import { DynamicWeightsIndicator } from "@/components/DynamicWeightsPanel";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { ScheduleForecast } from "@/components/ScheduleForecast";
 import { STANDINGS_RESET_KEYS } from "@/lib/standingsResetUtils";
@@ -264,9 +265,12 @@ interface LeagueStandingsProps {
     leagueCategoryAvgs: Record<string, number>,
     categoryRanks: Record<string, { rank: number; total: number; gap: number }>
   ) => void;
+  dynamicWeights?: Record<string, number>;
+  isDynamicWeightsActive?: boolean;
+  dynamicWeightsMode?: "matchup" | "standings";
 }
 
-export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateStandingsContext }: LeagueStandingsProps) => {
+export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateStandingsContext, dynamicWeights, isDynamicWeightsActive = false, dynamicWeightsMode = "matchup" }: LeagueStandingsProps) => {
   const [rawData, setRawData] = useState("");
   const [rawTeams, setRawTeams] = useState<LeagueTeam[]>(persistedTeams);
   const [useCris, setUseCris] = useState(true);
@@ -533,7 +537,7 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     }, 0);
   }, [onTeamsChange, toast]);
 
-  // Calculate CRIS for all teams
+  // Calculate CRIS for all teams (use dynamic weights if available)
   const teams = useMemo((): TeamWithCris[] => {
     if (rawTeams.length === 0) return [];
     const withCris = calculateCRISForAll(rawTeams.map(t => ({
@@ -547,10 +551,10 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
       blocks: t.blocks,
       turnovers: t.turnovers,
       points: t.points,
-    })));
+    })), false, dynamicWeights);
     // Add original rank based on order they appeared (which is standings order from ESPN)
     return withCris.map((t, idx) => ({ ...t, originalRank: idx + 1 }));
-  }, [rawTeams]);
+  }, [rawTeams, dynamicWeights]);
 
   // Update dynamic weights standings context when teams data changes
   useEffect(() => {
@@ -725,7 +729,10 @@ The page should include the "Season Stats" section with team names, managers, an
               Schedule Forecast
             </TabsTrigger>
           </TabsList>
-          <CrisToggle useCris={useCris} onChange={setUseCris} />
+          <div className="flex items-center gap-2">
+            <CrisToggle useCris={useCris} onChange={setUseCris} />
+            {!useCris && <DynamicWeightsIndicator isActive={isDynamicWeightsActive} mode={dynamicWeightsMode} />}
+          </div>
           {activeTab === "standings" && (
             <Button 
               variant="outline" 
