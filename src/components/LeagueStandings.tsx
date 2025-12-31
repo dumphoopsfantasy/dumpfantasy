@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, startTransition } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -277,15 +277,17 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
   const [sortKey, setSortKey] = useState<SortKey>('originalRank');
   const [sortAsc, setSortAsc] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
+  const [hasResetTriggered, setHasResetTriggered] = useState(false); // Prevents re-sync after reset
   const [activeTab, setActiveTab] = useState("standings"); // MUST be before any early returns
   const { toast } = useToast();
 
-  // Sync with persisted data
+  // Sync with persisted data (but not after a reset action)
   useEffect(() => {
+    if (hasResetTriggered) return; // Skip sync if user just reset
     if (persistedTeams.length > 0 && rawTeams.length === 0) {
       setRawTeams(persistedTeams);
     }
-  }, [persistedTeams]);
+  }, [persistedTeams, hasResetTriggered]);
 
   // Notify parent of changes
   useEffect(() => {
@@ -504,39 +506,24 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
 
   const handleReset = useCallback(() => {
     setIsResetting(true);
+    setHasResetTriggered(true); // Prevent useEffect from re-syncing persisted data
     
-    // Yield to UI thread before heavy work
-    setTimeout(() => {
+    // Clear localStorage keys synchronously
+    STANDINGS_RESET_KEYS.forEach(key => {
       try {
-        // Clear localStorage keys
-        STANDINGS_RESET_KEYS.forEach(key => {
-          try {
-            localStorage.removeItem(key);
-          } catch (e) {
-            console.warn(`Failed to remove key "${key}":`, e);
-          }
-        });
-        
-        // Use startTransition to prevent blocking UI during state updates
-        startTransition(() => {
-          setRawTeams([]);
-          setRawData("");
-          if (onTeamsChange) onTeamsChange([]);
-        });
-        
-        setIsResetting(false);
-      } catch (error) {
-        console.error("Reset failed:", error);
-        toast({
-          title: "Reset failed",
-          description: "An error occurred while resetting. Please refresh the page.",
-          variant: "destructive",
-        });
-        setIsResetting(false);
+        localStorage.removeItem(key);
+      } catch (e) {
+        console.warn(`Failed to remove key "${key}":`, e);
       }
-    }, 0);
-  }, [onTeamsChange, toast]);
-
+    });
+    
+    // Clear state
+    setRawTeams([]);
+    setRawData("");
+    if (onTeamsChange) onTeamsChange([]);
+    
+    setIsResetting(false);
+  }, [onTeamsChange]);
   // Calculate CRIS for all teams (use dynamic weights if available)
   const teams = useMemo((): TeamWithCris[] => {
     if (rawTeams.length === 0) return [];
