@@ -632,16 +632,31 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     }
   };
 
-  const getCategoryRank = (team: TeamWithCris, category: keyof LeagueTeam, isLowerBetter = false) => {
-    const sorted = [...teams].sort((a, b) => {
-      const aVal = a[category] as number;
-      const bVal = b[category] as number;
-      return isLowerBetter ? aVal - bVal : bVal - aVal;
-    });
-    return sorted.findIndex(t => t.name === team.name) + 1;
-  };
+  const categoryRanksByTeam = useMemo(() => {
+    const byCat: Record<string, Record<string, number>> = {};
 
-  const getRankColor = (rank: number, total: number) => {
+    if (teams.length === 0) return byCat;
+
+    CATEGORIES.forEach((cat) => {
+      const isLowerBetter = cat.key === "turnovers";
+      const sorted = [...teams].sort((a, b) => {
+        const aVal = a[cat.key as keyof TeamWithCris] as number;
+        const bVal = b[cat.key as keyof TeamWithCris] as number;
+        return isLowerBetter ? aVal - bVal : bVal - aVal;
+      });
+
+      const map: Record<string, number> = {};
+      sorted.forEach((t, idx) => {
+        map[t.name] = idx + 1;
+      });
+      byCat[cat.key] = map;
+    });
+
+    return byCat;
+  }, [teams]);
+
+  const getRankColor = (rank: number | undefined, total: number) => {
+    if (!rank || rank < 1) return '';
     if (rank <= 3) return 'bg-stat-positive/20 text-stat-positive';
     if (rank >= total - 2) return 'bg-stat-negative/20 text-stat-negative';
     return '';
@@ -775,20 +790,21 @@ The page should include the "Season Stats" section with team names, managers, an
                       <div className="text-xs text-muted-foreground truncate max-w-[140px]">{team.manager}</div>
                     )}
                   </td>
-                  {CATEGORIES.map(c => {
-                    const isLowerBetter = c.key === 'turnovers';
-                    const rank = getCategoryRank(team, c.key as keyof LeagueTeam, isLowerBetter);
+                  {CATEGORIES.map((c) => {
+                    const rank = categoryRanksByTeam[c.key]?.[team.name];
                     const value = team[c.key as keyof TeamWithCris] as number;
                     return (
                       <td key={c.key} className="text-center p-1.5">
-                        <div className={cn(
-                          "rounded px-1 py-0.5 inline-block text-xs",
-                          getRankColor(rank, teams.length)
-                        )}>
+                        <div
+                          className={cn(
+                            "rounded px-1 py-0.5 inline-block text-xs",
+                            getRankColor(rank, teams.length)
+                          )}
+                        >
                           <span className="font-semibold">
-                            {c.format === 'pct' ? formatPct(value) : value.toFixed(0)}
+                            {c.format === "pct" ? formatPct(value) : value.toFixed(0)}
                           </span>
-                          <span className="text-[10px] text-muted-foreground ml-0.5">#{rank}</span>
+                          <span className="text-[10px] text-muted-foreground ml-0.5">#{rank ?? "-"}</span>
                         </div>
                       </td>
                     );
