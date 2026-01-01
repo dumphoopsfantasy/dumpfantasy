@@ -76,6 +76,110 @@ export const fetchNBAGamesFromAPI = async (): Promise<{
   }
 };
 
+// Fetch games for a specific date (YYYY-MM-DD format)
+export const fetchNBAGamesForDate = async (dateStr: string): Promise<NBAGame[]> => {
+  try {
+    const response = await fetch(
+      `https://tmgvvqvadqymlzmlbumi.supabase.co/functions/v1/nba-games?date=${dateStr}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      console.error('NBA games API error for date:', dateStr, response.status);
+      return [];
+    }
+    
+    const data = await response.json();
+    return data.games || [];
+  } catch (error) {
+    console.error('Error fetching NBA games for date:', dateStr, error);
+    return [];
+  }
+};
+
+// Fetch games for multiple dates in parallel
+export const fetchNBAGamesForDates = async (dates: string[]): Promise<Map<string, NBAGame[]>> => {
+  const results = await Promise.all(
+    dates.map(async (dateStr) => {
+      const games = await fetchNBAGamesForDate(dateStr);
+      return { date: dateStr, games };
+    })
+  );
+  
+  const gamesByDate = new Map<string, NBAGame[]>();
+  results.forEach(({ date, games }) => {
+    gamesByDate.set(date, games);
+  });
+  
+  return gamesByDate;
+};
+
+// Format date as YYYY-MM-DD
+export const formatDateForAPI = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Get an array of upcoming dates (including today)
+export const getUpcomingDates = (days: number = 7): Date[] => {
+  const dates: Date[] = [];
+  const today = new Date();
+  
+  for (let i = 0; i < days; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
+    dates.push(date);
+  }
+  
+  return dates;
+};
+
+// Get short day label (Mon, Tue, etc.)
+export const getDayLabel = (date: Date): string => {
+  return date.toLocaleDateString('en-US', { weekday: 'short' });
+};
+
+// Get day/month label (1/5, 1/6, etc.)
+export const getDateLabel = (date: Date): string => {
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+};
+
+// Check if a team is playing on a specific date
+export const isTeamPlayingOnDate = (
+  teamCode: string, 
+  games: NBAGame[]
+): boolean => {
+  const upperTeam = teamCode.toUpperCase();
+  return games.some(
+    game => game.homeTeam === upperTeam || game.awayTeam === upperTeam
+  );
+};
+
+// Get opponent for a team on a specific date
+export const getOpponentForTeam = (
+  teamCode: string,
+  games: NBAGame[]
+): { opponent: string; isHome: boolean; gameTime?: string } | null => {
+  const upperTeam = teamCode.toUpperCase();
+  const game = games.find(
+    g => g.homeTeam === upperTeam || g.awayTeam === upperTeam
+  );
+  
+  if (!game) return null;
+  
+  const isHome = game.homeTeam === upperTeam;
+  const opponent = isHome ? game.awayTeam : game.homeTeam;
+  
+  return { opponent, isHome, gameTime: game.gameTime };
+};
+
 // Fallback sample data - December 11-12, 2024 actual games
 export const getSampleYesterdayScores = (): NBAGame[] => {
   return [
