@@ -401,10 +401,16 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           }
           // Check for rostered player: short team abbreviation (2-6 chars, uppercase or mixed)
           // This catches fantasy team abbreviations like "DEM", "Bilb", "DUMP", "SS", "SAS"
-          if (/^[A-Za-z]{2,6}$/.test(nextLine) && !NBA_TEAMS.includes(nextLine.toUpperCase())) {
-            availability = 'rostered';
-            ownedBy = nextLine;
-            continue;
+          // IMPORTANT: If we already have team+positions identified, an NBA team code here is a fantasy owner
+          // (e.g., a fantasy team named "SAS" that happens to match an NBA code)
+          if (/^[A-Za-z]{2,6}$/.test(nextLine)) {
+            const isNbaTeamCode = NBA_TEAMS.includes(nextLine.toUpperCase());
+            // Accept as fantasy owner if: (a) not NBA code, OR (b) we already have NBA team identified
+            if (!isNbaTeamCode || (team && positions.length > 0)) {
+              availability = 'rostered';
+              ownedBy = nextLine;
+              continue;
+            }
           }
         }
         
