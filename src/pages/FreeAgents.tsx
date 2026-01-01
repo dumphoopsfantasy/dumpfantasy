@@ -6,6 +6,7 @@ import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { FreeAgentImpactSheet } from "@/components/FreeAgentImpactSheet";
 import { MatchupNeedsPanel } from "@/components/MatchupNeedsPanel";
 import { MiniTradeAnalyzer } from "@/components/MiniTradeAnalyzer";
+import { ScheduleDatePicker } from "@/components/ScheduleDatePicker";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon, Scale } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon, Scale, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { CrisToggle } from "@/components/CrisToggle";
@@ -25,6 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 import { devLog, devWarn, devError } from "@/lib/devLog";
+import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 
 // Extended Free Agent interface with bonus stats and ranks
 interface FreeAgent extends Player {
@@ -112,6 +114,21 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [dismissedTips, setDismissedTips] = useState<Set<string>>(new Set());
   const [bestPickupsOpen, setBestPickupsOpen] = useState(true);
   const [tableOnlyMode, setTableOnlyMode] = useState(false);
+  const [showSchedulePicker, setShowSchedulePicker] = useState(false);
+  
+  // NBA Schedule hook for date-based filtering
+  const {
+    scheduleDates,
+    selectedDates: selectedScheduleDates,
+    isLoading: isScheduleLoading,
+    toggleDate,
+    selectAllDates,
+    clearSelectedDates,
+    isTeamPlayingOnSelectedDates,
+    getGamesCountForTeam,
+    refresh: refreshSchedule,
+    lastUpdated: scheduleLastUpdated,
+  } = useNBAUpcomingSchedule(7);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -1202,8 +1219,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       result = result.filter(p => p.positions.includes(positionFilter));
     }
 
-    // Schedule filter
-    if (scheduleFilter === "playing") {
+    // Schedule filter - use NBA API schedule data when dates are selected
+    if (selectedScheduleDates.size > 0) {
+      result = result.filter(p => isTeamPlayingOnSelectedDates(p.nbaTeam));
+    } else if (scheduleFilter === "playing") {
+      // Fallback to ESPN-parsed opponent data
       result = result.filter(p => p.opponent);
     } else if (scheduleFilter === "not-playing") {
       result = result.filter(p => !p.opponent);
@@ -1255,7 +1275,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     });
     
     return sorted;
-  }, [playersWithRanks, onlyAvailableFilter, ownerFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories, statsFilter]);
+  }, [playersWithRanks, onlyAvailableFilter, ownerFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories, statsFilter, selectedScheduleDates, isTeamPlayingOnSelectedDates]);
 
   // Pagination computed values - show all players on one page when multi-page import is enabled
   const totalCount = filteredPlayers.length;
@@ -1273,7 +1293,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, onlyAvailableFilter, ownerFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc]);
+  }, [search, onlyAvailableFilter, ownerFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc, selectedScheduleDates]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -1964,16 +1984,26 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           {/* Advanced filters - collapsed in trade mode */}
           {!tradeAnalyzerMode && (
             <>
-              <Select value={scheduleFilter} onValueChange={setScheduleFilter}>
-                <SelectTrigger className="w-full md:w-[160px]">
-                  <SelectValue placeholder="Schedule" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Games</SelectItem>
-                  <SelectItem value="playing">Playing Today</SelectItem>
-                  <SelectItem value="not-playing">Not Playing</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* Schedule Date Picker Toggle */}
+              <Button
+                variant={showSchedulePicker || selectedScheduleDates.size > 0 ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowSchedulePicker(!showSchedulePicker)}
+                className="gap-1"
+              >
+                <Calendar className="w-4 h-4" />
+                <span className="hidden md:inline">
+                  {selectedScheduleDates.size > 0 
+                    ? `${selectedScheduleDates.size} ${selectedScheduleDates.size === 1 ? 'day' : 'days'}`
+                    : 'Schedule'
+                  }
+                </span>
+                {selectedScheduleDates.size > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs md:hidden">
+                    {selectedScheduleDates.size}
+                  </Badge>
+                )}
+              </Button>
               <Select value={healthFilter} onValueChange={setHealthFilter}>
                 <SelectTrigger className="w-full md:w-[140px]">
                   <SelectValue placeholder="Health" />
@@ -2012,6 +2042,20 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           )}
         </div>
       </Card>
+
+      {/* Schedule Date Picker - Collapsible */}
+      {!tradeAnalyzerMode && showSchedulePicker && (
+        <ScheduleDatePicker
+          scheduleDates={scheduleDates}
+          selectedDates={selectedScheduleDates}
+          onToggleDate={toggleDate}
+          onSelectAll={selectAllDates}
+          onClearAll={clearSelectedDates}
+          onRefresh={refreshSchedule}
+          isLoading={isScheduleLoading}
+          lastUpdated={scheduleLastUpdated}
+        />
+      )}
 
       {/* Compare Panel - hidden in table only mode and trade mode */}
       {!tableOnlyMode && !tradeAnalyzerMode && compareList.length > 0 && (
