@@ -525,9 +525,12 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
         setRawData("");
         if (onTeamsChange) onTeamsChange([]);
         setIsResetting(false);
+        // Reset flag so future persistence works after new data is added
+        setHasResetTriggered(false);
+        toast({ title: "Reset complete", description: "Standings data cleared successfully" });
       });
     });
-  }, [onTeamsChange]);
+  }, [onTeamsChange, toast]);
   // Calculate CRIS for all teams (use dynamic weights if available)
   const teams = useMemo((): TeamWithCris[] => {
     if (rawTeams.length === 0) return [];
