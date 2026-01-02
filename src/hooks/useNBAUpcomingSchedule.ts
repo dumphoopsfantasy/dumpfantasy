@@ -29,10 +29,12 @@ interface UseNBAUpcomingScheduleReturn {
   selectAllDates: () => void;
   clearSelectedDates: () => void;
   isTeamPlayingOnSelectedDates: (teamCode: string) => boolean;
+  isTeamPlayingOnDate: (teamCode: string, dateStr: string) => boolean;
   getGamesCountForTeam: (teamCode: string) => number;
   getTeamScheduleDetails: (teamCode: string) => Array<{ date: string; opponent: string; isHome: boolean; gameTime?: string }>;
   refresh: () => void;
   lastUpdated: Date | null;
+  gamesByDate: Map<string, NBAGame[]>;
 }
 
 // Cache for schedule data to avoid refetching
@@ -144,6 +146,12 @@ export const useNBAUpcomingSchedule = (daysAhead: number = 7): UseNBAUpcomingSch
     return false;
   }, [selectedDates, gamesByDate]);
 
+  // Single-date version for streaming schedule hook
+  const isTeamPlayingOnDateSingle = useCallback((teamCode: string, dateStr: string): boolean => {
+    const games = gamesByDate.get(dateStr) || [];
+    return isTeamPlayingOnDate(teamCode, games);
+  }, [gamesByDate]);
+
   const getGamesCountForTeam = useCallback((teamCode: string): number => {
     if (selectedDates.size === 0) return 0;
     
@@ -189,9 +197,11 @@ export const useNBAUpcomingSchedule = (daysAhead: number = 7): UseNBAUpcomingSch
     selectAllDates,
     clearSelectedDates,
     isTeamPlayingOnSelectedDates,
+    isTeamPlayingOnDate: isTeamPlayingOnDateSingle,
     getGamesCountForTeam,
     getTeamScheduleDetails,
     refresh,
     lastUpdated,
+    gamesByDate,
   };
 };
