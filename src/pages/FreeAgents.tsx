@@ -6,7 +6,8 @@ import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { FreeAgentImpactSheet } from "@/components/FreeAgentImpactSheet";
 import { MatchupNeedsPanel } from "@/components/MatchupNeedsPanel";
 import { MiniTradeAnalyzer } from "@/components/MiniTradeAnalyzer";
-import { ScheduleDatePicker } from "@/components/ScheduleDatePicker";
+import { EnhancedSchedulePicker } from "@/components/EnhancedSchedulePicker";
+import { StreamingPlanner } from "@/components/StreamingPlanner";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 import { devLog, devWarn, devError } from "@/lib/devLog";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
+import { useStreamingSchedule } from "@/hooks/useStreamingSchedule";
 
 // Extended Free Agent interface with bonus stats and ranks
 interface FreeAgent extends Player {
@@ -119,16 +121,30 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   // NBA Schedule hook for date-based filtering
   const {
     scheduleDates,
-    selectedDates: selectedScheduleDates,
     isLoading: isScheduleLoading,
-    toggleDate,
-    selectAllDates,
-    clearSelectedDates,
-    isTeamPlayingOnSelectedDates,
-    getGamesCountForTeam,
+    isTeamPlayingOnDate,
     refresh: refreshSchedule,
     lastUpdated: scheduleLastUpdated,
   } = useNBAUpcomingSchedule(7);
+  
+  // Enhanced streaming schedule hook
+  const {
+    dateSelections,
+    toggleDateSelection,
+    clearSelections: clearScheduleSelections,
+    includedDates,
+    excludedDates,
+    hasAnySelection: hasScheduleSelection,
+    coverageGaps,
+    fillCoverageGaps,
+    recommendedCombos,
+    applyCombo,
+    matchesDateFilter,
+  } = useStreamingSchedule({
+    scheduleDates,
+    roster: currentRoster,
+    isTeamPlayingOnDate,
+  });
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -1219,9 +1235,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       result = result.filter(p => p.positions.includes(positionFilter));
     }
 
-    // Schedule filter - use NBA API schedule data when dates are selected
-    if (selectedScheduleDates.size > 0) {
-      result = result.filter(p => isTeamPlayingOnSelectedDates(p.nbaTeam));
+    // Schedule filter - use enhanced streaming schedule filter
+    if (hasScheduleSelection) {
+      result = result.filter(p => matchesDateFilter(p.nbaTeam));
     } else if (scheduleFilter === "playing") {
       // Fallback to ESPN-parsed opponent data
       result = result.filter(p => p.opponent);
@@ -1275,7 +1291,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     });
     
     return sorted;
-  }, [playersWithRanks, onlyAvailableFilter, ownerFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories, statsFilter, selectedScheduleDates, isTeamPlayingOnSelectedDates]);
+  }, [playersWithRanks, onlyAvailableFilter, ownerFilter, search, positionFilter, scheduleFilter, healthFilter, sortKey, sortAsc, useCris, customCategories, statsFilter, hasScheduleSelection, matchesDateFilter]);
 
   // Pagination computed values - show all players on one page when multi-page import is enabled
   const totalCount = filteredPlayers.length;
@@ -1293,7 +1309,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, onlyAvailableFilter, ownerFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc, selectedScheduleDates]);
+  }, [search, onlyAvailableFilter, ownerFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc, hasScheduleSelection]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -1986,21 +2002,21 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             <>
               {/* Schedule Date Picker Toggle */}
               <Button
-                variant={showSchedulePicker || selectedScheduleDates.size > 0 ? "default" : "outline"}
+                variant={showSchedulePicker || hasScheduleSelection ? "default" : "outline"}
                 size="sm"
                 onClick={() => setShowSchedulePicker(!showSchedulePicker)}
                 className="gap-1"
               >
                 <Calendar className="w-4 h-4" />
                 <span className="hidden md:inline">
-                  {selectedScheduleDates.size > 0 
-                    ? `${selectedScheduleDates.size} ${selectedScheduleDates.size === 1 ? 'day' : 'days'}`
+                  {hasScheduleSelection 
+                    ? `${includedDates.size + excludedDates.size} ${(includedDates.size + excludedDates.size) === 1 ? 'day' : 'days'}`
                     : 'Schedule'
                   }
                 </span>
-                {selectedScheduleDates.size > 0 && (
+                {hasScheduleSelection && (
                   <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs md:hidden">
-                    {selectedScheduleDates.size}
+                    {includedDates.size + excludedDates.size}
                   </Badge>
                 )}
               </Button>
@@ -2043,18 +2059,34 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </div>
       </Card>
 
-      {/* Schedule Date Picker - Collapsible */}
+      {/* Enhanced Schedule Picker with Streaming Planner */}
       {!tradeAnalyzerMode && showSchedulePicker && (
-        <ScheduleDatePicker
-          scheduleDates={scheduleDates}
-          selectedDates={selectedScheduleDates}
-          onToggleDate={toggleDate}
-          onSelectAll={selectAllDates}
-          onClearAll={clearSelectedDates}
-          onRefresh={refreshSchedule}
-          isLoading={isScheduleLoading}
-          lastUpdated={scheduleLastUpdated}
-        />
+        <div className="space-y-3">
+          <EnhancedSchedulePicker
+            scheduleDates={scheduleDates}
+            dateSelections={dateSelections}
+            onToggleDate={toggleDateSelection}
+            onClearAll={clearScheduleSelections}
+            onRefresh={refreshSchedule}
+            isLoading={isScheduleLoading}
+            lastUpdated={scheduleLastUpdated}
+            coverageGaps={coverageGaps}
+            onFillGaps={fillCoverageGaps}
+            recommendedCombos={recommendedCombos}
+            onApplyCombo={applyCombo}
+            includedCount={includedDates.size}
+            excludedCount={excludedDates.size}
+          />
+          <StreamingPlanner
+            freeAgents={filteredPlayers}
+            scheduleDates={scheduleDates}
+            includedDates={includedDates}
+            excludedDates={excludedDates}
+            isTeamPlayingOnDate={isTeamPlayingOnDate}
+            onPlayerClick={(player) => setSelectedPlayer(player)}
+            useCris={useCris}
+          />
+        </div>
       )}
 
       {/* Compare Panel - hidden in table only mode and trade mode */}
