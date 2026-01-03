@@ -274,16 +274,13 @@ export const useStreamingSchedule = ({
       }
     }
     
-    // If we have included dates, team must play on at least one
+    // If we have included dates, team must play on ALL of them
     if (includedDates.size > 0) {
-      let playsOnIncluded = false;
       for (const dateStr of includedDates) {
-        if (isTeamPlayingOnDate(teamCode, dateStr)) {
-          playsOnIncluded = true;
-          break;
+        if (!isTeamPlayingOnDate(teamCode, dateStr)) {
+          return false; // Team doesn't play on this included date, filter out
         }
       }
-      if (!playsOnIncluded) return false;
     }
     
     return true;
