@@ -73,12 +73,23 @@ export const FreeAgentImpactSheet = ({
       
       const teamSchedule: Array<{ date: string; opponent: string; isHome: boolean; gameTime?: string }> = [];
       
-      // Team code variations for matching
-      const teamVariants = [teamCode, teamCode.toUpperCase()];
-      if (teamCode === 'BKN') teamVariants.push('BRK');
-      if (teamCode === 'BRK') teamVariants.push('BKN');
-      if (teamCode === 'PHX') teamVariants.push('PHO');
-      if (teamCode === 'PHO') teamVariants.push('PHX');
+      // Comprehensive team code mapping for all NBA teams
+      const teamCodeMap: Record<string, string[]> = {
+        'ATL': ['ATL'], 'BOS': ['BOS'], 'BKN': ['BKN', 'BRK', 'NJN'], 'BRK': ['BKN', 'BRK', 'NJN'],
+        'CHA': ['CHA', 'CHH', 'CHO'], 'CHI': ['CHI'], 'CLE': ['CLE'], 'DAL': ['DAL'],
+        'DEN': ['DEN'], 'DET': ['DET'], 'GSW': ['GSW', 'GS'], 'GS': ['GSW', 'GS'],
+        'HOU': ['HOU'], 'IND': ['IND'], 'LAC': ['LAC', 'LA'], 'LAL': ['LAL'],
+        'MEM': ['MEM', 'VAN'], 'MIA': ['MIA'], 'MIL': ['MIL'], 'MIN': ['MIN'],
+        'NOP': ['NOP', 'NO', 'NOH', 'NOK'], 'NO': ['NOP', 'NO', 'NOH', 'NOK'],
+        'NYK': ['NYK', 'NY'], 'NY': ['NYK', 'NY'], 'OKC': ['OKC', 'SEA'],
+        'ORL': ['ORL'], 'PHI': ['PHI'], 'PHX': ['PHX', 'PHO'], 'PHO': ['PHX', 'PHO'],
+        'POR': ['POR'], 'SAC': ['SAC'], 'SAS': ['SAS', 'SA'], 'SA': ['SAS', 'SA'],
+        'TOR': ['TOR'], 'UTA': ['UTA', 'UTAH'], 'UTAH': ['UTA', 'UTAH'],
+        'WAS': ['WAS', 'WSH'], 'WSH': ['WAS', 'WSH'],
+      };
+      
+      const upperCode = teamCode.toUpperCase();
+      const teamVariants = teamCodeMap[upperCode] || [upperCode];
       
       for (let i = 0; i < dateStrings.length; i++) {
         const dateStr = dateStrings[i];
