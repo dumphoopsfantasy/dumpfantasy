@@ -1999,14 +1999,14 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Positions</SelectItem>
-              <SelectItem value="G">G (PG/SG)</SelectItem>
-              <SelectItem value="F">F (SF/PF)</SelectItem>
-              <SelectItem value="C/F">C/F (SF/PF/C)</SelectItem>
               <SelectItem value="PG">PG</SelectItem>
               <SelectItem value="SG">SG</SelectItem>
               <SelectItem value="SF">SF</SelectItem>
               <SelectItem value="PF">PF</SelectItem>
               <SelectItem value="C">C</SelectItem>
+              <SelectItem value="G">G</SelectItem>
+              <SelectItem value="F">F</SelectItem>
+              <SelectItem value="C/F">C/F</SelectItem>
             </SelectContent>
           </Select>
           {/* Advanced filters - collapsed in trade mode */}
