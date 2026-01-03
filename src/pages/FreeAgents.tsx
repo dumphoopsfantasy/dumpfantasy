@@ -2083,7 +2083,10 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             includedDates={includedDates}
             excludedDates={excludedDates}
             isTeamPlayingOnDate={isTeamPlayingOnDate}
-            onPlayerClick={(player) => setSelectedPlayer(player)}
+            onPlayerClick={(player) => {
+              const fullPlayer = filteredPlayers.find(p => p.id === player.id);
+              if (fullPlayer) setSelectedPlayer(fullPlayer);
+            }}
             useCris={useCris}
           />
         </div>

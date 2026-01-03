@@ -1,33 +1,40 @@
 import { useMemo } from 'react';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
-import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { cn } from "@/lib/utils";
 import { Zap, ArrowRight, Calendar, TrendingUp, AlertTriangle } from "lucide-react";
-import { Player } from "@/types/fantasy";
 import { ScheduleDate } from "@/hooks/useNBAUpcomingSchedule";
 
-interface FreeAgentWithScore extends Player {
-  cri: number;
-  wCri: number;
-  criRank: number;
-  wCriRank: number;
-}
-
+// Accept any player object with required streaming fields
 interface StreamingPlannerProps {
-  freeAgents: FreeAgentWithScore[];
+  freeAgents: Array<{
+    id: string;
+    name: string;
+    nbaTeam: string;
+    positions?: string[];
+    status?: string;
+    cri?: number;
+    wCri?: number;
+  }>;
   scheduleDates: ScheduleDate[];
   includedDates: Set<string>;
   excludedDates: Set<string>;
   isTeamPlayingOnDate: (teamCode: string, dateStr: string) => boolean;
-  onPlayerClick?: (player: FreeAgentWithScore) => void;
+  onPlayerClick?: (player: { id: string; name: string; nbaTeam: string }) => void;
   useCris?: boolean;
 }
 
 interface StreamSuggestion {
-  player: FreeAgentWithScore;
+  player: {
+    id: string;
+    name: string;
+    nbaTeam: string;
+    positions?: string[];
+    status?: string;
+    cri?: number;
+    wCri?: number;
+  };
   gamesOnSelected: number;
   playingDates: string[];
   score: number;
