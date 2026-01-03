@@ -46,14 +46,30 @@ export function useScheduleAwareProjection({
   
   // Debug log inputs
   useMemo(() => {
+    const myPlayersWithTeam = roster.filter(r => r.player.nbaTeam).length;
+    const oppPlayersWithTeam = opponentRoster?.filter(r => r.player.nbaTeam).length ?? 0;
+    
     devLog('[useScheduleAwareProjection] Input state:', {
       myRosterCount: roster.length,
+      myPlayersWithTeam,
       oppRosterCount: opponentRoster?.length ?? 0,
+      oppPlayersWithTeam,
       weekDates: weekDates.length,
       remainingDates: remainingDates.length,
       scheduleLoaded: gamesByDate.size > 0,
       scheduleDates: Array.from(gamesByDate.keys()),
     });
+    
+    // Log opponent roster details if present
+    if (opponentRoster && opponentRoster.length > 0) {
+      devLog('[useScheduleAwareProjection] Opponent roster sample:', 
+        opponentRoster.slice(0, 3).map(r => ({
+          name: r.player.name,
+          nbaTeam: r.player.nbaTeam,
+          slotType: r.slotType,
+        }))
+      );
+    }
   }, [roster.length, opponentRoster?.length, weekDates, remainingDates, gamesByDate]);
   
   // Project my team

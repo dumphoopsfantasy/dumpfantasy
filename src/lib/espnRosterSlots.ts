@@ -1,6 +1,8 @@
 import { RosterSlot, Player } from "@/types/fantasy";
 import { preprocessInput, createLoopGuard } from "@/lib/parseUtils";
-import { normalizeTeamCode, parsePositions } from "@/lib/playerUtils";
+import { parsePositions } from "@/lib/playerUtils";
+import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
+import { devLog, devWarn } from "@/lib/devLog";
 
 /**
  * Parse an ESPN Fantasy Basketball team page (Ctrl+A copy) into normalized RosterSlot[]
@@ -122,8 +124,11 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
 
       // Team codes appear like "Cha", "Mia", "GS", "Utah" (case varies)
       if (!team && /^[A-Za-z]{2,4}$/.test(next)) {
-        team = normalizeTeamCode(next);
-        continue;
+        const normalized = normalizeNbaTeamCode(next);
+        if (normalized) {
+          team = normalized;
+          continue;
+        }
       }
 
       // Opponent line often like "@Chi" or "Min" followed by time
@@ -155,6 +160,11 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     }
 
     if (isEmptySlot || !name) continue;
+
+    // Warn if we couldn't extract team code
+    if (!team) {
+      devWarn(`[parseEspnRosterSlots] No team code found for player: ${name}`);
+    }
 
     playerInfo.push({
       name,
@@ -223,6 +233,16 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
         points: parseVal(base, 13),
       },
     });
+  }
+
+  // Log summary
+  const playersWithTeam = roster.filter(r => r.player.nbaTeam).length;
+  const playersWithoutTeam = roster.filter(r => !r.player.nbaTeam).length;
+  devLog(`[parseEspnRosterSlots] Parsed ${roster.length} players: ${playersWithTeam} with team, ${playersWithoutTeam} without`);
+  
+  if (playersWithoutTeam > 0) {
+    const unmappedNames = roster.filter(r => !r.player.nbaTeam).map(r => r.player.name);
+    devWarn(`[parseEspnRosterSlots] Players missing team code:`, unmappedNames);
   }
 
   return roster;
