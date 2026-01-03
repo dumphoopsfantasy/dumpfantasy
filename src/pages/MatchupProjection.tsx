@@ -17,6 +17,7 @@ import { ProjectionModeToggle, ProjectionMode } from "@/components/ProjectionMod
 import { ScheduleAwareProjection } from "@/components/ScheduleAwareProjection";
 import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
 import { getRemainingMatchupDates } from "@/lib/scheduleAwareProjection";
+import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -237,168 +238,7 @@ function computeTodayExpected(roster: RosterSlot[]): TeamStats & { hasData: bool
 
 // Parse opponent roster from ESPN paste to extract players with their OPP field
 function parseOpponentRoster(data: string): RosterSlot[] {
-  if (!data) return [];
-  
-  const lines = data.trim().split("\n").map(l => l.trim()).filter(l => l);
-  const roster: RosterSlot[] = [];
-  
-  // Find stats section start
-  let statsStartIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i] === 'MIN' && i + 1 < lines.length) {
-      const nextFew = lines.slice(i, i + 5).join(' ');
-      if (nextFew.includes('FG') || nextFew.includes('3PM') || nextFew.includes('REB')) {
-        statsStartIdx = i;
-        break;
-      }
-    }
-  }
-  
-  if (statsStartIdx === -1) return [];
-  
-  // Collect stat tokens
-  const statTokens: string[] = [];
-  let dataStartIdx = statsStartIdx + 1;
-  while (
-    dataStartIdx < lines.length &&
-    /^(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|MIN)$/i.test(lines[dataStartIdx])
-  ) {
-    dataStartIdx++;
-  }
-  
-  for (let i = dataStartIdx; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^(Username|Password|ESPN\.com|Copyright|©)/i.test(line)) break;
-    if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
-      const parts = line.split('/');
-      statTokens.push(parts[0], parts[1]);
-      continue;
-    }
-    if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
-      statTokens.push(line);
-    }
-  }
-  
-  // Parse player rows - look for slot patterns and player info
-  // Pattern: Slot, Player Name, Team, OPP (with game info), Stats...
-  const slotPattern = /^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR)$/i;
-  const COLS = 17;
-  const numStatRows = Math.floor(statTokens.length / COLS);
-  
-  // Also need to find player names/teams/opponents before stats
-  // Look backwards from stats to find player info
-  const playerInfoLines: { name: string; team: string; opp: string; status: string; slotType: string }[] = [];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Look for slot pattern
-    if (slotPattern.test(line)) {
-      const slot = line.toUpperCase();
-      const slotType = slot.includes('IR') ? 'ir' : slot === 'BENCH' ? 'bench' : 'starter';
-      
-      // Next lines should be: player name, injury status (optional), team, position, OPP info
-      let playerName = '';
-      let team = '';
-      let opp = '';
-      let status = '';
-      
-      for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-        const nextLine = lines[j];
-        
-        // Skip slot patterns
-        if (slotPattern.test(nextLine)) break;
-        
-        // Check for injury status patterns
-        if (/^(O|OUT|DTD|GTD|Q|SUSP|P)$/i.test(nextLine)) {
-          status = nextLine.toUpperCase();
-          continue;
-        }
-        
-        // Check for team code (3-letter uppercase)
-        if (/^[A-Z]{2,4}$/.test(nextLine) && !team) {
-          team = nextLine;
-          continue;
-        }
-        
-        // Check for opponent pattern (vs/@ with team and optionally time)
-        if ((nextLine.startsWith('@') || nextLine.toLowerCase().startsWith('vs')) && !opp) {
-          opp = nextLine;
-          continue;
-        }
-        
-        // Check for time pattern (likely part of opponent info)
-        if (/^\d{1,2}:\d{2}\s*(AM|PM)/i.test(nextLine) && opp) {
-          opp += ' ' + nextLine;
-          continue;
-        }
-        
-        // If we haven't found player name yet and this isn't a stat/number
-        if (!playerName && !(/^[\d.-]+$/.test(nextLine) || /^\d+\/\d+$/.test(nextLine))) {
-          // Check if it looks like a player name (at least 2 words or single word > 3 chars)
-          if (nextLine.length > 3 && !/^(MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS|Stats|--)/i.test(nextLine)) {
-            playerName = nextLine;
-          }
-        }
-        
-        // Stop if we hit stats section markers
-        if (nextLine === 'MIN' || /^[\d.]+$/.test(nextLine)) break;
-      }
-      
-      if (playerName) {
-        playerInfoLines.push({ name: playerName, team, opp, status, slotType });
-      }
-    }
-  }
-  
-  // Match player info with stats
-  for (let i = 0; i < Math.min(numStatRows, playerInfoLines.length); i++) {
-    const info = playerInfoLines[i];
-    const base = i * COLS;
-    const parseVal = (idx: number): number => {
-      const val = statTokens[base + idx];
-      if (!val || val === '--') return 0;
-      return parseFloat(val);
-    };
-    
-    const min = parseVal(0);
-    if (min === 0 || isNaN(min)) continue;
-    
-    let fgPct = parseVal(3);
-    if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
-    
-    let ftPct = parseVal(6);
-    if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
-    
-    roster.push({
-      slot: info.slotType === 'ir' ? 'IR' : info.slotType === 'bench' ? 'Bench' : 'UTIL',
-      slotType: info.slotType as 'starter' | 'bench' | 'ir',
-      player: {
-        id: info.name,
-        name: info.name,
-        nbaTeam: info.team,
-        positions: [],
-        opponent: info.opp,
-        status: info.status as Player['status'],
-        minutes: min,
-        fgm: 0,
-        fga: 0,
-        fgPct: fgPct,
-        ftm: 0,
-        fta: 0,
-        ftPct: ftPct,
-        threepm: parseVal(7),
-        rebounds: parseVal(8),
-        assists: parseVal(9),
-        steals: parseVal(10),
-        blocks: parseVal(11),
-        turnovers: parseVal(12),
-        points: parseVal(13),
-      },
-    });
-  }
-  
-  return roster;
+  return parseEspnRosterSlotsFromTeamPage(data);
 }
 
 // Parse current W-L-T from Weekly currentMatchup string (e.g., "6-3-0")
@@ -1311,9 +1151,9 @@ export const MatchupProjection = ({
         finalOppInfo.name = "—";
       }
       
-      // Parse opponent roster to get players with game info
+      // Parse opponent roster to get players with game info (normalized for schedule-aware projection)
       const oppRoster = parseOpponentRoster(opponentData);
-      
+
       onMatchupChange({
         myTeam: { ...myParsed.info, stats: myParsed.stats },
         opponent: { ...finalOppInfo, stats: oppParsed.stats },
