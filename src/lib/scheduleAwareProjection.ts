@@ -167,12 +167,47 @@ export function getInjuryStatusLabel(multiplier: number): string {
 // ESPN (and some user inputs) sometimes use non-standard team codes.
 // Our schedule feed uses standard 2–3 letter NBA abbreviations.
 const TEAM_CODE_ALIASES: Record<string, string> = {
+  // ESPN specific variations
   UTAH: 'UTA',
   GS: 'GSW',
   NY: 'NYK',
   SA: 'SAS',
   NO: 'NOP',
+  PHO: 'PHX',
+  WSH: 'WAS',
+  BKN: 'BKN',
+  BRK: 'BKN',
+  // Mixed case / lowercase that may appear
+  CHA: 'CHA',
+  MIA: 'MIA',
+  CHI: 'CHI',
+  DET: 'DET',
+  MIL: 'MIL',
+  IND: 'IND',
+  OKC: 'OKC',
+  ORL: 'ORL',
+  SAC: 'SAC',
+  DEN: 'DEN',
+  LAL: 'LAL',
+  LAC: 'LAC',
+  MIN: 'MIN',
+  ATL: 'ATL',
+  BOS: 'BOS',
+  CLE: 'CLE',
+  DAL: 'DAL',
+  HOU: 'HOU',
+  MEM: 'MEM',
+  PHI: 'PHI',
+  POR: 'POR',
+  TOR: 'TOR',
 };
+
+// All valid NBA team codes for validation
+const VALID_NBA_TEAMS = new Set([
+  'ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW',
+  'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NYK',
+  'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'TOR', 'UTA', 'WAS'
+]);
 
 export function normalizeNbaTeamCode(team?: string | null): string | null {
   if (!team) return null;
@@ -180,15 +215,23 @@ export function normalizeNbaTeamCode(team?: string | null): string | null {
   const raw = team.toUpperCase().trim();
   if (!raw) return null;
 
-  // Common case: already a clean abbreviation.
-  if (/^[A-Z]{2,3}$/.test(raw)) return TEAM_CODE_ALIASES[raw] ?? raw;
+  // Direct lookup in aliases
+  if (TEAM_CODE_ALIASES[raw]) return TEAM_CODE_ALIASES[raw];
+  
+  // Already a valid NBA team code
+  if (VALID_NBA_TEAMS.has(raw)) return raw;
 
-  // Robust case: extract the first contiguous 2–4 letter block (handles "UTAH•", "UTAH ", etc.)
+  // Try extracting first 2-4 letter block (handles "UTAH•", "UTAH ", etc.)
   const extracted = raw.match(/^[A-Z]{2,4}/)?.[0] ?? raw.match(/[A-Z]{2,4}/)?.[0];
   if (!extracted) return null;
 
   if (TEAM_CODE_ALIASES[extracted]) return TEAM_CODE_ALIASES[extracted];
-  if (/^[A-Z]{2,3}$/.test(extracted)) return extracted;
+  if (VALID_NBA_TEAMS.has(extracted)) return extracted;
+
+  // Last resort: check if it's a 3-letter code that looks valid
+  if (/^[A-Z]{3}$/.test(extracted) && VALID_NBA_TEAMS.has(extracted)) {
+    return extracted;
+  }
 
   return null;
 }

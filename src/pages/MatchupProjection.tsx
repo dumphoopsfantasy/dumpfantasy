@@ -1545,6 +1545,13 @@ Navigate to their team page and copy the whole page.`}
             oppTeamName={persistedMatchup.opponent.name}
             remainingDays={remainingDates.length}
             isLoading={scheduleLoading}
+            onSyncOpponentRoster={() => {
+              // Scroll to opponent paste field and focus it
+              toast({
+                title: "Sync Opponent Roster",
+                description: "Paste the opponent's ESPN team page in the Opponent field above and click Compare.",
+              });
+            }}
           />
         </Card>
       )}
