@@ -144,6 +144,18 @@ export const StreamingPlanner = ({
     return null;
   }, [streamingSuggestions, includedDates]);
 
+  // Get date labels for display - MUST be before early returns
+  const selectedDateLabels = useMemo(() => {
+    const labels: string[] = [];
+    for (const dateStr of includedDates) {
+      const sd = scheduleDates.find(d => d.dateStr === dateStr);
+      if (sd) labels.push(sd.dayLabel);
+    }
+    return labels.sort();
+  }, [includedDates, scheduleDates]);
+
+  const scoreLabel = useCris ? 'CRI' : 'wCRI';
+
   if (includedDates.size === 0) {
     return (
       <Card className="gradient-card border-border p-4">
@@ -171,18 +183,6 @@ export const StreamingPlanner = ({
       </Card>
     );
   }
-
-  const scoreLabel = useCris ? 'CRI' : 'wCRI';
-
-  // Get date labels for display
-  const selectedDateLabels = useMemo(() => {
-    const labels: string[] = [];
-    for (const dateStr of includedDates) {
-      const sd = scheduleDates.find(d => d.dateStr === dateStr);
-      if (sd) labels.push(sd.dayLabel);
-    }
-    return labels.sort();
-  }, [includedDates, scheduleDates]);
 
   return (
     <Card className="gradient-card border-border p-4 space-y-4">
