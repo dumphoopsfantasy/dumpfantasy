@@ -174,6 +174,16 @@ export const StreamingPlanner = ({
 
   const scoreLabel = useCris ? 'CRI' : 'wCRI';
 
+  // Get date labels for display
+  const selectedDateLabels = useMemo(() => {
+    const labels: string[] = [];
+    for (const dateStr of includedDates) {
+      const sd = scheduleDates.find(d => d.dateStr === dateStr);
+      if (sd) labels.push(sd.dayLabel);
+    }
+    return labels.sort();
+  }, [includedDates, scheduleDates]);
+
   return (
     <Card className="gradient-card border-border p-4 space-y-4">
       {/* Header */}
@@ -185,6 +195,14 @@ export const StreamingPlanner = ({
             {includedDates.size} day{includedDates.size > 1 ? 's' : ''}
           </Badge>
         </div>
+      </div>
+
+      {/* Filter explanation */}
+      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+        <p className="text-xs text-emerald-400">
+          <span className="font-medium">Filter active:</span> Only showing players who play on{' '}
+          <span className="font-semibold">{selectedDateLabels.join(', ')}</span>
+        </p>
       </div>
 
       {/* Swap Plan - if available */}
