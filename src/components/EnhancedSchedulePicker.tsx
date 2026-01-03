@@ -116,15 +116,17 @@ export const EnhancedSchedulePicker = ({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClearAll}
-            className="h-7 text-xs"
-            disabled={dateSelections.size === 0}
-          >
-            Clear
-          </Button>
+          {dateSelections.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClearAll}
+              className="h-7 text-xs gap-1 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <X className="w-3 h-3" />
+              Clear All
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
