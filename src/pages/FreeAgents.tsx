@@ -1232,7 +1232,16 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     }
 
     if (positionFilter !== "all") {
-      result = result.filter(p => p.positions.includes(positionFilter));
+      // Handle combo position filters
+      if (positionFilter === "G") {
+        result = result.filter(p => p.positions.includes("PG") || p.positions.includes("SG"));
+      } else if (positionFilter === "F") {
+        result = result.filter(p => p.positions.includes("SF") || p.positions.includes("PF"));
+      } else if (positionFilter === "C/F") {
+        result = result.filter(p => p.positions.includes("SF") || p.positions.includes("PF") || p.positions.includes("C"));
+      } else {
+        result = result.filter(p => p.positions.includes(positionFilter));
+      }
     }
 
     // Schedule filter - use enhanced streaming schedule filter
@@ -1990,6 +1999,9 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Positions</SelectItem>
+              <SelectItem value="G">G (PG/SG)</SelectItem>
+              <SelectItem value="F">F (SF/PF)</SelectItem>
+              <SelectItem value="C/F">C/F (SF/PF/C)</SelectItem>
               <SelectItem value="PG">PG</SelectItem>
               <SelectItem value="SG">SG</SelectItem>
               <SelectItem value="SF">SF</SelectItem>
