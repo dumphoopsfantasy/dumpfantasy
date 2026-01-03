@@ -965,10 +965,10 @@ export const MatchupProjection = ({
       
       // Skip rows that are completely empty (all zeros/dashes)
       // But keep rows with at least some valid data
-      const fgm = parseVal('FGM');
-      const fga = parseVal('FGA');
-      const ftm = parseVal('FTM');
-      const fta = parseVal('FTA');
+      const rawFgm = parseVal('FGM');
+      const rawFga = parseVal('FGA');
+      const rawFtm = parseVal('FTM');
+      const rawFta = parseVal('FTA');
       const threepm = parseVal('3PM');
       const rebounds = parseVal('REB');
       const assists = parseVal('AST');
@@ -978,7 +978,7 @@ export const MatchupProjection = ({
       const points = parseVal('PTS');
       
       // Check if row has any meaningful data
-      const hasAnyData = min > 0 || fgm > 0 || fga > 0 || points > 0 || rebounds > 0 || assists > 0;
+      const hasAnyData = min > 0 || rawFgm > 0 || rawFga > 0 || points > 0 || rebounds > 0 || assists > 0;
       if (!hasAnyData) {
         devLog(`[parseESPNTeamPage] Row ${i}: No meaningful data, skipping`);
         continue;
@@ -994,8 +994,22 @@ export const MatchupProjection = ({
       if (threepm > 8) devWarn(`[parseESPNTeamPage] Row ${i}: 3PM=${threepm} > 8 - suspicious`);
       if (blocks > 6) devWarn(`[parseESPNTeamPage] Row ${i}: BLK=${blocks} > 6 - suspicious`);
       if (points > 60) devWarn(`[parseESPNTeamPage] Row ${i}: PTS=${points} > 60 - suspicious`);
-      if (fga > 30) devWarn(`[parseESPNTeamPage] Row ${i}: FGA=${fga} > 30 - suspicious`);
-      if (fta > 20) devWarn(`[parseESPNTeamPage] Row ${i}: FTA=${fta} > 20 - suspicious`);
+      if (rawFga > 30) devWarn(`[parseESPNTeamPage] Row ${i}: FGA=${rawFga} > 30 - suspicious`);
+      if (rawFta > 20) devWarn(`[parseESPNTeamPage] Row ${i}: FTA=${rawFta} > 20 - suspicious`);
+      
+      // CRITICAL: Validate makes <= attempts to prevent impossible percentages
+      // This can happen when empty slots cause stat token misalignment
+      const fgm = Math.min(rawFgm, rawFga);
+      const fga = rawFga;
+      const ftm = Math.min(rawFtm, rawFta);
+      const fta = rawFta;
+      
+      if (rawFgm > rawFga && rawFga > 0) {
+        devWarn(`[parseESPNTeamPage] Row ${i}: FGM=${rawFgm} > FGA=${rawFga} - clamped to ${fgm}`);
+      }
+      if (rawFtm > rawFta && rawFta > 0) {
+        devWarn(`[parseESPNTeamPage] Row ${i}: FTM=${rawFtm} > FTA=${rawFta} - clamped to ${ftm}`);
+      }
       
       allPlayerStats.push({
         row: i,
@@ -1088,9 +1102,25 @@ export const MatchupProjection = ({
     
     // TEAM COMPOSITE: the MEAN stats that will be multiplied by 40 in BaselinePacePanel
     // FG%/FT% are attempt-weighted from the starters
+    const rawFgPct = starterSums.fga > 0 ? starterSums.fgm / starterSums.fga : 0;
+    const rawFtPct = starterSums.fta > 0 ? starterSums.ftm / starterSums.fta : 0;
+    
+    // CRITICAL: Clamp percentages to valid 0-1 range to prevent impossible values
+    // This can happen when empty roster slots cause stat parsing misalignment
+    let hasDataQualityIssues = false;
+    
+    if (rawFgPct > 1 || rawFgPct < 0) {
+      devWarn(`[parseESPNTeamPage] Invalid FG% ${(rawFgPct * 100).toFixed(1)}% - clamping to valid range`);
+      hasDataQualityIssues = true;
+    }
+    if (rawFtPct > 1 || rawFtPct < 0) {
+      devWarn(`[parseESPNTeamPage] Invalid FT% ${(rawFtPct * 100).toFixed(1)}% - clamping to valid range`);
+      hasDataQualityIssues = true;
+    }
+    
     const teamComposite = {
-      fgPct: starterSums.fga > 0 ? starterSums.fgm / starterSums.fga : 0,
-      ftPct: starterSums.fta > 0 ? starterSums.ftm / starterSums.fta : 0,
+      fgPct: Math.min(Math.max(rawFgPct, 0), 1),
+      ftPct: Math.min(Math.max(rawFtPct, 0), 1),
       threepm: meanStats.threepm,
       rebounds: meanStats.rebounds,
       assists: meanStats.assists,
@@ -1101,6 +1131,9 @@ export const MatchupProjection = ({
     };
     
     devLog(`[parseESPNTeamPage] Team composite (MEAN per roster-game):`, teamComposite);
+    if (hasDataQualityIssues) {
+      devWarn(`[parseESPNTeamPage] Data quality issues detected - percentages were clamped`);
+    }
     
     // Compute expected baseline (×40) for verification
     const expectedBaseline = {
