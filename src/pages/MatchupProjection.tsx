@@ -432,8 +432,10 @@ export const MatchupProjection = ({
   
   // Schedule-aware projection hook
   const { 
-    myProjection: scheduleMyProjection, 
+    myProjection: scheduleMyProjection,
+    myError: scheduleMyError,
     oppProjection: scheduleOppProjection,
+    oppError: scheduleOppError,
     remainingDates,
     isLoading: scheduleLoading,
   } = useScheduleAwareProjection({
@@ -1696,7 +1698,9 @@ Navigate to their team page and copy the whole page.`}
           </div>
           <ScheduleAwareProjection
             myProjection={scheduleMyProjection}
+            myError={scheduleMyError}
             oppProjection={scheduleOppProjection}
+            oppError={scheduleOppError}
             myTeamName={persistedMatchup.myTeam.name}
             oppTeamName={persistedMatchup.opponent.name}
             remainingDays={remainingDates.length}

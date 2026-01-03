@@ -2,24 +2,29 @@
  * Schedule-Aware Projection Display Component
  * 
  * Shows projected week totals with started games, bench overflow, etc.
+ * Displays clear error banners when opponent roster is missing or schedule mapping fails.
  */
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { CalendarCheck, ChevronDown, Users, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
-import { WeekProjectionResult, ProjectedStats } from "@/lib/scheduleAwareProjection";
+import { CalendarCheck, ChevronDown, Users, AlertTriangle, TrendingDown, Upload, XCircle } from "lucide-react";
+import { WeekProjectionResult, ProjectedStats, ProjectionError } from "@/lib/scheduleAwareProjection";
 import { formatPct } from "@/lib/crisUtils";
 
 interface ScheduleAwareProjectionProps {
   myProjection: WeekProjectionResult | null;
+  myError: ProjectionError | null;
   oppProjection: WeekProjectionResult | null;
+  oppError: ProjectionError | null;
   myTeamName: string;
   oppTeamName: string;
   remainingDays: number;
   isLoading?: boolean;
+  onSyncOpponentRoster?: () => void;
 }
 
 const CATEGORIES = [
@@ -38,11 +43,14 @@ type StatKey = typeof CATEGORIES[number]['key'];
 
 export function ScheduleAwareProjection({
   myProjection,
+  myError,
   oppProjection,
+  oppError,
   myTeamName,
   oppTeamName,
   remainingDays,
   isLoading,
+  onSyncOpponentRoster,
 }: ScheduleAwareProjectionProps) {
   if (isLoading) {
     return (
@@ -52,6 +60,20 @@ export function ScheduleAwareProjection({
           <span className="text-sm">Loading schedule data...</span>
         </div>
       </Card>
+    );
+  }
+
+  // Handle my team error
+  if (myError) {
+    return (
+      <Alert className="border-destructive/50 bg-destructive/10">
+        <XCircle className="h-4 w-4 text-destructive" />
+        <AlertDescription className="text-sm">
+          {myError.code === 'SCHEDULE_MAPPING_FAILED' 
+            ? `Schedule mapping failed for your team: ${myError.validation?.unmappedPlayers.length || 0} players missing team mapping.`
+            : myError.message}
+        </AlertDescription>
+      </Alert>
     );
   }
 
@@ -107,6 +129,62 @@ export function ScheduleAwareProjection({
   const hasWarnings = myProjection.emptySlotDays > 0 || myProjection.totalBenchOverflow > 0 ||
     (oppProjection && (oppProjection.emptySlotDays > 0 || oppProjection.totalBenchOverflow > 0));
 
+  // Render opponent error banner
+  const renderOpponentErrorBanner = () => {
+    if (!oppError) return null;
+
+    if (oppError.code === 'OPP_ROSTER_MISSING') {
+      return (
+        <Alert className="border-amber-500/50 bg-amber-500/10">
+          <Upload className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="text-sm flex items-center justify-between gap-2 flex-wrap">
+            <span>
+              <strong>Opponent roster not imported.</strong> Sync to enable schedule-aware projection.
+            </span>
+            {onSyncOpponentRoster && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-7 text-xs"
+                onClick={onSyncOpponentRoster}
+              >
+                <Upload className="w-3 h-3 mr-1" />
+                Sync Opponent Roster
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      );
+    }
+
+    if (oppError.code === 'SCHEDULE_MAPPING_FAILED') {
+      const unmappedCount = oppError.validation?.unmappedPlayers.length || 0;
+      const unmappedNames = oppError.validation?.unmappedPlayers.slice(0, 3).map(p => p.name).join(', ') || '';
+      return (
+        <Alert className="border-destructive/50 bg-destructive/10">
+          <XCircle className="h-4 w-4 text-destructive" />
+          <AlertDescription className="text-sm">
+            <strong>Opponent schedule mapping failed</strong> ({unmappedCount} players missing team mapping).
+            {unmappedNames && <span className="text-muted-foreground"> Players: {unmappedNames}{unmappedCount > 3 ? '...' : ''}</span>}
+          </AlertDescription>
+        </Alert>
+      );
+    }
+
+    if (oppError.code === 'NO_SCHEDULE_DATA') {
+      return (
+        <Alert className="border-muted">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription className="text-sm">
+            NBA schedule data not available for opponent projection.
+          </AlertDescription>
+        </Alert>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <div className="space-y-3">
       {/* Schedule Stats Summary */}
@@ -121,6 +199,12 @@ export function ScheduleAwareProjection({
             Opp: {oppProjection.totalStartedGames.toFixed(1)} games
           </Badge>
         )}
+        {oppError?.code === 'OPP_ROSTER_MISSING' && (
+          <Badge variant="secondary" className="gap-1 text-amber-600">
+            <AlertTriangle className="w-3 h-3" />
+            Opp: Not imported
+          </Badge>
+        )}
         {myProjection.totalBenchOverflow > 0 && (
           <Badge variant="secondary" className="gap-1 text-amber-600">
             <TrendingDown className="w-3 h-3" />
@@ -133,6 +217,9 @@ export function ScheduleAwareProjection({
           </Badge>
         )}
       </div>
+
+      {/* Opponent Error Banner */}
+      {renderOpponentErrorBanner()}
 
       {/* Schedule Warnings */}
       {hasWarnings && (
@@ -197,10 +284,27 @@ export function ScheduleAwareProjection({
             </div>
           </Card>
         ) : (
-          <Card className="gradient-card border-border p-3 flex items-center justify-center">
-            <p className="text-xs text-muted-foreground text-center">
-              Import opponent roster to see schedule-aware projection
-            </p>
+          <Card className="gradient-card border-border p-3 flex items-center justify-center min-h-[80px]">
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">
+                {oppError?.code === 'OPP_ROSTER_MISSING' 
+                  ? 'Import opponent roster to see projection'
+                  : oppError?.code === 'SCHEDULE_MAPPING_FAILED'
+                  ? 'Schedule mapping failed for opponent'
+                  : 'Opponent data unavailable'}
+              </p>
+              {onSyncOpponentRoster && oppError?.code === 'OPP_ROSTER_MISSING' && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="mt-2 h-7 text-xs"
+                  onClick={onSyncOpponentRoster}
+                >
+                  <Upload className="w-3 h-3 mr-1" />
+                  Sync Opponent
+                </Button>
+              )}
+            </div>
           </Card>
         )}
       </div>

@@ -16,6 +16,31 @@ import { devLog, devWarn } from "@/lib/devLog";
 // TYPES
 // ============================================================================
 
+export type ProjectionErrorCode = 
+  | 'OPP_ROSTER_MISSING'
+  | 'SCHEDULE_MAPPING_FAILED'
+  | 'NO_SCHEDULE_DATA';
+
+export interface UnmappedPlayer {
+  name: string;
+  nbaTeam: string | null;
+  missingFields: string[];
+}
+
+export interface ProjectionValidation {
+  playersReceived: number;
+  playersWithValidTeamId: number;
+  gamesFoundTotal: number;
+  playersWithAtLeastOneGame: number;
+  unmappedPlayers: UnmappedPlayer[];
+}
+
+export interface ProjectionError {
+  code: ProjectionErrorCode;
+  message: string;
+  validation?: ProjectionValidation;
+}
+
 export interface ProjectedStats {
   fgm: number;
   fga: number;
@@ -53,6 +78,7 @@ export interface WeekProjectionResult {
   playerProjections: PlayerProjection[];
   emptySlotDays: number;        // Days where we had fewer players than slots
   warnings: string[];
+  validation?: ProjectionValidation;
 }
 
 export interface LineupSlotConfig {
@@ -382,6 +408,78 @@ export function fillLineupsForDay(
 }
 
 // ============================================================================
+// PREFLIGHT VALIDATION
+// ============================================================================
+
+/**
+ * Validate roster data before running projection.
+ * Returns validation stats and identifies unmapped players.
+ */
+export function validateProjectionInput(
+  roster: RosterSlot[],
+  weekDates: string[],
+  gamesByDate: Map<string, NBAGame[]>
+): ProjectionValidation {
+  const nonIrPlayers = roster.filter(slot => slot.slotType !== 'ir');
+  const playersReceived = nonIrPlayers.length;
+  
+  let playersWithValidTeamId = 0;
+  let gamesFoundTotal = 0;
+  let playersWithAtLeastOneGame = 0;
+  const unmappedPlayers: UnmappedPlayer[] = [];
+  
+  for (const slot of nonIrPlayers) {
+    const player = slot.player;
+    const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
+    
+    if (normalizedTeam) {
+      playersWithValidTeamId++;
+      
+      // Count games for this player
+      let playerGames = 0;
+      for (const date of weekDates) {
+        const games = gamesByDate.get(date) || [];
+        if (games.some(g => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam)) {
+          playerGames++;
+        }
+      }
+      
+      gamesFoundTotal += playerGames;
+      if (playerGames > 0) {
+        playersWithAtLeastOneGame++;
+      }
+    } else {
+      // Unmapped player
+      const missingFields: string[] = [];
+      if (!player.nbaTeam) missingFields.push('nbaTeam');
+      else missingFields.push(`nbaTeam (invalid: "${player.nbaTeam}")`);
+      
+      unmappedPlayers.push({
+        name: player.name,
+        nbaTeam: player.nbaTeam || null,
+        missingFields,
+      });
+    }
+  }
+  
+  devLog('[validateProjectionInput]', {
+    playersReceived,
+    playersWithValidTeamId,
+    gamesFoundTotal,
+    playersWithAtLeastOneGame,
+    unmappedCount: unmappedPlayers.length,
+  });
+  
+  return {
+    playersReceived,
+    playersWithValidTeamId,
+    gamesFoundTotal,
+    playersWithAtLeastOneGame,
+    unmappedPlayers,
+  };
+}
+
+// ============================================================================
 // MAIN PROJECTION ENGINE
 // ============================================================================
 
@@ -392,15 +490,20 @@ export interface ProjectWeekInput {
   lineupSlots?: LineupSlotConfig[];
 }
 
+export type ProjectWeekResult = 
+  | { success: true; result: WeekProjectionResult }
+  | { success: false; error: ProjectionError };
+
 /**
  * Project week totals for a fantasy team
  * 
  * Pure function that:
- * 1. For each date, filters players with a game that day
- * 2. Fills lineup slots using greedy algorithm (most constrained first)
- * 3. Applies injury multipliers to expected games
- * 4. Sums perGame stats × expectedStartedGames for each player
- * 5. Computes FG%/FT% via sum(makes)/sum(attempts)
+ * 1. Validates roster data for schedule mapping
+ * 2. For each date, filters players with a game that day
+ * 3. Fills lineup slots using greedy algorithm (most constrained first)
+ * 4. Applies injury multipliers to expected games
+ * 5. Sums perGame stats × expectedStartedGames for each player
+ * 6. Computes FG%/FT% via sum(makes)/sum(attempts)
  */
 export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
   const { roster, weekDates, gamesByDate, lineupSlots = STANDARD_LINEUP_SLOTS } = input;
@@ -556,11 +659,15 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
     points: totalPoints,
   };
   
+  // Perform validation to attach to result
+  const validation = validateProjectionInput(roster, weekDates, gamesByDate);
+  
   devLog('[projectWeek] Projection complete:', {
     totalStartedGames,
     totalBenchOverflow,
     emptySlotDays: totalEmptySlotDays,
     playerCount: playerProjections.length,
+    validation,
   });
   
   return {
@@ -570,7 +677,49 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
     playerProjections,
     emptySlotDays: totalEmptySlotDays,
     warnings,
+    validation,
   };
+}
+
+/**
+ * Project week with full error handling.
+ * Returns either a successful result or a structured error.
+ */
+export function projectWeekSafe(input: ProjectWeekInput): ProjectWeekResult {
+  const { roster, weekDates, gamesByDate } = input;
+  
+  // Preflight validation
+  const validation = validateProjectionInput(roster, weekDates, gamesByDate);
+  
+  // Check for schedule mapping failure
+  if (validation.playersReceived > 0 && validation.gamesFoundTotal === 0) {
+    devWarn('[projectWeekSafe] Schedule mapping failed', validation);
+    return {
+      success: false,
+      error: {
+        code: 'SCHEDULE_MAPPING_FAILED',
+        message: `${validation.unmappedPlayers.length} players missing team mapping`,
+        validation,
+      },
+    };
+  }
+  
+  // Check for no schedule data
+  if (gamesByDate.size === 0) {
+    devWarn('[projectWeekSafe] No schedule data available');
+    return {
+      success: false,
+      error: {
+        code: 'NO_SCHEDULE_DATA',
+        message: 'NBA schedule data not available',
+        validation,
+      },
+    };
+  }
+  
+  // Run projection
+  const result = projectWeek(input);
+  return { success: true, result };
 }
 
 // ============================================================================
