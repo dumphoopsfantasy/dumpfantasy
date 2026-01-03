@@ -138,6 +138,35 @@ export function getInjuryStatusLabel(multiplier: number): string {
 // SCHEDULE UTILITIES
 // ============================================================================
 
+// ESPN (and some user inputs) sometimes use non-standard team codes.
+// Our schedule feed uses standard 2–3 letter NBA abbreviations.
+const TEAM_CODE_ALIASES: Record<string, string> = {
+  UTAH: 'UTA',
+  GS: 'GSW',
+  NY: 'NYK',
+  SA: 'SAS',
+  NO: 'NOP',
+};
+
+export function normalizeNbaTeamCode(team?: string | null): string | null {
+  if (!team) return null;
+
+  const raw = team.toUpperCase().trim();
+  if (!raw) return null;
+
+  // Common case: already a clean abbreviation.
+  if (/^[A-Z]{2,3}$/.test(raw)) return TEAM_CODE_ALIASES[raw] ?? raw;
+
+  // Robust case: extract the first contiguous 2–4 letter block (handles "UTAH•", "UTAH ", etc.)
+  const extracted = raw.match(/^[A-Z]{2,4}/)?.[0] ?? raw.match(/[A-Z]{2,4}/)?.[0];
+  if (!extracted) return null;
+
+  if (TEAM_CODE_ALIASES[extracted]) return TEAM_CODE_ALIASES[extracted];
+  if (/^[A-Z]{2,3}$/.test(extracted)) return extracted;
+
+  return null;
+}
+
 /**
  * Get the number of games a team has in the given date range
  */
@@ -145,15 +174,16 @@ export function getTeamGamesInRange(
   teamCode: string,
   gamesByDate: Map<string, NBAGame[]>
 ): number {
-  const upperTeam = teamCode.toUpperCase();
+  const upperTeam = normalizeNbaTeamCode(teamCode);
+  if (!upperTeam) return 0;
+
   let count = 0;
-  
   gamesByDate.forEach((games) => {
-    if (games.some(g => g.homeTeam === upperTeam || g.awayTeam === upperTeam)) {
+    if (games.some((g) => g.homeTeam === upperTeam || g.awayTeam === upperTeam)) {
       count++;
     }
   });
-  
+
   return count;
 }
 
@@ -164,15 +194,16 @@ export function getTeamGameDates(
   teamCode: string,
   gamesByDate: Map<string, NBAGame[]>
 ): string[] {
-  const upperTeam = teamCode.toUpperCase();
+  const upperTeam = normalizeNbaTeamCode(teamCode);
+  if (!upperTeam) return [];
+
   const dates: string[] = [];
-  
   gamesByDate.forEach((games, date) => {
-    if (games.some(g => g.homeTeam === upperTeam || g.awayTeam === upperTeam)) {
+    if (games.some((g) => g.homeTeam === upperTeam || g.awayTeam === upperTeam)) {
       dates.push(date);
     }
   });
-  
+
   return dates;
 }
 
@@ -228,21 +259,49 @@ export function getBlendedPerGameStats(
 ): { stats: ProjectedStats; usedShrinkage: boolean } {
   const fallback = getPositionFallback(player.positions || []);
   let anyUsedShrinkage = false;
-  
+
+  // If we have "real" production but 0 shooting volume, that almost always means
+  // the roster row had partial/misaligned shooting stats (e.g., '--' parsed as 0).
+  // In that case, treat FGM/FGA/FTM/FTA as missing so shrinkage can fall back.
+  const hasAnyProduction =
+    (Number.isFinite(player.minutes) && player.minutes > 0) ||
+    (Number.isFinite(player.points) && player.points > 0) ||
+    (Number.isFinite(player.rebounds) && player.rebounds > 0) ||
+    (Number.isFinite(player.assists) && player.assists > 0) ||
+    (Number.isFinite(player.threepm) && player.threepm > 0);
+
+  const missingFGVolume =
+    hasAnyProduction &&
+    (!Number.isFinite(player.fga) || player.fga <= 0) &&
+    (!Number.isFinite(player.fgm) || player.fgm <= 0);
+
+  const missingFTVolume =
+    hasAnyProduction &&
+    (!Number.isFinite(player.fta) || player.fta <= 0) &&
+    (!Number.isFinite(player.ftm) || player.ftm <= 0);
+
   const blend = (observed: number | undefined, fallbackVal: number): number => {
     const result = applyShrinkageBlend(observed, fallbackVal, gamesPlayed);
     if (result.usedShrinkage) anyUsedShrinkage = true;
     return result.value;
   };
-  
+
+  const observedFgm = missingFGVolume ? undefined : player.fgm;
+  const observedFga = missingFGVolume ? undefined : player.fga;
+  const observedFgPct = missingFGVolume ? undefined : player.fgPct;
+
+  const observedFtm = missingFTVolume ? undefined : player.ftm;
+  const observedFta = missingFTVolume ? undefined : player.fta;
+  const observedFtPct = missingFTVolume ? undefined : player.ftPct;
+
   return {
     stats: {
-      fgm: blend(player.fgm, fallback.fgm),
-      fga: blend(player.fga, fallback.fga),
-      fgPct: blend(player.fgPct, fallback.fgPct),
-      ftm: blend(player.ftm, fallback.ftm),
-      fta: blend(player.fta, fallback.fta),
-      ftPct: blend(player.ftPct, fallback.ftPct),
+      fgm: blend(observedFgm, fallback.fgm),
+      fga: blend(observedFga, fallback.fga),
+      fgPct: blend(observedFgPct, fallback.fgPct),
+      ftm: blend(observedFtm, fallback.ftm),
+      fta: blend(observedFta, fallback.fta),
+      ftPct: blend(observedFtPct, fallback.ftPct),
       threepm: blend(player.threepm, fallback.threepm),
       rebounds: blend(player.rebounds, fallback.rebounds),
       assists: blend(player.assists, fallback.assists),
@@ -366,7 +425,7 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
     const playersWithGamesToday = roster
       .filter(slot => {
         if (slot.slotType === 'ir') return false;
-        const teamCode = slot.player.nbaTeam?.toUpperCase();
+        const teamCode = normalizeNbaTeamCode(slot.player.nbaTeam);
         if (!teamCode) return false;
         return games.some(g => g.homeTeam === teamCode || g.awayTeam === teamCode);
       })
@@ -463,7 +522,7 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
     playerProjections.push({
       playerId: player.id,
       playerName: player.name,
-      nbaTeam: player.nbaTeam,
+      nbaTeam: normalizeNbaTeamCode(player.nbaTeam) ?? player.nbaTeam,
       positions: player.positions || [],
       status: player.status || 'healthy',
       injuryMultiplier,

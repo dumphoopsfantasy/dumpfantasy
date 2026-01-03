@@ -278,26 +278,84 @@ describe('projectWeek', () => {
 
   it('applies DTD multiplier to expected games', () => {
     const roster: RosterSlot[] = [
-      createMockSlot(createMockPlayer({ 
-        id: 'dtd-player', 
+      createMockSlot(createMockPlayer({
+        id: 'dtd-player',
         nbaTeam: 'LAL',
         positions: ['PG'],
         status: 'DTD',
       })),
     ];
-    
+
     const gamesByDate = new Map<string, NBAGame[]>();
     gamesByDate.set('2026-01-06', [createMockGame('LAL', 'BOS')]);
-    
+
     const result = projectWeek({
       roster,
       weekDates: ['2026-01-06'],
       gamesByDate,
     });
-    
-    const dtdProj = result.playerProjections.find(p => p.playerId === 'dtd-player');
+
+    const dtdProj = result.playerProjections.find((p) => p.playerId === 'dtd-player');
     expect(dtdProj?.injuryMultiplier).toBe(0.6);
     expect(dtdProj?.expectedStartedGames).toBe(0.6);
+  });
+
+  it('matches schedule games when roster uses ESPN-style team codes (e.g., UTAH)', () => {
+    const roster: RosterSlot[] = [
+      createMockSlot(createMockPlayer({
+        id: 'uta-player',
+        nbaTeam: 'UTAH',
+        positions: ['PF'],
+      })),
+    ];
+
+    const gamesByDate = new Map<string, NBAGame[]>();
+    gamesByDate.set('2026-01-06', [createMockGame('UTA', 'GSW')]);
+
+    const result = projectWeek({
+      roster,
+      weekDates: ['2026-01-06'],
+      gamesByDate,
+    });
+
+    expect(result.totalStartedGames).toBeCloseTo(1.0, 2);
+  });
+
+  it('falls back for shooting volume when makes/attempts are missing (0) but player has production', () => {
+    const roster: RosterSlot[] = [
+      createMockSlot(createMockPlayer({
+        id: 'missing-shooting',
+        nbaTeam: 'LAL',
+        positions: ['SG'],
+        gamesPlayed: 60,
+        minutes: 32,
+        points: 22,
+        fgm: 0,
+        fga: 0,
+        ftm: 0,
+        fta: 0,
+        fgPct: 0,
+        ftPct: 0,
+      })),
+    ];
+
+    const gamesByDate = new Map<string, NBAGame[]>();
+    gamesByDate.set('2026-01-06', [createMockGame('LAL', 'BOS')]);
+
+    const result = projectWeek({
+      roster,
+      weekDates: ['2026-01-06'],
+      gamesByDate,
+    });
+
+    // Should not end up with 0 attempts (which would force 0.000 FG%/FT%)
+    expect(result.totalStats.fga).toBeGreaterThan(0);
+    expect(result.totalStats.fgm).toBeGreaterThan(0);
+    expect(result.totalStats.fgPct).toBeGreaterThan(0);
+
+    expect(result.totalStats.fta).toBeGreaterThan(0);
+    expect(result.totalStats.ftm).toBeGreaterThan(0);
+    expect(result.totalStats.ftPct).toBeGreaterThan(0);
   });
 });
 
