@@ -12,11 +12,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowUp, ArrowDown, Minus, TrendingUp, Users, BarChart3, Newspaper, RefreshCw, ArrowUpRight, ArrowRightLeft } from "lucide-react";
+import { ArrowUp, ArrowDown, Minus, TrendingUp, Users, BarChart3, Newspaper, RefreshCw, ArrowUpRight, ArrowRightLeft, Calendar, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMemo, useState, useEffect } from "react";
-import { fetchPlayerNews, PlayerNews } from "@/lib/nbaApi";
+import { fetchPlayerNews, PlayerNews, fetchNBAGamesForDates, getUpcomingDates, NBAGame } from "@/lib/nbaApi";
 import { RosterSwapSimulator } from "@/components/RosterSwapSimulator";
+import { format } from "date-fns";
 
 interface FreeAgentImpactSheetProps {
   player: Player | null;
@@ -38,12 +39,15 @@ export const FreeAgentImpactSheet = ({
   const [dropPlayerId, setDropPlayerId] = useState<string | "none">("none");
   const [news, setNews] = useState<PlayerNews[]>([]);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
-  const [activeTab, setActiveTab] = useState<"impact" | "swap" | "news">("impact");
+  const [activeTab, setActiveTab] = useState<"impact" | "swap" | "news" | "schedule">("impact");
+  const [schedule, setSchedule] = useState<Array<{ date: string; opponent: string; isHome: boolean; gameTime?: string }>>([]);
+  const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
 
   // Load player news when sheet opens
   useEffect(() => {
     if (player && open) {
       loadPlayerNews(player.name);
+      loadPlayerSchedule(player.nbaTeam);
     }
   }, [player, open]);
 
@@ -57,6 +61,53 @@ export const FreeAgentImpactSheet = ({
       setNews([]);
     } finally {
       setIsLoadingNews(false);
+    }
+  };
+
+  const loadPlayerSchedule = async (teamCode: string) => {
+    setIsLoadingSchedule(true);
+    try {
+      const upcomingDates = getUpcomingDates(14); // 2 weeks
+      const dateStrings = upcomingDates.map(d => format(d, 'yyyy-MM-dd'));
+      const gamesMap = await fetchNBAGamesForDates(dateStrings);
+      
+      const teamSchedule: Array<{ date: string; opponent: string; isHome: boolean; gameTime?: string }> = [];
+      
+      // Team code variations for matching
+      const teamVariants = [teamCode, teamCode.toUpperCase()];
+      if (teamCode === 'BKN') teamVariants.push('BRK');
+      if (teamCode === 'BRK') teamVariants.push('BKN');
+      if (teamCode === 'PHX') teamVariants.push('PHO');
+      if (teamCode === 'PHO') teamVariants.push('PHX');
+      
+      for (let i = 0; i < dateStrings.length; i++) {
+        const dateStr = dateStrings[i];
+        const games = gamesMap.get(dateStr) || [];
+        for (const game of games) {
+          const homeTeam = game.homeTeam || '';
+          const awayTeam = game.awayTeam || '';
+          
+          const isHome = teamVariants.some(t => homeTeam.toUpperCase() === t.toUpperCase());
+          const isAway = teamVariants.some(t => awayTeam.toUpperCase() === t.toUpperCase());
+          
+          if (isHome || isAway) {
+            teamSchedule.push({
+              date: dateStr,
+              opponent: isHome ? awayTeam : homeTeam,
+              isHome,
+              gameTime: game.gameTime,
+            });
+            break;
+          }
+        }
+      }
+      
+      setSchedule(teamSchedule);
+    } catch (error) {
+      console.error("Error fetching player schedule:", error);
+      setSchedule([]);
+    } finally {
+      setIsLoadingSchedule(false);
     }
   };
 
@@ -280,9 +331,9 @@ export const FreeAgentImpactSheet = ({
           </Card>
         </SheetHeader>
 
-        {/* Tabs for Impact vs Swap vs News */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "impact" | "swap" | "news")} className="mt-4">
-          <TabsList className="grid w-full grid-cols-3">
+        {/* Tabs for Impact vs Swap vs Schedule vs News */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "impact" | "swap" | "news" | "schedule")} className="mt-4">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="impact" className="text-xs font-display">
               <TrendingUp className="w-3 h-3 mr-1" />
               Impact
@@ -291,9 +342,13 @@ export const FreeAgentImpactSheet = ({
               <ArrowRightLeft className="w-3 h-3 mr-1" />
               Swap
             </TabsTrigger>
+            <TabsTrigger value="schedule" className="text-xs font-display">
+              <Calendar className="w-3 h-3 mr-1" />
+              Schedule
+            </TabsTrigger>
             <TabsTrigger value="news" className="text-xs font-display">
               <Newspaper className="w-3 h-3 mr-1" />
-              Resources
+              News
             </TabsTrigger>
           </TabsList>
 
@@ -475,6 +530,85 @@ export const FreeAgentImpactSheet = ({
                       </div>
                     </a>
                   ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="schedule" className="mt-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <h4 className="font-display font-bold text-sm text-muted-foreground uppercase tracking-wider">
+                    Upcoming Games (2 Weeks)
+                  </h4>
+                </div>
+                <Badge variant="secondary" className="text-xs">
+                  {schedule.length} game{schedule.length !== 1 ? 's' : ''}
+                </Badge>
+              </div>
+              
+              {isLoadingSchedule ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="bg-secondary/20 rounded-lg p-3 animate-pulse h-14"></div>
+                  ))}
+                </div>
+              ) : schedule.length === 0 ? (
+                <Card className="gradient-card border-border p-4 text-center">
+                  <p className="text-sm text-muted-foreground">No upcoming games found</p>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {schedule.map((game, idx) => {
+                    const gameDate = new Date(game.date + 'T12:00:00');
+                    const dayLabel = format(gameDate, 'EEE');
+                    const dateLabel = format(gameDate, 'MMM d');
+                    const isToday = format(new Date(), 'yyyy-MM-dd') === game.date;
+                    
+                    return (
+                      <div
+                        key={idx}
+                        className={cn(
+                          "flex items-center justify-between p-3 rounded-lg border",
+                          isToday ? "bg-primary/10 border-primary/30" : "bg-secondary/20 border-border"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="text-center min-w-[50px]">
+                            <p className={cn("text-xs font-medium", isToday && "text-primary")}>
+                              {dayLabel}
+                            </p>
+                            <p className="text-sm font-bold">{dateLabel}</p>
+                            {isToday && (
+                              <Badge className="text-[9px] px-1 py-0 bg-primary/20 text-primary border-0">
+                                Today
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {game.isHome ? 'vs' : '@'}
+                            </span>
+                            <NBATeamLogo teamCode={game.opponent} size="sm" />
+                            <span className="font-medium text-sm">{game.opponent}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-3 h-3 text-muted-foreground" />
+                          <span className={cn("text-xs", game.isHome ? "text-emerald-400" : "text-muted-foreground")}>
+                            {game.isHome ? 'Home' : 'Away'}
+                          </span>
+                          {game.gameTime && (
+                            <Badge variant="outline" className="text-xs ml-2">
+                              {game.gameTime}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
