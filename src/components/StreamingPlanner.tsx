@@ -201,7 +201,8 @@ export const StreamingPlanner = ({
       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
         <p className="text-xs text-emerald-400">
           <span className="font-medium">Filter active:</span> Only showing players who play on{' '}
-          <span className="font-semibold">{selectedDateLabels.join(', ')}</span>
+          <span className="font-semibold">all</span> of these days:{' '}
+          <span className="font-semibold">{selectedDateLabels.join(' + ')}</span>
         </p>
       </div>
 
