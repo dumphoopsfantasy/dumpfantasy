@@ -7,6 +7,8 @@
  * - O/IR => 0 games
  * - FG%/FT% computed via makes/attempts
  * - Shrinkage blending for partial stats
+ * - OPP_ROSTER_MISSING error state
+ * - SCHEDULE_MAPPING_FAILED error state
  */
 
 import {
@@ -14,6 +16,8 @@ import {
   applyShrinkageBlend,
   fillLineupsForDay,
   projectWeek,
+  projectWeekSafe,
+  validateProjectionInput,
   STANDARD_LINEUP_SLOTS,
   getMatchupWeekDates,
   getRemainingMatchupDates,
@@ -382,5 +386,112 @@ describe('getRemainingMatchupDates', () => {
     remaining.forEach(d => {
       expect(d >= todayStr).toBe(true);
     });
+  });
+});
+
+describe('validateProjectionInput', () => {
+  it('identifies unmapped players with invalid team codes', () => {
+    const roster: RosterSlot[] = [
+      createMockSlot(createMockPlayer({
+        id: 'bad-team',
+        nbaTeam: 'INVALID_CODE',
+        positions: ['PG'],
+      })),
+    ];
+
+    const gamesByDate = new Map<string, NBAGame[]>();
+    gamesByDate.set('2026-01-06', [createMockGame('LAL', 'BOS')]);
+
+    const validation = validateProjectionInput(roster, ['2026-01-06'], gamesByDate);
+
+    expect(validation.playersReceived).toBe(1);
+    expect(validation.playersWithValidTeamId).toBe(0);
+    expect(validation.unmappedPlayers.length).toBe(1);
+    expect(validation.unmappedPlayers[0].name).toBe('Test Player');
+  });
+
+  it('counts games correctly for valid roster', () => {
+    const roster: RosterSlot[] = [
+      createMockSlot(createMockPlayer({ id: 'p1', nbaTeam: 'LAL', positions: ['PG'] })),
+      createMockSlot(createMockPlayer({ id: 'p2', nbaTeam: 'BOS', positions: ['SG'] })),
+    ];
+
+    const gamesByDate = new Map<string, NBAGame[]>();
+    gamesByDate.set('2026-01-06', [createMockGame('LAL', 'BOS')]);
+    gamesByDate.set('2026-01-07', [createMockGame('LAL', 'MIA')]);
+
+    const validation = validateProjectionInput(roster, ['2026-01-06', '2026-01-07'], gamesByDate);
+
+    expect(validation.playersReceived).toBe(2);
+    expect(validation.playersWithValidTeamId).toBe(2);
+    expect(validation.gamesFoundTotal).toBe(3); // LAL has 2 games, BOS has 1
+    expect(validation.playersWithAtLeastOneGame).toBe(2);
+  });
+});
+
+describe('projectWeekSafe', () => {
+  it('returns SCHEDULE_MAPPING_FAILED when roster has players but no games found', () => {
+    const roster: RosterSlot[] = [
+      createMockSlot(createMockPlayer({
+        id: 'unknown-team',
+        nbaTeam: 'XXX', // Invalid team code
+        positions: ['PG'],
+      })),
+    ];
+
+    const gamesByDate = new Map<string, NBAGame[]>();
+    gamesByDate.set('2026-01-06', [createMockGame('LAL', 'BOS')]);
+
+    const result = projectWeekSafe({
+      roster,
+      weekDates: ['2026-01-06'],
+      gamesByDate,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error.code).toBe('SCHEDULE_MAPPING_FAILED');
+      expect(result.error.validation?.unmappedPlayers.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('returns NO_SCHEDULE_DATA when gamesByDate is empty', () => {
+    const roster: RosterSlot[] = [
+      createMockSlot(createMockPlayer({ id: 'p1', nbaTeam: 'LAL', positions: ['PG'] })),
+    ];
+
+    const gamesByDate = new Map<string, NBAGame[]>(); // Empty
+
+    const result = projectWeekSafe({
+      roster,
+      weekDates: ['2026-01-06'],
+      gamesByDate,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error.code).toBe('NO_SCHEDULE_DATA');
+    }
+  });
+
+  it('returns success with valid roster and schedule data', () => {
+    const roster: RosterSlot[] = [
+      createMockSlot(createMockPlayer({ id: 'p1', nbaTeam: 'LAL', positions: ['PG'] })),
+    ];
+
+    const gamesByDate = new Map<string, NBAGame[]>();
+    gamesByDate.set('2026-01-06', [createMockGame('LAL', 'BOS')]);
+
+    const result = projectWeekSafe({
+      roster,
+      weekDates: ['2026-01-06'],
+      gamesByDate,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.result.totalStartedGames).toBeGreaterThan(0);
+      expect(result.result.validation?.playersReceived).toBe(1);
+    }
   });
 });
