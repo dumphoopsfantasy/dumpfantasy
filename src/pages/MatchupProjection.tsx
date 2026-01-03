@@ -13,6 +13,10 @@ import { RosterSlot, Player } from "@/types/fantasy";
 import { useToast } from "@/hooks/use-toast";
 import { BaselinePacePanel } from "@/components/BaselinePacePanel";
 import { devLog, devWarn, devError } from "@/lib/devLog";
+import { ProjectionModeToggle, ProjectionMode } from "@/components/ProjectionModeToggle";
+import { ScheduleAwareProjection } from "@/components/ScheduleAwareProjection";
+import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
+import { getRemainingMatchupDates } from "@/lib/scheduleAwareProjection";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -422,8 +426,20 @@ export const MatchupProjection = ({
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTip, setDismissedTip] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(true); // Dynamic projection expanded by default
+  const [projectionMode, setProjectionMode] = useState<ProjectionMode>('schedule'); // Default to schedule-aware
 
   const dayInfo = getMatchupDayInfo();
+  
+  // Schedule-aware projection hook
+  const { 
+    myProjection: scheduleMyProjection, 
+    oppProjection: scheduleOppProjection,
+    remainingDates,
+    isLoading: scheduleLoading,
+  } = useScheduleAwareProjection({
+    roster,
+    opponentRoster: persistedMatchup?.opponentRoster,
+  });
 
   // Find my team's weekly data if available
   const myWeeklyData = useMemo(() => {
@@ -1584,7 +1600,7 @@ Navigate to their team page and copy the whole page.`}
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
           <div className="flex items-center gap-2 mt-1">
@@ -1592,50 +1608,106 @@ Navigate to their team page and copy the whole page.`}
               <Calendar className="w-3 h-3" />
               {dayInfo.dayLabel}
             </Badge>
-            {usesDynamicProjection && (
+            {projectionMode === 'schedule' && (
               <Badge variant="secondary" className="text-[10px]">
-                Dynamic (Weekly + Today)
+                {remainingDates.length} days remaining
               </Badge>
             )}
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={handleReset}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          New Matchup
-        </Button>
+        <div className="flex items-center gap-2">
+          <ProjectionModeToggle 
+            mode={projectionMode} 
+            onModeChange={setProjectionMode}
+            disabled={scheduleLoading}
+          />
+          <Button variant="outline" size="sm" onClick={handleReset}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            New Matchup
+          </Button>
+        </div>
       </div>
 
-      {/* Data Completeness Warning Banner */}
-      {hasDataWarnings && (
-        <Alert className="border-amber-500/50 bg-amber-500/10">
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
+      {/* Data Completeness Warning Banner - Enhanced for schedule-aware mode */}
+      {(hasDataWarnings || (projectionMode === 'schedule' && scheduleMyProjection)) && (
+        <Alert className={cn(
+          "border-border bg-muted/30",
+          hasDataWarnings && "border-amber-500/50 bg-amber-500/10"
+        )}>
+          {hasDataWarnings ? (
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+          ) : (
+            <Info className="h-4 w-4 text-muted-foreground" />
+          )}
           <AlertDescription className="text-sm">
-            <span className="font-medium">Data Completeness:</span>
+            <span className="font-medium">
+              {projectionMode === 'schedule' ? 'Schedule Projection' : 'Data Completeness'}:
+            </span>
             <div className="flex flex-wrap gap-3 mt-1">
-              {persistedMatchup.myParseInfo && (
-                <span className="text-muted-foreground">
-                  Your Team: {persistedMatchup.myParseInfo.playerCount} players
-                  {persistedMatchup.myParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.emptySlots} empty slots)</span>}
-                  {persistedMatchup.myParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.playersWithMissingStats} with partial stats)</span>}
-                </span>
+              {projectionMode === 'schedule' && scheduleMyProjection && (
+                <>
+                  <span className="text-muted-foreground">
+                    Your Team: {scheduleMyProjection.totalStartedGames.toFixed(1)} projected games
+                    {scheduleMyProjection.totalBenchOverflow > 0 && (
+                      <span className="text-amber-500"> ({scheduleMyProjection.totalBenchOverflow} benched)</span>
+                    )}
+                  </span>
+                  {scheduleOppProjection && (
+                    <span className="text-muted-foreground">
+                      • Opponent: {scheduleOppProjection.totalStartedGames.toFixed(1)} projected games
+                    </span>
+                  )}
+                </>
               )}
-              {persistedMatchup.oppParseInfo && (
-                <span className="text-muted-foreground">
-                  • Opponent: {persistedMatchup.oppParseInfo.playerCount} players
-                  {persistedMatchup.oppParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.emptySlots} empty slots)</span>}
-                  {persistedMatchup.oppParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.playersWithMissingStats} with partial stats)</span>}
-                </span>
+              {hasDataWarnings && (
+                <>
+                  {persistedMatchup.myParseInfo && (
+                    <span className="text-muted-foreground">
+                      Your Team: {persistedMatchup.myParseInfo.playerCount} players
+                      {persistedMatchup.myParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.emptySlots} empty slots)</span>}
+                      {persistedMatchup.myParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.playersWithMissingStats} with partial stats)</span>}
+                    </span>
+                  )}
+                  {persistedMatchup.oppParseInfo && (
+                    <span className="text-muted-foreground">
+                      • Opponent: {persistedMatchup.oppParseInfo.playerCount} players
+                      {persistedMatchup.oppParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.emptySlots} empty slots)</span>}
+                      {persistedMatchup.oppParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.playersWithMissingStats} with partial stats)</span>}
+                    </span>
+                  )}
+                </>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Empty slots are ignored. Players with partial stats (--) use 0 for missing values.
-            </p>
+            {projectionMode === 'schedule' && (
+              <p className="text-xs text-muted-foreground mt-1">
+                FG%/FT% calculated via makes÷attempts. Injury statuses: DTD=60%, Q=70%, GTD=85%.
+              </p>
+            )}
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Baseline Week Projection (collapsed by default) */}
-      <Collapsible defaultOpen={true}>
+      {/* Schedule-Aware Projection (when in schedule mode) */}
+      {projectionMode === 'schedule' && (
+        <Card className="p-4 gradient-card border-primary/20">
+          <div className="flex items-center gap-2 mb-3">
+            <Calendar className="w-4 h-4 text-primary" />
+            <h3 className="font-display font-semibold text-sm">Week Outcome (Schedule-Aware)</h3>
+          </div>
+          <ScheduleAwareProjection
+            myProjection={scheduleMyProjection}
+            oppProjection={scheduleOppProjection}
+            myTeamName={persistedMatchup.myTeam.name}
+            oppTeamName={persistedMatchup.opponent.name}
+            remainingDays={remainingDates.length}
+            isLoading={scheduleLoading}
+          />
+        </Card>
+      )}
+
+      {/* Strength (Per-40) Projection - Baseline Week */}
+      {projectionMode === 'strength' && (
+        <Collapsible defaultOpen={true}>
         <CollapsibleTrigger asChild>
           <Card className="p-3 bg-muted/30 border-border cursor-pointer hover:bg-muted/50 transition-colors">
             <div className="flex items-center justify-between">
@@ -1753,6 +1825,7 @@ Navigate to their team page and copy the whole page.`}
           })()}
         </CollapsibleContent>
       </Collapsible>
+      )}
 
       {/* Removed misleading "players playing today" count */}
 
