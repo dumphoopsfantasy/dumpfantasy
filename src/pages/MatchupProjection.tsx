@@ -18,8 +18,9 @@ import { ScheduleAwareProjection } from "@/components/ScheduleAwareProjection";
 import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
 import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
 import { parseEspnMatchupTotalsFromText } from "@/lib/espnMatchupTotals";
-import { addTotals, totalsFromProjectedStats, withDerivedPct } from "@/lib/teamTotals";
+import { addTotals, totalsFromProjectedStats, withDerivedPct, TeamTotalsWithPct } from "@/lib/teamTotals";
 import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@/lib/espnTokenUtils";
+import { safeNum, fmtInt, fmtPct as fmtPctSafe, formatStatValue, determineProjectionMode, ProjectionDataMode } from "@/lib/projectionFormatters";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -1312,12 +1313,19 @@ export const MatchupProjection = ({
     setOppRosterParseFailed(false);
   };
 
-  const formatAverage = (value: number, format: string) => {
-    if (format === "pct") return formatPct(value);
-    return value.toFixed(1);
+  // Safe format helpers for display
+  const formatAverage = (value: unknown, format: string): string => {
+    const n = safeNum(value);
+    if (n === null) return '—';
+    if (format === "pct") return formatPct(n);
+    return n.toFixed(1);
   };
 
-  const formatProjection = (value: number) => Math.round(value).toString();
+  const formatProjection = (value: unknown): string => {
+    const n = safeNum(value);
+    if (n === null) return '—';
+    return Math.round(n).toString();
+  };
 
   if (!persistedMatchup) {
     return (
@@ -1474,23 +1482,96 @@ Navigate to their team page and copy the whole page.`}
     );
   }
 
-  const hasProjectedFinal = !!(myFinalTotalsWithPct && oppFinalTotalsWithPct);
+  // =====================================================
+  // PROJECTION MODE STATE MACHINE
+  // =====================================================
+  const hasCurrentTotals = !!(myCurrentTotalsWithPct && oppCurrentTotalsWithPct);
+  const hasRemainingTotals = !!(myRemainingTotalsWithPct && oppRemainingTotalsWithPct);
+  const hasBaselineTotals = !!(persistedMatchup.myTeam.stats && persistedMatchup.opponent.stats);
 
-  // Calculate comparisons with FINAL projected totals (Current + Remaining)
+  const projectionModeState = useMemo(() => {
+    return determineProjectionMode({
+      hasCurrentTotals,
+      hasRemainingTotals,
+      hasBaselineTotals,
+    });
+  }, [hasCurrentTotals, hasRemainingTotals, hasBaselineTotals]);
+
+  devLog(`[ProjectionMode] Mode: ${projectionModeState.mode}, hasCurrentTotals=${hasCurrentTotals}, hasRemainingTotals=${hasRemainingTotals}`);
+
+  // Compute "effective projected" totals based on available data
+  const effectiveMyTotals: TeamTotalsWithPct | null = useMemo(() => {
+    if (projectionModeState.mode === 'FINAL' && myFinalTotalsWithPct) {
+      return myFinalTotalsWithPct;
+    }
+    if (projectionModeState.mode === 'REMAINING_ONLY' && myRemainingTotalsWithPct) {
+      return myRemainingTotalsWithPct;
+    }
+    // BASELINE_ONLY: convert baseline stats (already per-game) to "x40" totals
+    if (hasBaselineTotals) {
+      const stats = persistedMatchup.myTeam.stats;
+      return {
+        fgm: 0, fga: 0, ftm: 0, fta: 0,
+        threepm: stats.threepm * 40,
+        rebounds: stats.rebounds * 40,
+        assists: stats.assists * 40,
+        steals: stats.steals * 40,
+        blocks: stats.blocks * 40,
+        turnovers: stats.turnovers * 40,
+        points: stats.points * 40,
+        fgPct: stats.fgPct,
+        ftPct: stats.ftPct,
+      };
+    }
+    return null;
+  }, [projectionModeState.mode, myFinalTotalsWithPct, myRemainingTotalsWithPct, hasBaselineTotals, persistedMatchup.myTeam.stats]);
+
+  const effectiveOppTotals: TeamTotalsWithPct | null = useMemo(() => {
+    if (projectionModeState.mode === 'FINAL' && oppFinalTotalsWithPct) {
+      return oppFinalTotalsWithPct;
+    }
+    if (projectionModeState.mode === 'REMAINING_ONLY' && oppRemainingTotalsWithPct) {
+      return oppRemainingTotalsWithPct;
+    }
+    // BASELINE_ONLY: convert baseline stats (already per-game) to "x40" totals
+    if (hasBaselineTotals) {
+      const stats = persistedMatchup.opponent.stats;
+      return {
+        fgm: 0, fga: 0, ftm: 0, fta: 0,
+        threepm: stats.threepm * 40,
+        rebounds: stats.rebounds * 40,
+        assists: stats.assists * 40,
+        steals: stats.steals * 40,
+        blocks: stats.blocks * 40,
+        turnovers: stats.turnovers * 40,
+        points: stats.points * 40,
+        fgPct: stats.fgPct,
+        ftPct: stats.ftPct,
+      };
+    }
+    return null;
+  }, [projectionModeState.mode, oppFinalTotalsWithPct, oppRemainingTotalsWithPct, hasBaselineTotals, persistedMatchup.opponent.stats]);
+
+  const hasProjectedFinal = projectionModeState.mode === 'FINAL' && !!myFinalTotalsWithPct && !!oppFinalTotalsWithPct;
+  const hasEffectiveProjection = !!(effectiveMyTotals && effectiveOppTotals);
+
+  // Calculate comparisons using effective projections (works for all modes)
   const comparisons = CATEGORIES.map((cat) => {
     const key = cat.key as keyof TeamStats;
+    const isPct = cat.format === 'pct';
 
-    // If we don't have Projected Final, do NOT pretend zeros are real.
-    const myFinalVal = hasProjectedFinal ? (myFinalTotalsWithPct as any)[key] as number : Number.NaN;
-    const oppFinalVal = hasProjectedFinal ? (oppFinalTotalsWithPct as any)[key] as number : Number.NaN;
+    // Get values from effective totals, or NaN if missing
+    const myEffectiveVal = effectiveMyTotals ? safeNum((effectiveMyTotals as any)[key]) : null;
+    const oppEffectiveVal = effectiveOppTotals ? safeNum((effectiveOppTotals as any)[key]) : null;
 
+    // Safe comparison
     let winner: "you" | "them" | "tie";
-    if (!Number.isFinite(myFinalVal) || !Number.isFinite(oppFinalVal)) {
+    if (myEffectiveVal === null || oppEffectiveVal === null) {
       winner = "tie";
     } else if (cat.key === "turnovers") {
-      winner = myFinalVal < oppFinalVal ? "you" : myFinalVal > oppFinalVal ? "them" : "tie";
+      winner = myEffectiveVal < oppEffectiveVal ? "you" : myEffectiveVal > oppEffectiveVal ? "them" : "tie";
     } else {
-      winner = myFinalVal > oppFinalVal ? "you" : myFinalVal < oppFinalVal ? "them" : "tie";
+      winner = myEffectiveVal > oppEffectiveVal ? "you" : myEffectiveVal < oppEffectiveVal ? "them" : "tie";
     }
 
     return {
@@ -1498,8 +1579,8 @@ Navigate to their team page and copy the whole page.`}
       key: cat.key,
       myAvg: persistedMatchup.myTeam.stats[key],
       theirAvg: persistedMatchup.opponent.stats[key],
-      myProjected: myFinalVal,
-      theirProjected: oppFinalVal,
+      myProjected: myEffectiveVal ?? NaN,
+      theirProjected: oppEffectiveVal ?? NaN,
       myCurrent: null,
       myTodayExp: null,
       theirCurrent: null,
@@ -1507,13 +1588,13 @@ Navigate to their team page and copy the whole page.`}
       winner,
       format: cat.format,
       isCountingStat: COUNTING_STATS.includes(cat.key),
-      isEstimated: false,
+      isEstimated: projectionModeState.mode !== 'FINAL',
     };
   });
 
-  const wins = hasProjectedFinal ? comparisons.filter((c) => c.winner === "you").length : 0;
-  const losses = hasProjectedFinal ? comparisons.filter((c) => c.winner === "them").length : 0;
-  const ties = hasProjectedFinal ? comparisons.filter((c) => c.winner === "tie").length : 0;
+  const wins = hasEffectiveProjection ? comparisons.filter((c) => c.winner === "you").length : 0;
+  const losses = hasEffectiveProjection ? comparisons.filter((c) => c.winner === "them").length : 0;
+  const ties = hasEffectiveProjection ? comparisons.filter((c) => c.winner === "tie").length : 0;
 
   // Get current record from Weekly if available
   const currentRecord = weeklyCurrentRecord;
@@ -1576,17 +1657,46 @@ Navigate to their team page and copy the whole page.`}
       <Card className="gradient-card border-primary/20 p-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="font-display font-semibold text-sm">Projected Final (Current + Remaining)</h3>
-            <p className="text-xs text-muted-foreground">Uses makes/attempts for FG% and FT% (never averages percentages).</p>
+            <h3 className="font-display font-semibold text-sm">{projectionModeState.label}</h3>
+            <p className="text-xs text-muted-foreground">
+              {projectionModeState.mode === 'FINAL' 
+                ? 'Uses makes/attempts for FG% and FT% (never averages percentages).'
+                : projectionModeState.description}
+            </p>
           </div>
-          {!hasProjectedFinal && (
+          {projectionModeState.mode !== 'FINAL' && (
             <Badge variant="secondary" className="text-[10px]">
-              Needs current totals paste
+              {projectionModeState.mode === 'REMAINING_ONLY' ? 'Partial data' : 'Baseline only'}
             </Badge>
           )}
         </div>
 
-        {!hasProjectedFinal && (
+        {/* Mode-specific banners */}
+        {projectionModeState.mode === 'REMAINING_ONLY' && (
+          <Alert className="mt-3 border-amber-500/50 bg-amber-500/10">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <AlertDescription className="text-sm">
+              <p className="font-medium">Current totals missing — showing Remaining-only projection.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Paste current matchup totals below to see the full Projected Final.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {projectionModeState.mode === 'BASELINE_ONLY' && (
+          <Alert className="mt-3 border-amber-500/50 bg-amber-500/10">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <AlertDescription className="text-sm">
+              <p className="font-medium">Current + schedule data missing — showing Baseline strength only.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Import opponent roster and paste current totals for full projection.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!hasProjectedFinal && projectionModeState.mode === 'FINAL' && (
           <Alert className="mt-3 border-amber-500/50 bg-amber-500/10">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
             <AlertDescription className="text-sm">
@@ -1597,61 +1707,108 @@ Navigate to their team page and copy the whole page.`}
                   {!oppCurrentTotalsRes.ok && <li>Opponent: {(oppCurrentTotalsRes as { ok: false; error: { message: string } }).error.message}</li>}
                   {scheduleOppError?.code === 'OPP_ROSTER_MISSING' && <li>Opponent roster missing — schedule-aware remaining cannot run.</li>}
                 </ul>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">Paste Your Team current matchup totals</p>
-                    <Textarea
-                      value={myTotalsData}
-                      onChange={(e) => setMyTotalsData(e.target.value)}
-                      placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
-                      className="min-h-[120px] font-mono text-xs bg-muted/30"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">Paste Opponent current matchup totals</p>
-                    <Textarea
-                      value={oppTotalsData}
-                      onChange={(e) => setOppTotalsData(e.target.value)}
-                      placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
-                      className="min-h-[120px] font-mono text-xs bg-muted/30"
-                    />
-                  </div>
-                </div>
               </div>
             </AlertDescription>
           </Alert>
         )}
 
-        {hasProjectedFinal && (
+        {/* Current totals paste area (collapsed by default when we have data) */}
+        {!hasProjectedFinal && (
+          <Collapsible defaultOpen={projectionModeState.mode !== 'BASELINE_ONLY'} className="mt-3">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-between text-xs">
+                <span>Paste current matchup totals</span>
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <div className="grid md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Your Team current matchup totals</p>
+                  <Textarea
+                    value={myTotalsData}
+                    onChange={(e) => setMyTotalsData(e.target.value)}
+                    placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
+                    className="min-h-[100px] font-mono text-xs bg-muted/30"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Opponent current matchup totals</p>
+                  <Textarea
+                    value={oppTotalsData}
+                    onChange={(e) => setOppTotalsData(e.target.value)}
+                    placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
+                    className="min-h-[100px] font-mono text-xs bg-muted/30"
+                  />
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+
+        {/* Projection table - shown whenever we have effective projections */}
+        {hasEffectiveProjection && (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-muted-foreground">
                   <th className="text-left py-2">Cat</th>
-                  <th className="text-right py-2">{persistedMatchup.myTeam.name} (Cur)</th>
-                  <th className="text-right py-2">Rem</th>
-                  <th className="text-right py-2">Final</th>
-                  <th className="text-right py-2">{persistedMatchup.opponent.name} (Cur)</th>
-                  <th className="text-right py-2">Rem</th>
-                  <th className="text-right py-2">Final</th>
+                  {projectionModeState.mode === 'FINAL' && (
+                    <>
+                      <th className="text-right py-2">{persistedMatchup.myTeam.name} (Cur)</th>
+                      <th className="text-right py-2">Rem</th>
+                    </>
+                  )}
+                  <th className="text-right py-2">{persistedMatchup.myTeam.name} {projectionModeState.mode === 'FINAL' ? 'Final' : ''}</th>
+                  {projectionModeState.mode === 'FINAL' && (
+                    <>
+                      <th className="text-right py-2">{persistedMatchup.opponent.name} (Cur)</th>
+                      <th className="text-right py-2">Rem</th>
+                    </>
+                  )}
+                  <th className="text-right py-2">{persistedMatchup.opponent.name} {projectionModeState.mode === 'FINAL' ? 'Final' : ''}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
                 {CATEGORIES.map((cat) => {
-                  const k = cat.key as any;
+                  const k = cat.key as keyof TeamStats;
                   const isPct = cat.format === 'pct';
 
-                  const fmt = (v: number) => (isPct ? formatPct(v) : Math.round(v).toString());
+                  const fmt = (v: unknown) => formatStatValue(v, isPct);
+
+                  // Determine winner for highlighting
+                  const myVal = safeNum(effectiveMyTotals ? (effectiveMyTotals as any)[k] : null);
+                  const oppVal = safeNum(effectiveOppTotals ? (effectiveOppTotals as any)[k] : null);
+                  let winClass = '';
+                  if (myVal !== null && oppVal !== null) {
+                    const lowerIsBetter = cat.key === 'turnovers';
+                    const myWins = lowerIsBetter ? myVal < oppVal : myVal > oppVal;
+                    const oppWins = lowerIsBetter ? oppVal < myVal : oppVal > myVal;
+                    if (myWins) winClass = 'my';
+                    else if (oppWins) winClass = 'opp';
+                  }
 
                   return (
                     <tr key={cat.key}>
                       <td className="py-2 text-muted-foreground">{cat.label}</td>
-                      <td className="py-2 text-right font-medium">{fmt((myCurrentTotalsWithPct as any)[k])}</td>
-                      <td className="py-2 text-right text-muted-foreground">{fmt((myRemainingTotalsWithPct as any)[k])}</td>
-                      <td className="py-2 text-right font-semibold">{fmt((myFinalTotalsWithPct as any)[k])}</td>
-                      <td className="py-2 text-right font-medium">{fmt((oppCurrentTotalsWithPct as any)[k])}</td>
-                      <td className="py-2 text-right text-muted-foreground">{fmt((oppRemainingTotalsWithPct as any)[k])}</td>
-                      <td className="py-2 text-right font-semibold">{fmt((oppFinalTotalsWithPct as any)[k])}</td>
+                      {projectionModeState.mode === 'FINAL' && (
+                        <>
+                          <td className="py-2 text-right font-medium">{fmt(myCurrentTotalsWithPct ? (myCurrentTotalsWithPct as any)[k] : null)}</td>
+                          <td className="py-2 text-right text-muted-foreground">{fmt(myRemainingTotalsWithPct ? (myRemainingTotalsWithPct as any)[k] : null)}</td>
+                        </>
+                      )}
+                      <td className={cn("py-2 text-right font-semibold", winClass === 'my' && "text-stat-positive")}>
+                        {fmt(effectiveMyTotals ? (effectiveMyTotals as any)[k] : null)}
+                      </td>
+                      {projectionModeState.mode === 'FINAL' && (
+                        <>
+                          <td className="py-2 text-right font-medium">{fmt(oppCurrentTotalsWithPct ? (oppCurrentTotalsWithPct as any)[k] : null)}</td>
+                          <td className="py-2 text-right text-muted-foreground">{fmt(oppRemainingTotalsWithPct ? (oppRemainingTotalsWithPct as any)[k] : null)}</td>
+                        </>
+                      )}
+                      <td className={cn("py-2 text-right font-semibold", winClass === 'opp' && "text-stat-negative")}>
+                        {fmt(effectiveOppTotals ? (effectiveOppTotals as any)[k] : null)}
+                      </td>
                     </tr>
                   );
                 })}
@@ -1659,11 +1816,14 @@ Navigate to their team page and copy the whole page.`}
             </table>
 
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Final outcome: <span className="font-display font-semibold text-foreground">{persistedMatchup.myTeam.name} </span>
+              {projectionModeState.mode === 'FINAL' ? 'Final' : 'Projected'} outcome: <span className="font-display font-semibold text-foreground">{persistedMatchup.myTeam.name} </span>
               <span className="text-stat-positive font-display font-semibold">{wins}</span>–
               <span className="text-stat-negative font-display font-semibold">{losses}</span>–
               <span className="font-display font-semibold">{ties}</span>
               <span className="font-display font-semibold text-foreground"> {persistedMatchup.opponent.name}</span>
+              {projectionModeState.mode !== 'FINAL' && (
+                <span className="text-amber-500 ml-2">(estimated)</span>
+              )}
             </p>
           </div>
         )}
@@ -1738,13 +1898,14 @@ Navigate to their team page and copy the whole page.`}
 
             type StatKey = typeof baselineCategories[number]['key'];
 
-            const getBaselineValue = (stats: TeamStats, key: StatKey, isPct: boolean): number => {
-              const val = stats[key as keyof TeamStats];
+            const getBaselineValue = (stats: TeamStats, key: StatKey, isPct: boolean): number | null => {
+              const val = safeNum(stats[key as keyof TeamStats]);
+              if (val === null) return null;
               return isPct ? val : val * 40;
             };
 
-            const determineWinner = (myVal: number, oppVal: number, lowerIsBetter: boolean, isPct: boolean): 'my' | 'opp' | 'tie' | 'missing' => {
-              if (myVal === null || myVal === undefined || oppVal === null || oppVal === undefined) return 'missing';
+            const determineBaselineWinner = (myVal: number | null, oppVal: number | null, lowerIsBetter: boolean, isPct: boolean): 'my' | 'opp' | 'tie' | 'missing' => {
+              if (myVal === null || oppVal === null) return 'missing';
               const epsilon = isPct ? 0.0005 : 0.5;
               const diff = Math.abs(myVal - oppVal);
               if (diff < epsilon) return 'tie';
@@ -1758,7 +1919,7 @@ Navigate to their team page and copy the whole page.`}
             const results = baselineCategories.map(cat => {
               const myVal = getBaselineValue(persistedMatchup.myTeam.stats, cat.key, cat.isPct);
               const oppVal = getBaselineValue(persistedMatchup.opponent.stats, cat.key, cat.isPct);
-              const winner = determineWinner(myVal, oppVal, cat.lowerIsBetter, cat.isPct);
+              const winner = determineBaselineWinner(myVal, oppVal, cat.lowerIsBetter, cat.isPct);
               return { ...cat, myVal, oppVal, winner };
             });
 
@@ -1787,7 +1948,7 @@ Navigate to their team page and copy the whole page.`}
                         <div key={cat.key} className={cn("rounded px-0.5 py-1", getCellBg(cat.winner, 'my'))}>
                           <p className="text-[9px] text-muted-foreground">{cat.label}</p>
                           <p className="font-display font-bold text-xs">
-                            {cat.isPct ? formatPct(cat.myVal) : Math.round(cat.myVal)}
+                            {cat.isPct ? formatStatValue(cat.myVal, true) : fmtInt(cat.myVal)}
                           </p>
                         </div>
                       ))}
@@ -1805,7 +1966,7 @@ Navigate to their team page and copy the whole page.`}
                         <div key={cat.key} className={cn("rounded px-0.5 py-1", getCellBg(cat.winner, 'opp'))}>
                           <p className="text-[9px] text-muted-foreground">{cat.label}</p>
                           <p className="font-display font-bold text-xs">
-                            {cat.isPct ? formatPct(cat.oppVal) : Math.round(cat.oppVal)}
+                            {cat.isPct ? formatStatValue(cat.oppVal, true) : fmtInt(cat.oppVal)}
                           </p>
                         </div>
                       ))}
@@ -1945,18 +2106,18 @@ Navigate to their team page and copy the whole page.`}
                       <span className="font-medium">{comp.category}</span>
                       <span className="text-right text-muted-foreground">
                         {comp.isCountingStat 
-                          ? Math.round(comp.myCurrent ?? 0)
-                          : formatPct(comp.myCurrent ?? comp.myAvg)}
+                          ? fmtInt(comp.myCurrent ?? 0)
+                          : formatStatValue(comp.myCurrent ?? comp.myAvg, true)}
                       </span>
                       <span className="text-right text-primary">
                         {comp.isCountingStat 
-                          ? `+${Math.round(comp.myTodayExp ?? 0)}`
+                          ? `+${fmtInt(comp.myTodayExp ?? 0)}`
                           : '—'}
                       </span>
                       <span className={cn("text-right font-bold", comp.winner === "you" && "text-stat-positive")}>
                         {comp.isCountingStat 
-                          ? Math.round(comp.myProjected)
-                          : formatPct(comp.myProjected)}
+                          ? fmtInt(comp.myProjected)
+                          : formatStatValue(comp.myProjected, true)}
                         {comp.isEstimated && !comp.isCountingStat && <span className="text-[8px] text-muted-foreground ml-0.5">(est)</span>}
                       </span>
                     </div>
@@ -1986,19 +2147,19 @@ Navigate to their team page and copy the whole page.`}
                       <span className="font-medium">{comp.category}</span>
                       <span className="text-right text-muted-foreground">
                         {comp.isCountingStat 
-                          ? Math.round(comp.theirCurrent ?? 0)
-                          : formatPct(comp.theirCurrent ?? comp.theirAvg)}
+                          ? fmtInt(comp.theirCurrent ?? 0)
+                          : formatStatValue(comp.theirCurrent ?? comp.theirAvg, true)}
                       </span>
                       <span className="text-right text-muted-foreground">
                         {scheduleOppProjection 
-                          ? (comp.isCountingStat ? `+${Math.round(comp.theirTodayExp ?? 0)}` : '—')
+                          ? (comp.isCountingStat ? `+${fmtInt(comp.theirTodayExp ?? 0)}` : '—')
                           : <span className="text-amber-400/70">N/A</span>
                         }
                       </span>
                       <span className={cn("text-right font-bold", comp.winner === "them" && "text-stat-negative")}>
                         {comp.isCountingStat 
-                          ? Math.round(comp.theirProjected)
-                          : formatPct(comp.theirProjected)}
+                          ? fmtInt(comp.theirProjected)
+                          : formatStatValue(comp.theirProjected, true)}
                       </span>
                     </div>
                   ))}
@@ -2106,18 +2267,21 @@ interface StatBoxProps {
   isPct?: boolean;
 }
 
-const StatBox = ({ label, avg, multiplier = 40, isPct }: StatBoxProps) => (
-  <div className="text-center">
-    <p className="text-[9px] text-muted-foreground uppercase">{label}</p>
-    {isPct ? (
-      <p className="font-display font-bold text-sm">{formatPct(avg)}</p>
-    ) : (
-      <>
-        <p className="font-display font-bold text-sm">{avg.toFixed(1)}</p>
-        <p className="text-[10px] text-muted-foreground">
-          {Math.round(avg * multiplier)}
-        </p>
-      </>
-    )}
-  </div>
-);
+const StatBox = ({ label, avg, multiplier = 40, isPct }: StatBoxProps) => {
+  const n = safeNum(avg);
+  return (
+    <div className="text-center">
+      <p className="text-[9px] text-muted-foreground uppercase">{label}</p>
+      {isPct ? (
+        <p className="font-display font-bold text-sm">{n !== null ? formatPct(n) : '—'}</p>
+      ) : (
+        <>
+          <p className="font-display font-bold text-sm">{n !== null ? n.toFixed(1) : '—'}</p>
+          <p className="text-[10px] text-muted-foreground">
+            {n !== null ? Math.round(n * multiplier) : '—'}
+          </p>
+        </>
+      )}
+    </div>
+  );
+};
