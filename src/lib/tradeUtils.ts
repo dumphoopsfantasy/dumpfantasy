@@ -3,7 +3,7 @@
 // wCRI = Weighted CRI with configurable weights
 
 import { CRIS_WEIGHTS, CATEGORIES } from './crisUtils';
-
+import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from './espnTokenUtils';
 // Data schemas
 export interface PlayerStats {
   name: string;
@@ -149,24 +149,26 @@ export function parseESPNTeamPage(data: string): PlayerStats[] {
   // Collect stat tokens
   const statTokens: string[] = [];
   for (let i = dataStartIdx; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^(Username|Password|ESPN|Copyright|©)/i.test(line)) break;
-    
-    // Handle --/-- (missing fraction) by expanding into two placeholder tokens
-    if (/^--\s*\/\s*--$/.test(line)) {
+    const raw = lines[i];
+    if (/^(Username|Password|ESPN|Copyright|©)/i.test(raw)) break;
+
+    const line = normalizeMissingToken(raw);
+
+    // Split missing fraction (—/—, --/--) into two placeholder tokens
+    if (isMissingFractionToken(line)) {
       statTokens.push('--', '--');
       continue;
     }
-    
+
     // Split numeric FGM/FGA and FTM/FTA fractions
     if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
       const [a, b] = line.split('/');
       statTokens.push(a, b);
       continue;
     }
-    
-    if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
-      statTokens.push(line);
+
+    if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || isMissingToken(line)) {
+      statTokens.push(isMissingToken(line) ? '--' : line);
     }
   }
   

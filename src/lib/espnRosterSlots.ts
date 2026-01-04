@@ -3,6 +3,7 @@ import { preprocessInput, createLoopGuard } from "@/lib/parseUtils";
 import { parsePositions } from "@/lib/playerUtils";
 import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
 import { devLog, devWarn } from "@/lib/devLog";
+import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@/lib/espnTokenUtils";
 
 /**
  * Sanity check for parsed player stats - catches column misalignment issues.
@@ -103,31 +104,32 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
   // Helper to parse next token as number
   const parseNext = (): { value: number; advance: number } => {
     if (i >= lines.length) return { value: 0, advance: 0 };
-    const token = lines[i];
-    
+
+    const token = normalizeMissingToken(lines[i]);
+
     // Footer detection
     if (/^(ESPN\.com|Copyright|Fantasy Chat)/i.test(token)) {
       return { value: 0, advance: 0 };
     }
-    
+
     // Missing value
-    if (token === "--") {
+    if (isMissingToken(token)) {
       return { value: 0, advance: 1 };
     }
-    
+
     // Slash fraction (FGM/FGA or FTM/FTA)
     if (/^\d+(?:\.\d+)?\/\d+(?:\.\d+)?$/.test(token)) {
-      const [a, b] = token.split("/");
+      const [a] = token.split("/");
       // Return just the first value, we'll handle specially
       return { value: parseFloat(a), advance: 1 };
     }
-    
+
     // Regular number
     if (/^[-+]?\d+(?:\.\d+)?$/.test(token) || /^\.\d+$/.test(token)) {
       const val = parseFloat(token.replace(/^\+/, ""));
       return { value: Number.isFinite(val) ? val : 0, advance: 1 };
     }
-    
+
     // Not a stat token - end of data
     return { value: 0, advance: 0 };
   };
@@ -135,21 +137,22 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
   // Parse fraction specially to get both values
   const parseFraction = (): { made: number; attempted: number; advance: number } => {
     if (i >= lines.length) return { made: 0, attempted: 0, advance: 0 };
-    const token = lines[i];
-    
-    if (token === "--" || token === "--/--") {
+
+    const token = normalizeMissingToken(lines[i]);
+
+    if (isMissingFractionToken(token) || isMissingToken(token)) {
       return { made: 0, attempted: 0, advance: 1 };
     }
-    
+
     if (/^\d+(?:\.\d+)?\/\d+(?:\.\d+)?$/.test(token)) {
       const [a, b] = token.split("/");
-      return { 
-        made: parseFloat(a) || 0, 
-        attempted: parseFloat(b) || 0, 
-        advance: 1 
+      return {
+        made: parseFloat(a) || 0,
+        attempted: parseFloat(b) || 0,
+        advance: 1,
       };
     }
-    
+
     // Missing fraction - skip
     return { made: 0, attempted: 0, advance: 0 };
   };
@@ -159,14 +162,14 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     loopGuard.check();
     
     const startI = i;
-    const token = lines[i];
+    const token = normalizeMissingToken(lines[i]);
     
     // Stop conditions
     if (/^(ESPN\.com|Copyright|Fantasy Chat)/i.test(token)) break;
     if (!token) break;
     
-    // A stat row starts with MIN (a number or --)
-    const isStatStart = /^[-+]?\d+(?:\.\d+)?$/.test(token) || token === "--";
+    // A stat row starts with MIN (a number or missing token)
+    const isStatStart = /^[-+]?\d+(?:\.\d+)?$/.test(token) || isMissingToken(token);
     if (!isStatStart) {
       i++;
       continue;
@@ -232,8 +235,8 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     // 12-14: PR15, %ROST, +/- (skip these, just advance past)
     for (let j = 0; j < 3; j++) {
       if (i >= lines.length) break;
-      const t = lines[i];
-      if (/^[-+]?\d+(?:\.\d+)?$/.test(t) || t === "--") {
+      const t = normalizeMissingToken(lines[i]);
+      if (/^[-+]?\d+(?:\.\d+)?$/.test(t) || isMissingToken(t)) {
         i++;
       } else {
         break;
