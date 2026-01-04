@@ -16,8 +16,9 @@ import { devLog, devWarn, devError } from "@/lib/devLog";
 import { ProjectionModeToggle, ProjectionMode } from "@/components/ProjectionModeToggle";
 import { ScheduleAwareProjection } from "@/components/ScheduleAwareProjection";
 import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
-import { getRemainingMatchupDates } from "@/lib/scheduleAwareProjection";
 import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
+import { parseEspnMatchupTotalsFromText } from "@/lib/espnMatchupTotals";
+import { addTotals, totalsFromProjectedStats, withDerivedPct } from "@/lib/teamTotals";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -87,6 +88,7 @@ interface ParseResult {
 interface MatchupData {
   myTeam: MatchupTeam;
   opponent: MatchupTeam;
+  myRoster?: RosterSlot[];
   opponentRoster?: RosterSlot[];
   myParseInfo?: { playerCount: number; emptySlots: number; playersWithMissingStats: number };
   oppParseInfo?: { playerCount: number; emptySlots: number; playersWithMissingStats: number };
@@ -262,6 +264,8 @@ export const MatchupProjection = ({
   const { toast } = useToast();
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
+  const [myTotalsData, setMyTotalsData] = useState("");
+  const [oppTotalsData, setOppTotalsData] = useState("");
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTip, setDismissedTip] = useState(false);
@@ -270,7 +274,7 @@ export const MatchupProjection = ({
 
   const dayInfo = getMatchupDayInfo();
   
-  // Schedule-aware projection hook
+  // Schedule-aware projection hook (remaining week, started-games based)
   const { 
     myProjection: scheduleMyProjection,
     myError: scheduleMyError,
@@ -279,26 +283,30 @@ export const MatchupProjection = ({
     remainingDates,
     isLoading: scheduleLoading,
   } = useScheduleAwareProjection({
-    roster,
+    roster: persistedMatchup?.myRoster ?? roster,
     opponentRoster: persistedMatchup?.opponentRoster,
   });
 
-  // Find my team's weekly data if available
+  // Find my team's weekly data if available (used ONLY for W-L-T display)
   const myWeeklyData = useMemo(() => {
     if (!persistedMatchup || weeklyMatchups.length === 0) return null;
-    
+
     const myTeamName = persistedMatchup.myTeam.name.toLowerCase();
-    
+
     for (const matchup of weeklyMatchups) {
-      if (matchup.teamA.name.toLowerCase().includes(myTeamName) || 
-          myTeamName.includes(matchup.teamA.name.toLowerCase())) {
+      if (
+        matchup.teamA.name.toLowerCase().includes(myTeamName) ||
+        myTeamName.includes(matchup.teamA.name.toLowerCase())
+      ) {
         return {
           myTeam: matchup.teamA,
           opponent: matchup.teamB,
         };
       }
-      if (matchup.teamB.name.toLowerCase().includes(myTeamName) ||
-          myTeamName.includes(matchup.teamB.name.toLowerCase())) {
+      if (
+        matchup.teamB.name.toLowerCase().includes(myTeamName) ||
+        myTeamName.includes(matchup.teamB.name.toLowerCase())
+      ) {
         return {
           myTeam: matchup.teamB,
           opponent: matchup.teamA,
@@ -308,132 +316,54 @@ export const MatchupProjection = ({
     return null;
   }, [persistedMatchup, weeklyMatchups]);
 
-  // Compute today's expected stats from roster
-  const todayExpected = useMemo(() => {
-    return computeTodayExpected(roster);
-  }, [roster]);
+  const weeklyCurrentRecord = useMemo(() => {
+    if (!myWeeklyData) return null;
+    return parseCurrentRecord(myWeeklyData.myTeam.currentMatchup);
+  }, [myWeeklyData]);
 
-  // Compute opponent's today expected stats from persisted opponent roster
-  const oppTodayExpected = useMemo(() => {
-    if (!persistedMatchup?.opponentRoster) return computeTodayExpectedFromRoster([]);
-    return computeTodayExpectedFromRoster(persistedMatchup.opponentRoster);
-  }, [persistedMatchup?.opponentRoster]);
+  // =========================
+  // CURRENT TOTALS (explicit import; required for "Projected Final")
+  // =========================
+  const myCurrentTotalsRes = useMemo(() => parseEspnMatchupTotalsFromText(myTotalsData), [myTotalsData]);
+  const oppCurrentTotalsRes = useMemo(() => parseEspnMatchupTotalsFromText(oppTotalsData), [oppTotalsData]);
 
-  // Compute dynamic projections: Current + Today Expected = Projected Final
-  const dynamicProjection = useMemo(() => {
-    if (!persistedMatchup) return null;
+  const myCurrentTotalsWithPct = useMemo(() => {
+    if (!myCurrentTotalsRes.ok) return null;
+    return withDerivedPct(myCurrentTotalsRes.totals);
+  }, [myCurrentTotalsRes]);
 
-    const hasWeeklyData = !!myWeeklyData;
-    const baselineStats = persistedMatchup.myTeam.stats;
-    const oppBaselineStats = persistedMatchup.opponent.stats;
-    
-    // Current totals from Weekly (if available), otherwise use 0
-    const currentMy = hasWeeklyData ? myWeeklyData.myTeam.stats : null;
-    const currentOpp = hasWeeklyData ? myWeeklyData.opponent.stats : null;
-    
-    // Estimate days elapsed (for percentage calculations)
-    const daysElapsed = dayInfo.dayOfWeek === 0 ? 6 : dayInfo.dayOfWeek - 1;
-    
-    // For each category, compute projected final
-    const computeProjectedFinal = (
-      current: number | null,
-      todayExp: number,
-      baseline: number,
-      isPercentage: boolean,
-      currentMakes?: number,
-      currentAttempts?: number,
-      todayMakes?: number,
-      todayAttempts?: number
-    ): { projected: number; current: number; today: number; isEstimated?: boolean } => {
-      if (isPercentage) {
-        // For percentages, use makes/attempts
-        if (current !== null && currentMakes !== undefined && currentAttempts !== undefined) {
-          const projMakes = currentMakes + (todayMakes || 0);
-          const projAttempts = currentAttempts + (todayAttempts || 0);
-          return {
-            projected: projAttempts > 0 ? projMakes / projAttempts : baseline,
-            current: current,
-            today: todayAttempts && todayAttempts > 0 ? (todayMakes || 0) / todayAttempts : 0,
-          };
-        }
-        // Estimate current attempts from baseline
-        const estAttemptsPerDay = baseline > 0 ? 15 : 10; // rough estimate
-        const estCurrentAttempts = estAttemptsPerDay * Math.max(1, daysElapsed);
-        const estCurrentMakes = (current ?? baseline) * estCurrentAttempts;
-        const projMakes = estCurrentMakes + (todayMakes || 0);
-        const projAttempts = estCurrentAttempts + (todayAttempts || 0);
-        return {
-          projected: projAttempts > 0 ? projMakes / projAttempts : baseline,
-          current: current ?? baseline,
-          today: todayAttempts && todayAttempts > 0 ? (todayMakes || 0) / todayAttempts : 0,
-          isEstimated: true,
-        };
-      }
-      
-      // Counting stats
-      const currentVal = current ?? 0;
-      return {
-        projected: currentVal + todayExp,
-        current: currentVal,
-        today: todayExp,
-      };
-    };
+  const oppCurrentTotalsWithPct = useMemo(() => {
+    if (!oppCurrentTotalsRes.ok) return null;
+    return withDerivedPct(oppCurrentTotalsRes.totals);
+  }, [oppCurrentTotalsRes]);
 
-    // My team projections
-    const myProjections = {
-      fgPct: computeProjectedFinal(
-        currentMy?.fgPct ?? null, 0, baselineStats.fgPct, true,
-        currentMy ? currentMy.fgPct * (daysElapsed * 40) : undefined,
-        currentMy ? daysElapsed * 40 : undefined,
-        todayExpected.estimatedFGM, todayExpected.estimatedFGA
-      ),
-      ftPct: computeProjectedFinal(
-        currentMy?.ftPct ?? null, 0, baselineStats.ftPct, true,
-        currentMy ? currentMy.ftPct * (daysElapsed * 15) : undefined,
-        currentMy ? daysElapsed * 15 : undefined,
-        todayExpected.estimatedFTM, todayExpected.estimatedFTA
-      ),
-      threepm: computeProjectedFinal(currentMy?.threepm ?? null, todayExpected.threepm, baselineStats.threepm * 40, false),
-      rebounds: computeProjectedFinal(currentMy?.rebounds ?? null, todayExpected.rebounds, baselineStats.rebounds * 40, false),
-      assists: computeProjectedFinal(currentMy?.assists ?? null, todayExpected.assists, baselineStats.assists * 40, false),
-      steals: computeProjectedFinal(currentMy?.steals ?? null, todayExpected.steals, baselineStats.steals * 40, false),
-      blocks: computeProjectedFinal(currentMy?.blocks ?? null, todayExpected.blocks, baselineStats.blocks * 40, false),
-      turnovers: computeProjectedFinal(currentMy?.turnovers ?? null, todayExpected.turnovers, baselineStats.turnovers * 40, false),
-      points: computeProjectedFinal(currentMy?.points ?? null, todayExpected.points, baselineStats.points * 40, false),
-    };
+  // =========================
+  // REMAINING PROJECTION (schedule-aware started games)
+  // =========================
+  const myRemainingTotalsWithPct = useMemo(() => {
+    if (!scheduleMyProjection) return null;
+    const t = totalsFromProjectedStats(scheduleMyProjection.totalStats);
+    return withDerivedPct(t);
+  }, [scheduleMyProjection]);
 
-    // Opponent projections - use their roster data if available
-    const oppHasRoster = persistedMatchup.opponentRoster && persistedMatchup.opponentRoster.length > 0;
-    const oppProjections = {
-      fgPct: computeProjectedFinal(
-        currentOpp?.fgPct ?? null, 0, oppBaselineStats.fgPct, true,
-        currentOpp ? currentOpp.fgPct * (daysElapsed * 40) : undefined,
-        currentOpp ? daysElapsed * 40 : undefined,
-        oppTodayExpected.estimatedFGM, oppTodayExpected.estimatedFGA
-      ),
-      ftPct: computeProjectedFinal(
-        currentOpp?.ftPct ?? null, 0, oppBaselineStats.ftPct, true,
-        currentOpp ? currentOpp.ftPct * (daysElapsed * 15) : undefined,
-        currentOpp ? daysElapsed * 15 : undefined,
-        oppTodayExpected.estimatedFTM, oppTodayExpected.estimatedFTA
-      ),
-      threepm: computeProjectedFinal(currentOpp?.threepm ?? null, oppTodayExpected.threepm, oppBaselineStats.threepm * 40, false),
-      rebounds: computeProjectedFinal(currentOpp?.rebounds ?? null, oppTodayExpected.rebounds, oppBaselineStats.rebounds * 40, false),
-      assists: computeProjectedFinal(currentOpp?.assists ?? null, oppTodayExpected.assists, oppBaselineStats.assists * 40, false),
-      steals: computeProjectedFinal(currentOpp?.steals ?? null, oppTodayExpected.steals, oppBaselineStats.steals * 40, false),
-      blocks: computeProjectedFinal(currentOpp?.blocks ?? null, oppTodayExpected.blocks, oppBaselineStats.blocks * 40, false),
-      turnovers: computeProjectedFinal(currentOpp?.turnovers ?? null, oppTodayExpected.turnovers, oppBaselineStats.turnovers * 40, false),
-      points: computeProjectedFinal(currentOpp?.points ?? null, oppTodayExpected.points, oppBaselineStats.points * 40, false),
-    };
+  const oppRemainingTotalsWithPct = useMemo(() => {
+    if (!scheduleOppProjection) return null;
+    const t = totalsFromProjectedStats(scheduleOppProjection.totalStats);
+    return withDerivedPct(t);
+  }, [scheduleOppProjection]);
 
-    return {
-      myProjections,
-      oppProjections,
-      hasWeeklyData,
-      currentRecord: hasWeeklyData ? parseCurrentRecord(myWeeklyData.myTeam.currentMatchup) : null,
-      oppHasSchedule: oppHasRoster && oppTodayExpected.hasData,
-    };
-  }, [persistedMatchup, myWeeklyData, todayExpected, oppTodayExpected, dayInfo]);
+  // =========================
+  // PROJECTED FINAL = Current + Remaining
+  // =========================
+  const myFinalTotalsWithPct = useMemo(() => {
+    if (!myCurrentTotalsWithPct || !myRemainingTotalsWithPct) return null;
+    return withDerivedPct(addTotals(myCurrentTotalsWithPct, myRemainingTotalsWithPct));
+  }, [myCurrentTotalsWithPct, myRemainingTotalsWithPct]);
+
+  const oppFinalTotalsWithPct = useMemo(() => {
+    if (!oppCurrentTotalsWithPct || !oppRemainingTotalsWithPct) return null;
+    return withDerivedPct(addTotals(oppCurrentTotalsWithPct, oppRemainingTotalsWithPct));
+  }, [oppCurrentTotalsWithPct, oppRemainingTotalsWithPct]);
 
   // Update dynamic weights context when matchup data changes
   useEffect(() => {
@@ -1151,13 +1081,24 @@ export const MatchupProjection = ({
         finalOppInfo.name = "—";
       }
       
-      // Parse opponent roster to get players with game info (normalized for schedule-aware projection)
-      const oppRoster = parseOpponentRoster(opponentData);
+      // Parse BOTH rosters from the pasted ESPN team pages (canonical inputs for schedule-aware)
+      const myRosterParsed = parseEspnRosterSlotsFromTeamPage(myTeamData);
+      if (myRosterParsed.length === 0) {
+        toast({
+          title: "Roster parse failed",
+          description: "Could not extract your roster + Last 15 stats. Make sure the paste includes the STATS table (MIN, FGM/FGA, ...).",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const oppRosterParsed = parseOpponentRoster(opponentData);
 
       onMatchupChange({
         myTeam: { ...myParsed.info, stats: myParsed.stats },
         opponent: { ...finalOppInfo, stats: oppParsed.stats },
-        opponentRoster: oppRoster,
+        myRoster: myRosterParsed,
+        opponentRoster: oppRosterParsed.length > 0 ? oppRosterParsed : undefined,
         myParseInfo: {
           playerCount: myParsed.playerCount,
           emptySlots: myParsed.emptySlots,
@@ -1368,45 +1309,23 @@ Navigate to their team page and copy the whole page.`}
     );
   }
 
-  // Use dynamic projections if available, otherwise fallback to static ×40
-  const usesDynamicProjection = dynamicProjection?.hasWeeklyData && roster.length > 0;
+  const hasProjectedFinal = !!(myFinalTotalsWithPct && oppFinalTotalsWithPct);
 
-  // Calculate comparisons with projected values
+  // Calculate comparisons with FINAL projected totals (Current + Remaining)
   const comparisons = CATEGORIES.map((cat) => {
-    const isCountingStat = COUNTING_STATS.includes(cat.key);
     const key = cat.key as keyof TeamStats;
-    
-    let myProjected: number;
-    let theirProjected: number;
-    let myCurrent: number | null = null;
-    let myTodayExp: number | null = null;
-    let theirCurrent: number | null = null;
-    let theirTodayExp: number | null = null;
-    let isEstimated = false;
-    
-    if (usesDynamicProjection && dynamicProjection) {
-      const myProj = dynamicProjection.myProjections[key];
-      const oppProj = dynamicProjection.oppProjections[key];
-      myProjected = myProj.projected;
-      theirProjected = oppProj.projected;
-      myCurrent = myProj.current;
-      myTodayExp = myProj.today;
-      theirCurrent = oppProj.current;
-      theirTodayExp = oppProj.today;
-      isEstimated = myProj.isEstimated || false;
-    } else {
-      const myAvg = persistedMatchup.myTeam.stats[key];
-      const theirAvg = persistedMatchup.opponent.stats[key];
-      myProjected = isCountingStat ? myAvg * 40 : myAvg;
-      theirProjected = isCountingStat ? theirAvg * 40 : theirAvg;
-    }
+
+    // If we don't have Projected Final, do NOT pretend zeros are real.
+    const myFinalVal = hasProjectedFinal ? (myFinalTotalsWithPct as any)[key] as number : Number.NaN;
+    const oppFinalVal = hasProjectedFinal ? (oppFinalTotalsWithPct as any)[key] as number : Number.NaN;
 
     let winner: "you" | "them" | "tie";
-    if (cat.key === "turnovers") {
-      // Lower TO is better
-      winner = myProjected < theirProjected ? "you" : myProjected > theirProjected ? "them" : "tie";
+    if (!Number.isFinite(myFinalVal) || !Number.isFinite(oppFinalVal)) {
+      winner = "tie";
+    } else if (cat.key === "turnovers") {
+      winner = myFinalVal < oppFinalVal ? "you" : myFinalVal > oppFinalVal ? "them" : "tie";
     } else {
-      winner = myProjected > theirProjected ? "you" : myProjected < theirProjected ? "them" : "tie";
+      winner = myFinalVal > oppFinalVal ? "you" : myFinalVal < oppFinalVal ? "them" : "tie";
     }
 
     return {
@@ -1414,25 +1333,25 @@ Navigate to their team page and copy the whole page.`}
       key: cat.key,
       myAvg: persistedMatchup.myTeam.stats[key],
       theirAvg: persistedMatchup.opponent.stats[key],
-      myProjected, 
-      theirProjected,
-      myCurrent,
-      myTodayExp,
-      theirCurrent,
-      theirTodayExp,
+      myProjected: myFinalVal,
+      theirProjected: oppFinalVal,
+      myCurrent: null,
+      myTodayExp: null,
+      theirCurrent: null,
+      theirTodayExp: null,
       winner,
       format: cat.format,
-      isCountingStat,
-      isEstimated,
+      isCountingStat: COUNTING_STATS.includes(cat.key),
+      isEstimated: false,
     };
   });
 
-  const wins = comparisons.filter((c) => c.winner === "you").length;
-  const losses = comparisons.filter((c) => c.winner === "them").length;
-  const ties = comparisons.filter((c) => c.winner === "tie").length;
+  const wins = hasProjectedFinal ? comparisons.filter((c) => c.winner === "you").length : 0;
+  const losses = hasProjectedFinal ? comparisons.filter((c) => c.winner === "them").length : 0;
+  const ties = hasProjectedFinal ? comparisons.filter((c) => c.winner === "tie").length : 0;
 
   // Get current record from Weekly if available
-  const currentRecord = dynamicProjection?.currentRecord;
+  const currentRecord = weeklyCurrentRecord;
 
   // Check for data completeness warnings
   const hasMyWarnings = (persistedMatchup.myParseInfo?.emptySlots || 0) > 0 || (persistedMatchup.myParseInfo?.playersWithMissingStats || 0) > 0;
@@ -1470,64 +1389,102 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </div>
 
-      {/* Data Completeness Warning Banner - Enhanced for schedule-aware mode */}
-      {(hasDataWarnings || (projectionMode === 'schedule' && scheduleMyProjection)) && (
-        <Alert className={cn(
-          "border-border bg-muted/30",
-          hasDataWarnings && "border-amber-500/50 bg-amber-500/10"
-        )}>
-          {hasDataWarnings ? (
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-          ) : (
-            <Info className="h-4 w-4 text-muted-foreground" />
+      {/* Projected Final (Current + Remaining) */}
+      <Card className="gradient-card border-primary/20 p-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="font-display font-semibold text-sm">Projected Final (Current + Remaining)</h3>
+            <p className="text-xs text-muted-foreground">Uses makes/attempts for FG% and FT% (never averages percentages).</p>
+          </div>
+          {!hasProjectedFinal && (
+            <Badge variant="secondary" className="text-[10px]">
+              Needs current totals paste
+            </Badge>
           )}
-          <AlertDescription className="text-sm">
-            <span className="font-medium">
-              {projectionMode === 'schedule' ? 'Schedule Projection' : 'Data Completeness'}:
-            </span>
-            <div className="flex flex-wrap gap-3 mt-1">
-              {projectionMode === 'schedule' && scheduleMyProjection && (
-                <>
-                  <span className="text-muted-foreground">
-                    Your Team: {scheduleMyProjection.totalStartedGames.toFixed(1)} projected games
-                    {scheduleMyProjection.totalBenchOverflow > 0 && (
-                      <span className="text-amber-500"> ({scheduleMyProjection.totalBenchOverflow} benched)</span>
-                    )}
-                  </span>
-                  {scheduleOppProjection && (
-                    <span className="text-muted-foreground">
-                      • Opponent: {scheduleOppProjection.totalStartedGames.toFixed(1)} projected games
-                    </span>
-                  )}
-                </>
-              )}
-              {hasDataWarnings && (
-                <>
-                  {persistedMatchup.myParseInfo && (
-                    <span className="text-muted-foreground">
-                      Your Team: {persistedMatchup.myParseInfo.playerCount} players
-                      {persistedMatchup.myParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.emptySlots} empty slots)</span>}
-                      {persistedMatchup.myParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.myParseInfo.playersWithMissingStats} with partial stats)</span>}
-                    </span>
-                  )}
-                  {persistedMatchup.oppParseInfo && (
-                    <span className="text-muted-foreground">
-                      • Opponent: {persistedMatchup.oppParseInfo.playerCount} players
-                      {persistedMatchup.oppParseInfo.emptySlots > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.emptySlots} empty slots)</span>}
-                      {persistedMatchup.oppParseInfo.playersWithMissingStats > 0 && <span className="text-amber-500"> ({persistedMatchup.oppParseInfo.playersWithMissingStats} with partial stats)</span>}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-            {projectionMode === 'schedule' && (
-              <p className="text-xs text-muted-foreground mt-1">
-                FG%/FT% calculated via makes÷attempts. Injury statuses: DTD=60%, Q=70%, GTD=85%.
-              </p>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+        </div>
+
+        {!hasProjectedFinal && (
+          <Alert className="mt-3 border-amber-500/50 bg-amber-500/10">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <AlertDescription className="text-sm">
+              <div className="space-y-2">
+                <p className="font-medium">Current totals are required to compute Projected Final.</p>
+                <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
+                  {!myCurrentTotalsRes.ok && <li>Your Team: {myCurrentTotalsRes.error.message}</li>}
+                  {!oppCurrentTotalsRes.ok && <li>Opponent: {oppCurrentTotalsRes.error.message}</li>}
+                  {scheduleOppError?.code === 'OPP_ROSTER_MISSING' && <li>Opponent roster missing — schedule-aware remaining cannot run.</li>}
+                </ul>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Paste Your Team current matchup totals</p>
+                    <Textarea
+                      value={myTotalsData}
+                      onChange={(e) => setMyTotalsData(e.target.value)}
+                      placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
+                      className="min-h-[120px] font-mono text-xs bg-muted/30"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Paste Opponent current matchup totals</p>
+                    <Textarea
+                      value={oppTotalsData}
+                      onChange={(e) => setOppTotalsData(e.target.value)}
+                      placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
+                      className="min-h-[120px] font-mono text-xs bg-muted/30"
+                    />
+                  </div>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {hasProjectedFinal && (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="text-left py-2">Cat</th>
+                  <th className="text-right py-2">{persistedMatchup.myTeam.name} (Cur)</th>
+                  <th className="text-right py-2">Rem</th>
+                  <th className="text-right py-2">Final</th>
+                  <th className="text-right py-2">{persistedMatchup.opponent.name} (Cur)</th>
+                  <th className="text-right py-2">Rem</th>
+                  <th className="text-right py-2">Final</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {CATEGORIES.map((cat) => {
+                  const k = cat.key as any;
+                  const isPct = cat.format === 'pct';
+
+                  const fmt = (v: number) => (isPct ? formatPct(v) : Math.round(v).toString());
+
+                  return (
+                    <tr key={cat.key}>
+                      <td className="py-2 text-muted-foreground">{cat.label}</td>
+                      <td className="py-2 text-right font-medium">{fmt((myCurrentTotalsWithPct as any)[k])}</td>
+                      <td className="py-2 text-right text-muted-foreground">{fmt((myRemainingTotalsWithPct as any)[k])}</td>
+                      <td className="py-2 text-right font-semibold">{fmt((myFinalTotalsWithPct as any)[k])}</td>
+                      <td className="py-2 text-right font-medium">{fmt((oppCurrentTotalsWithPct as any)[k])}</td>
+                      <td className="py-2 text-right text-muted-foreground">{fmt((oppRemainingTotalsWithPct as any)[k])}</td>
+                      <td className="py-2 text-right font-semibold">{fmt((oppFinalTotalsWithPct as any)[k])}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Final outcome: <span className="font-display font-semibold text-foreground">{persistedMatchup.myTeam.name} </span>
+              <span className="text-stat-positive font-display font-semibold">{wins}</span>–
+              <span className="text-stat-negative font-display font-semibold">{losses}</span>–
+              <span className="font-display font-semibold">{ties}</span>
+              <span className="font-display font-semibold text-foreground"> {persistedMatchup.opponent.name}</span>
+            </p>
+          </div>
+        )}
+      </Card>
 
       {/* Schedule-Aware Projection (when in schedule mode) */}
       {projectionMode === 'schedule' && (

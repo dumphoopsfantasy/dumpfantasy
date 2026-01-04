@@ -103,24 +103,30 @@ export function ScheduleAwareProjection({
     }
   };
 
+  const hasOpponent = !!oppProjection;
+
   const results = CATEGORIES.map(cat => {
     const myVal = getValue(myProjection.totalStats, cat.key);
-    const oppVal = oppProjection ? getValue(oppProjection.totalStats, cat.key) : 0;
-    const winner = oppProjection ? determineWinner(myVal, oppVal, cat.lowerIsBetter, cat.isPct) : 'my';
+    const oppVal = hasOpponent ? getValue(oppProjection!.totalStats, cat.key) : Number.NaN;
+    const winner = hasOpponent
+      ? determineWinner(myVal, oppVal, cat.lowerIsBetter, cat.isPct)
+      : 'tie';
     return { ...cat, myVal, oppVal, winner };
   });
 
-  const myWins = results.filter(r => r.winner === 'my').length;
-  const oppWins = results.filter(r => r.winner === 'opp').length;
-  const ties = results.filter(r => r.winner === 'tie').length;
+  const myWins = hasOpponent ? results.filter(r => r.winner === 'my').length : 0;
+  const oppWins = hasOpponent ? results.filter(r => r.winner === 'opp').length : 0;
+  const ties = hasOpponent ? results.filter(r => r.winner === 'tie').length : 0;
 
   const getCellBg = (winner: 'my' | 'opp' | 'tie', forTeam: 'my' | 'opp'): string => {
+    if (!hasOpponent) return 'bg-muted/20';
     if (winner === 'tie') return 'bg-muted/50';
     if (winner === forTeam) return 'bg-stat-positive/15';
     return 'bg-stat-negative/15';
   };
 
   const formatValue = (val: number, isPct: boolean): string => {
+    if (!Number.isFinite(val)) return '—';
     if (isPct) return formatPct(val);
     return Math.round(val).toString();
   };
