@@ -668,6 +668,13 @@ export const MatchupProjection = ({
       if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results|\d+\s+of\s+\d+)$/i.test(line)) continue;
       if (/^(\d+\s+)+\.\.\.\s*\d+$/.test(line)) continue;
 
+      // Handle --/-- (missing fraction) by expanding into two placeholder tokens
+      if (/^--\s*\/\s*--$/.test(line)) {
+        statTokens.push('--', '--');
+        continue;
+      }
+
+      // Split numeric fractions (e.g., 5.3/11.7 -> ['5.3', '11.7'])
       if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
         const parts = line.split('/');
         statTokens.push(parts[0], parts[1]);
@@ -680,6 +687,13 @@ export const MatchupProjection = ({
     }
 
     devLog(`[parseESPNTeamPage] Collected ${statTokens.length} stat tokens`);
+    
+    // Guardrail: truncate to prevent misaligned parsing
+    const remainder = statTokens.length % COLS;
+    if (remainder !== 0) {
+      devWarn(`[parseESPNTeamPage] Token count ${statTokens.length} not divisible by ${COLS} (remainder ${remainder}). Truncating to prevent misalignment.`);
+      statTokens.length = Math.floor(statTokens.length / COLS) * COLS;
+    }
     
     const numStatRows = Math.floor(statTokens.length / COLS);
     devLog(`[parseESPNTeamPage] Expected rows: ${numStatRows} (${statTokens.length} tokens / ${COLS} cols)`);
