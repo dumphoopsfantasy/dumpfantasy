@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X, ChevronDown, Calendar, Users, Loader2 } from "lucide-react";
+import { ArrowRight, Trophy, Target, Minus, Upload, RefreshCw, Info, AlertTriangle, Lightbulb, X, ChevronDown, Calendar, Users, Loader2, Clock } from "lucide-react";
 import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 import { RosterSlot, Player } from "@/types/fantasy";
@@ -16,11 +16,14 @@ import { devLog, devWarn, devError } from "@/lib/devLog";
 import { ProjectionModeToggle, ProjectionMode } from "@/components/ProjectionModeToggle";
 import { ScheduleAwareProjection } from "@/components/ScheduleAwareProjection";
 import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
+import { useSlateAwareProjection } from "@/hooks/useSlateAwareProjection";
 import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
 import { parseEspnMatchupTotalsFromText } from "@/lib/espnMatchupTotals";
 import { addTotals, totalsFromProjectedStats, withDerivedPct, TeamTotalsWithPct } from "@/lib/teamTotals";
 import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@/lib/espnTokenUtils";
-import { safeNum, fmtInt, fmtPct as fmtPctSafe, formatStatValue, determineProjectionMode, ProjectionDataMode } from "@/lib/projectionFormatters";
+import { safeNum, fmtInt, fmtPct as fmtPctSafe, fmtDec, formatStatValue, determineProjectionMode, ProjectionDataMode, formatAsOfTime } from "@/lib/projectionFormatters";
+import { SlateStatusBadge } from "@/components/SlateStatusBadge";
+import { getProjectionExplanation } from "@/lib/slateAwareProjection";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -292,18 +295,29 @@ export const MatchupProjection = ({
 
   const dayInfo = getMatchupDayInfo();
   
-  // Schedule-aware projection hook (remaining week, started-games based)
-  const { 
-    myProjection: scheduleMyProjection,
-    myError: scheduleMyError,
-    oppProjection: scheduleOppProjection,
-    oppError: scheduleOppError,
+  // Slate-aware projection hook (excludes started games from remaining)
+  const {
+    myProjection: slateMyProjection,
+    myError: slateMyError,
+    oppProjection: slateOppProjection,
+    oppError: slateOppError,
+    slateStatus,
     remainingDates,
-    isLoading: scheduleLoading,
-  } = useScheduleAwareProjection({
+    excludedStartedGames,
+    includedNotStartedGames,
+    explanation: slateExplanation,
+    isLoading: slateLoading,
+  } = useSlateAwareProjection({
     roster: persistedMatchup?.myRoster ?? roster,
     opponentRoster: persistedMatchup?.opponentRoster,
   });
+  
+  // For backward compatibility
+  const scheduleMyProjection = slateMyProjection;
+  const scheduleMyError = slateMyError;
+  const scheduleOppProjection = slateOppProjection;
+  const scheduleOppError = slateOppError;
+  const scheduleLoading = slateLoading;
 
   // Find my team's weekly data if available (used ONLY for W-L-T display)
   const myWeeklyData = useMemo(() => {
@@ -1716,7 +1730,7 @@ Navigate to their team page and copy the whole page.`}
       {/* Projected Final (Current + Remaining) */}
       <Card className="gradient-card border-primary/20 p-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
+          <div className="flex-1">
             <h3 className="font-display font-semibold text-sm">{projectionModeState.label}</h3>
             <p className="text-xs text-muted-foreground">
               {projectionModeState.mode === 'FINAL' 
@@ -1724,12 +1738,26 @@ Navigate to their team page and copy the whole page.`}
                 : projectionModeState.description}
             </p>
           </div>
-          {projectionModeState.mode !== 'FINAL' && (
-            <Badge variant="secondary" className="text-[10px]">
-              {projectionModeState.mode === 'REMAINING_ONLY' ? 'Partial data' : 'Baseline only'}
-            </Badge>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Slate Status Badge */}
+            {slateStatus && projectionMode === 'schedule' && (
+              <SlateStatusBadge slateStatus={slateStatus} />
+            )}
+            {projectionModeState.mode !== 'FINAL' && (
+              <Badge variant="secondary" className="text-[10px]">
+                {projectionModeState.mode === 'REMAINING_ONLY' ? 'Partial data' : 'Baseline only'}
+              </Badge>
+            )}
+          </div>
         </div>
+
+        {/* Slate explanation line */}
+        {slateStatus && slateExplanation && projectionMode === 'schedule' && (
+          <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {slateExplanation}
+          </p>
+        )}
 
         {/* Mode-specific banners */}
         {projectionModeState.mode === 'REMAINING_ONLY' && (

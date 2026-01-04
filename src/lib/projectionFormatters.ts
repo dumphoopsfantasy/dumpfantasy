@@ -28,6 +28,15 @@ export function fmtInt(x: unknown): string {
 }
 
 /**
+ * Formats a number as a decimal with 1 decimal place, or "—" if invalid.
+ */
+export function fmtDec(x: unknown, decimals: number = 1): string {
+  const n = safeNum(x);
+  if (n === null) return '—';
+  return n.toFixed(decimals);
+}
+
+/**
  * Formats a number as a percentage string (e.g., ".456"), or "—" if invalid.
  * If the value is > 1, treats it as already a percentage (e.g., 45.6 -> 45.6%).
  */
@@ -51,9 +60,19 @@ export function safeDivide(numerator: unknown, denominator: unknown): number | n
 
 /**
  * Computes FG% or FT% from makes/attempts, returning null if invalid.
+ * NEVER averages percentages directly - always uses makes/attempts.
  */
 export function computePct(makes: unknown, attempts: unknown): number | null {
   return safeDivide(makes, attempts);
+}
+
+/**
+ * Safely add two numbers, treating null/NaN as 0.
+ */
+export function safeAdd(a: unknown, b: unknown): number {
+  const numA = safeNum(a) ?? 0;
+  const numB = safeNum(b) ?? 0;
+  return numA + numB;
 }
 
 /**
@@ -135,4 +154,16 @@ export function determineWinner(
   } else {
     return my > opp ? 'my' : 'opp';
   }
+}
+
+/**
+ * Formats a timestamp for "As of" display
+ */
+export function formatAsOfTime(date?: Date): string {
+  const d = date || new Date();
+  return d.toLocaleTimeString('en-US', { 
+    hour: 'numeric', 
+    minute: '2-digit',
+    timeZone: 'America/New_York'
+  }) + ' ET';
 }
