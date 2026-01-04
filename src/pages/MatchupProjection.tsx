@@ -19,6 +19,7 @@ import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
 import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
 import { parseEspnMatchupTotalsFromText } from "@/lib/espnMatchupTotals";
 import { addTotals, totalsFromProjectedStats, withDerivedPct } from "@/lib/teamTotals";
+import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@/lib/espnTokenUtils";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -83,6 +84,8 @@ interface ParseResult {
   playerCount: number;
   emptySlots: number;
   playersWithMissingStats: number;
+  alignmentOffset?: number;
+  parseWarnings?: string[];
 }
 
 interface MatchupData {
@@ -90,8 +93,20 @@ interface MatchupData {
   opponent: MatchupTeam;
   myRoster?: RosterSlot[];
   opponentRoster?: RosterSlot[];
-  myParseInfo?: { playerCount: number; emptySlots: number; playersWithMissingStats: number };
-  oppParseInfo?: { playerCount: number; emptySlots: number; playersWithMissingStats: number };
+  myParseInfo?: {
+    playerCount: number;
+    emptySlots: number;
+    playersWithMissingStats: number;
+    alignmentOffset?: number;
+    parseWarnings?: string[];
+  };
+  oppParseInfo?: {
+    playerCount: number;
+    emptySlots: number;
+    playersWithMissingStats: number;
+    alignmentOffset?: number;
+    parseWarnings?: string[];
+  };
 }
 
 interface WeeklyTeamStats {
@@ -264,6 +279,8 @@ export const MatchupProjection = ({
   const { toast } = useToast();
   const [myTeamData, setMyTeamData] = useState("");
   const [opponentData, setOpponentData] = useState("");
+  const [oppRosterParseAttempted, setOppRosterParseAttempted] = useState(false);
+  const [oppRosterParseFailed, setOppRosterParseFailed] = useState(false);
   const [myTotalsData, setMyTotalsData] = useState("");
   const [oppTotalsData, setOppTotalsData] = useState("");
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
@@ -656,47 +673,151 @@ export const MatchupProjection = ({
     
     // Columns after split: MIN, FGM, FGA, FG%, FTM, FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/- = 17 tokens
     const COLS = 17;
-    
+
+    const parseWarnings: string[] = [];
+
     const statTokens: string[] = [];
     for (let i = dataStartIdx; i < lines.length; i++) {
-      const line = lines[i];
+      const rawLine = lines[i];
 
-      if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy|Fantasy Basketball Support)/i.test(line)) {
+      if (/^(Username|Password|ESPN\.com|Copyright|©|Sign\s*(Up|In)|Log\s*In|Terms\s*of|Privacy|Fantasy Basketball Support)/i.test(rawLine)) {
         break;
       }
 
-      if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results|\d+\s+of\s+\d+)$/i.test(line)) continue;
-      if (/^(\d+\s+)+\.\.\.\s*\d+$/.test(line)) continue;
+      if (/^(Fantasy|Support|About|Help|Contact|Page|Showing|Results|\d+\s+of\s+\d+)$/i.test(rawLine)) continue;
+      if (/^(\d+\s+)+\.\.\.\s*\d+$/.test(rawLine)) continue;
 
-      // Handle --/-- (missing fraction) by expanding into two placeholder tokens
-      if (/^--\s*\/\s*--$/.test(line)) {
-        statTokens.push('--', '--');
+      const line = normalizeMissingToken(rawLine);
+
+      // Handle missing fraction by expanding into two placeholder tokens
+      if (isMissingFractionToken(line)) {
+        statTokens.push("--", "--");
         continue;
       }
 
       // Split numeric fractions (e.g., 5.3/11.7 -> ['5.3', '11.7'])
       if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
-        const parts = line.split('/');
+        const parts = line.split("/");
         statTokens.push(parts[0], parts[1]);
         continue;
       }
 
-      if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
-        statTokens.push(line);
+      if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || isMissingToken(line)) {
+        statTokens.push(isMissingToken(line) ? "--" : line);
       }
     }
 
     devLog(`[parseESPNTeamPage] Collected ${statTokens.length} stat tokens`);
-    
-    // Guardrail: truncate to prevent misaligned parsing
-    const remainder = statTokens.length % COLS;
-    if (remainder !== 0) {
-      devWarn(`[parseESPNTeamPage] Token count ${statTokens.length} not divisible by ${COLS} (remainder ${remainder}). Truncating to prevent misalignment.`);
-      statTokens.length = Math.floor(statTokens.length / COLS) * COLS;
+
+    // Alignment: try offsets 0..16 and pick the best one based on sanity checks.
+    const alignStatTokens = (tokens: string[], cols: number): { aligned: string[]; offset: number } => {
+      const getNum = (t?: string): number | null => {
+        if (!t) return null;
+        const n = parseFloat(t);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const normalizePct = (v: number | null): number | null => {
+        if (v === null) return null;
+        if (v <= 1) return v;
+        if (v <= 100) return v / 100;
+        if (v <= 1000) return v / 1000;
+        return null;
+      };
+
+      const scoreOffset = (offset: number): number => {
+        const usable = Math.floor((tokens.length - offset) / cols) * cols;
+        if (usable < cols) return -Infinity;
+
+        let score = 0;
+        const rowsToCheck = Math.min(3, Math.floor(usable / cols));
+
+        for (let r = 0; r < rowsToCheck; r++) {
+          const base = offset + r * cols;
+
+          const read = (key: string): string | undefined => {
+            const idx = indexMap[key];
+            if (idx === undefined) return undefined;
+            return tokens[base + idx];
+          };
+
+          const min = getNum(read("MIN"));
+          const fgm = getNum(read("FGM"));
+          const fga = getNum(read("FGA"));
+          const fgPct = normalizePct(getNum(read("FG%")));
+          const ftm = getNum(read("FTM"));
+          const fta = getNum(read("FTA"));
+          const ftPct = normalizePct(getNum(read("FT%")));
+          const stl = getNum(read("STL"));
+          const blk = getNum(read("BLK"));
+          const pts = getNum(read("PTS"));
+
+          // MIN sanity (allow 0 for partial rows but punish > 60)
+          if (min !== null && min >= 0 && min <= 60) score += 3;
+          else if (min !== null && min > 60) score -= 10;
+
+          // Attempts + makes sanity
+          if (fga !== null && fga >= 0 && fga <= 40) score += 2;
+          else if (fga !== null && fga > 40) score -= 6;
+
+          if (fgm !== null && fga !== null && fgm <= fga + 0.001) score += 1;
+          if (ftm !== null && fta !== null && ftm <= fta + 0.001) score += 1;
+
+          // Percent sanity
+          if (fgPct !== null && fgPct >= 0 && fgPct <= 1) score += 2;
+          else if (fgPct !== null) score -= 4;
+
+          if (ftPct !== null && ftPct >= 0 && ftPct <= 1) score += 2;
+          else if (ftPct !== null) score -= 4;
+
+          // Category sanity
+          if (stl !== null && stl >= 0 && stl <= 10) score += 1;
+          else if (stl !== null && stl > 10) score -= 4;
+
+          if (blk !== null && blk >= 0 && blk <= 10) score += 1;
+          else if (blk !== null && blk > 10) score -= 4;
+
+          if (pts !== null && pts >= 0 && pts <= 80) score += 1;
+          else if (pts !== null && pts > 80) score -= 4;
+        }
+
+        return score;
+      };
+
+      let bestOffset = 0;
+      let bestScore = scoreOffset(0);
+      for (let off = 1; off < cols; off++) {
+        const s = scoreOffset(off);
+        if (s > bestScore) {
+          bestScore = s;
+          bestOffset = off;
+        }
+      }
+
+      const usable = Math.floor((tokens.length - bestOffset) / cols) * cols;
+      const aligned = usable > 0 ? tokens.slice(bestOffset, bestOffset + usable) : [];
+      return { aligned, offset: bestOffset };
+    };
+
+    const { aligned: alignedStatTokensRaw, offset: alignmentOffset } = alignStatTokens(statTokens, COLS);
+    if (alignmentOffset !== 0) {
+      parseWarnings.push(`Alignment offset applied (+${alignmentOffset} tokens)`);
+      devWarn(`[parseESPNTeamPage] Alignment offset ${alignmentOffset} applied to stat tokens`);
     }
-    
-    const numStatRows = Math.floor(statTokens.length / COLS);
-    devLog(`[parseESPNTeamPage] Expected rows: ${numStatRows} (${statTokens.length} tokens / ${COLS} cols)`);
+
+    // Guardrail: truncate to prevent misaligned parsing
+    const alignedStatTokens = [...alignedStatTokensRaw];
+    const remainder = alignedStatTokens.length % COLS;
+    if (remainder !== 0) {
+      parseWarnings.push(`Token truncation applied (${alignedStatTokens.length} % ${COLS} != 0)`);
+      devWarn(
+        `[parseESPNTeamPage] Token count ${alignedStatTokens.length} not divisible by ${COLS} (remainder ${remainder}). Truncating to prevent misalignment.`
+      );
+      alignedStatTokens.length = Math.floor(alignedStatTokens.length / COLS) * COLS;
+    }
+
+    const numStatRows = Math.floor(alignedStatTokens.length / COLS);
+    devLog(`[parseESPNTeamPage] Expected rows: ${numStatRows} (${alignedStatTokens.length} tokens / ${COLS} cols)`);
     
     // Count empty slots by looking for "Empty" in the text before stats
     let emptySlots = 0;
@@ -740,11 +861,11 @@ export const MatchupProjection = ({
       
       const base = i * COLS;
       let rowHasMissing = false;
-      
+
       const parseVal = (key: string): number => {
         const idx = indexMap[key];
         if (idx === undefined) return 0;
-        const val = statTokens[base + idx];
+        const val = alignedStatTokens[base + idx];
         if (!val || val === '--') {
           rowHasMissing = true;
           return 0;
@@ -951,7 +1072,8 @@ export const MatchupProjection = ({
     devLog(`[parseESPNTeamPage] Expected Baseline (×40):`, expectedBaseline);
     devLog(`[parseESPNTeamPage] FG% = ${(teamComposite.fgPct * 100).toFixed(1)}%, FT% = ${(teamComposite.ftPct * 100).toFixed(1)}%`);
     
-    // Final sanity: baseline should be in realistic weekly ranges (warn only)
+    // Final sanity: baseline should be in realistic weekly ranges
+    // If it's wildly off (e.g., BLK=931), fail the parse rather than output garbage.
     const REALISTIC_WEEKLY_RANGES: Record<string, [number, number]> = {
       threepm: [30, 150],
       rebounds: [100, 350],
@@ -961,20 +1083,28 @@ export const MatchupProjection = ({
       turnovers: [40, 120],
       points: [350, 1000],
     };
-    
+
+    // Hard cap specifically requested: baseline BLK must never be absurd.
+    if (expectedBaseline.blocks > 250) {
+      devWarn(`[SANITY] Baseline BLK = ${expectedBaseline.blocks} exceeds hard cap (250). Treating as parse error.`);
+      return null;
+    }
+
     for (const [cat, [min, max]] of Object.entries(REALISTIC_WEEKLY_RANGES)) {
       const val = expectedBaseline[cat as keyof typeof expectedBaseline];
       if (val < min || val > max) {
         devWarn(`[SANITY] Baseline ${cat} = ${val} outside typical range [${min}, ${max}]`);
       }
     }
-    
+
     return {
       info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
       stats: teamComposite,
       playerCount: allPlayerStats.length,
       emptySlots,
       playersWithMissingStats,
+      alignmentOffset: alignmentOffset !== 0 ? alignmentOffset : undefined,
+      parseWarnings: parseWarnings.length > 0 ? parseWarnings : undefined,
     };
 
     // Note: removed fallback simple number extraction - better to return null and show clear error
@@ -1100,28 +1230,45 @@ export const MatchupProjection = ({
       if (myRosterParsed.length === 0) {
         toast({
           title: "Roster parse failed",
-          description: "Could not extract your roster + Last 15 stats. Make sure the paste includes the STATS table (MIN, FGM/FGA, ...).",
+          description:
+            "Could not extract your roster + Last 15 stats. Make sure the paste includes the STATS table (MIN, FGM/FGA, ...).",
           variant: "destructive",
         });
         return;
       }
 
+      setOppRosterParseAttempted(true);
       const oppRosterParsed = parseOpponentRoster(opponentData);
+      const oppRosterOk = oppRosterParsed.length > 0;
+      setOppRosterParseFailed(!oppRosterOk);
+
+      if (!oppRosterOk) {
+        toast({
+          title: "Opponent roster parse failed",
+          description:
+            "Paste opponent roster page blob (Opposing Teams → Stats → Last 15 Totals) including the STATS table (MIN, FGM/FGA, ...).",
+          variant: "destructive",
+        });
+      }
 
       onMatchupChange({
         myTeam: { ...myParsed.info, stats: myParsed.stats },
         opponent: { ...finalOppInfo, stats: oppParsed.stats },
         myRoster: myRosterParsed,
-        opponentRoster: oppRosterParsed.length > 0 ? oppRosterParsed : undefined,
+        opponentRoster: oppRosterOk ? oppRosterParsed : undefined,
         myParseInfo: {
           playerCount: myParsed.playerCount,
           emptySlots: myParsed.emptySlots,
           playersWithMissingStats: myParsed.playersWithMissingStats,
+          alignmentOffset: myParsed.alignmentOffset,
+          parseWarnings: myParsed.parseWarnings,
         },
         oppParseInfo: {
           playerCount: oppParsed.playerCount,
           emptySlots: oppParsed.emptySlots,
           playersWithMissingStats: oppParsed.playersWithMissingStats,
+          alignmentOffset: oppParsed.alignmentOffset,
+          parseWarnings: oppParsed.parseWarnings,
         },
       });
       
@@ -1159,6 +1306,10 @@ export const MatchupProjection = ({
     onMatchupChange(null);
     setMyTeamData("");
     setOpponentData("");
+    setMyTotalsData("");
+    setOppTotalsData("");
+    setOppRosterParseAttempted(false);
+    setOppRosterParseFailed(false);
   };
 
   const formatAverage = (value: number, format: string) => {
@@ -1378,7 +1529,7 @@ Navigate to their team page and copy the whole page.`}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             <Badge variant="outline" className="text-[10px] flex items-center gap-1">
               <Calendar className="w-3 h-3" />
               {dayInfo.dayLabel}
@@ -1389,6 +1540,24 @@ Navigate to their team page and copy the whole page.`}
               </Badge>
             )}
           </div>
+          {((persistedMatchup.myParseInfo?.alignmentOffset ?? 0) !== 0 || (persistedMatchup.oppParseInfo?.alignmentOffset ?? 0) !== 0) && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Parse warnings:{' '}
+              {(persistedMatchup.myParseInfo?.alignmentOffset ?? 0) !== 0 && (
+                <span>
+                  Your Team aligned (+{persistedMatchup.myParseInfo?.alignmentOffset} tokens)
+                </span>
+              )}
+              {(persistedMatchup.myParseInfo?.alignmentOffset ?? 0) !== 0 && (persistedMatchup.oppParseInfo?.alignmentOffset ?? 0) !== 0 && (
+                <span> • </span>
+              )}
+              {(persistedMatchup.oppParseInfo?.alignmentOffset ?? 0) !== 0 && (
+                <span>
+                  Opponent aligned (+{persistedMatchup.oppParseInfo?.alignmentOffset} tokens)
+                </span>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <ProjectionModeToggle 
@@ -1507,6 +1676,17 @@ Navigate to their team page and copy the whole page.`}
             <Calendar className="w-4 h-4 text-primary" />
             <h3 className="font-display font-semibold text-sm">Week Outcome (Schedule-Aware)</h3>
           </div>
+
+          {oppRosterParseFailed && (
+            <Alert className="mb-3 border-amber-500/50 bg-amber-500/10">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <AlertDescription className="text-sm">
+                <strong>Opponent roster paste didn’t include a parsable STATS table.</strong>{" "}
+                Paste the opponent team page blob from <em>Opposing Teams → Stats → Last 15 Totals</em>, including the STATS header row (MIN, FGM/FGA, ...).
+              </AlertDescription>
+            </Alert>
+          )}
+
           <ScheduleAwareProjection
             myProjection={scheduleMyProjection}
             myError={scheduleMyError}
