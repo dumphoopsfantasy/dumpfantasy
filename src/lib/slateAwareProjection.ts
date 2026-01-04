@@ -190,6 +190,7 @@ export interface SlateAwareProjectionResult {
   projection: WeekProjectionResult;
   slateStatus: SlateStatus;
   todayDate: string;
+  statsByDate: Map<string, ProjectedStats>;  // Per-day breakdown
   excludedStartedGames: number;
   includedNotStartedGames: number;
 }
@@ -236,6 +237,7 @@ export function projectSlateAware(
   
   // Process each day, only counting NOT_STARTED games
   const playerGameCounts = new Map<string, { started: number; benched: number; scheduled: number }>();
+  const playerStartedByDate = new Map<string, Map<string, number>>(); // date -> playerId -> games started
   let totalEmptySlotDays = 0;
   
   // Initialize player game counts
@@ -276,6 +278,9 @@ export function projectSlateAware(
     // Fill lineup slots for this day
     const startedToday = fillLineupsForDay(playersWithNotStartedGames, STANDARD_LINEUP_SLOTS);
     
+    // Store per-date started info
+    playerStartedByDate.set(date, startedToday);
+    
     // Check for empty slots
     if (startedToday.size < STANDARD_LINEUP_SLOTS.length) {
       totalEmptySlotDays++;
@@ -303,6 +308,19 @@ export function projectSlateAware(
   let totalStartedGames = 0;
   let totalBenchOverflow = 0;
   const warnings: string[] = [];
+  
+  // Per-date stats accumulation
+  const statsByDate = new Map<string, ProjectedStats>();
+  
+  // Initialize per-date accumulators
+  for (const date of weekDates) {
+    statsByDate.set(date, {
+      fgm: 0, fga: 0, fgPct: 0,
+      ftm: 0, fta: 0, ftPct: 0,
+      threepm: 0, rebounds: 0, assists: 0,
+      steals: 0, blocks: 0, turnovers: 0, points: 0,
+    });
+  }
   
   for (const slot of roster) {
     if (slot.slotType === 'ir') continue;
@@ -348,6 +366,25 @@ export function projectSlateAware(
     totalStartedGames += counts.started;
     totalBenchOverflow += counts.benched;
     
+    // Accumulate per-date stats
+    for (const date of weekDates) {
+      const startedOnDate = playerStartedByDate.get(date)?.get(player.id) || 0;
+      if (startedOnDate > 0) {
+        const dateStats = statsByDate.get(date)!;
+        dateStats.fgm += perGameStats.fgm * startedOnDate;
+        dateStats.fga += perGameStats.fga * startedOnDate;
+        dateStats.ftm += perGameStats.ftm * startedOnDate;
+        dateStats.fta += perGameStats.fta * startedOnDate;
+        dateStats.threepm += perGameStats.threepm * startedOnDate;
+        dateStats.rebounds += perGameStats.rebounds * startedOnDate;
+        dateStats.assists += perGameStats.assists * startedOnDate;
+        dateStats.steals += perGameStats.steals * startedOnDate;
+        dateStats.blocks += perGameStats.blocks * startedOnDate;
+        dateStats.turnovers += perGameStats.turnovers * startedOnDate;
+        dateStats.points += perGameStats.points * startedOnDate;
+      }
+    }
+    
     playerProjections.push({
       playerId: player.id,
       playerName: player.name,
@@ -365,6 +402,12 @@ export function projectSlateAware(
     if (usedShrinkage) {
       warnings.push(`${player.name}: Using blended stats (limited sample)`);
     }
+  }
+  
+  // Compute derived percentages for per-date stats
+  for (const [date, stats] of statsByDate) {
+    stats.fgPct = stats.fga > 0 ? stats.fgm / stats.fga : 0;
+    stats.ftPct = stats.fta > 0 ? stats.ftm / stats.fta : 0;
   }
   
   // Compute final percentages
@@ -400,6 +443,7 @@ export function projectSlateAware(
     },
     slateStatus,
     todayDate: todayStr,
+    statsByDate,
     excludedStartedGames,
     includedNotStartedGames,
   };

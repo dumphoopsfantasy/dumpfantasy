@@ -11,6 +11,7 @@ import { useNBAUpcomingSchedule } from '@/hooks/useNBAUpcomingSchedule';
 import {
   WeekProjectionResult,
   ProjectionError,
+  ProjectedStats,
   getRemainingMatchupDates,
   validateProjectionInput,
 } from '@/lib/scheduleAwareProjection';
@@ -35,6 +36,8 @@ interface SlateAwareProjectionResult {
   slateStatus: SlateStatus | null;
   todayDate: string;
   remainingDates: string[];
+  myTodayStats: ProjectedStats | null;
+  oppTodayStats: ProjectedStats | null;
   excludedStartedGames: { my: number; opp: number };
   includedNotStartedGames: { my: number; opp: number };
   explanation: string;
@@ -78,6 +81,7 @@ export function useSlateAwareProjection({
       return { 
         projection: null, 
         error: null as ProjectionError | null,
+        todayStats: null as ProjectedStats | null,
         excludedStartedGames: 0,
         includedNotStartedGames: 0,
       };
@@ -96,9 +100,13 @@ export function useSlateAwareProjection({
         includedNotStarted: result.includedNotStartedGames,
       });
       
+      // Extract today's stats from statsByDate
+      const todayStats = result.statsByDate.get(result.todayDate) || null;
+      
       return {
         projection: result.projection,
         error: null,
+        todayStats,
         excludedStartedGames: result.excludedStartedGames,
         includedNotStartedGames: result.includedNotStartedGames,
       };
@@ -110,6 +118,7 @@ export function useSlateAwareProjection({
           code: 'SCHEDULE_MAPPING_FAILED' as const,
           message: 'Failed to project team stats',
         },
+        todayStats: null,
         excludedStartedGames: 0,
         includedNotStartedGames: 0,
       };
@@ -125,6 +134,7 @@ export function useSlateAwareProjection({
           code: 'OPP_ROSTER_MISSING' as const,
           message: 'Opponent roster not imported',
         },
+        todayStats: null as ProjectedStats | null,
         excludedStartedGames: 0,
         includedNotStartedGames: 0,
       };
@@ -134,6 +144,7 @@ export function useSlateAwareProjection({
       return {
         projection: null,
         error: null as ProjectionError | null,
+        todayStats: null as ProjectedStats | null,
         excludedStartedGames: 0,
         includedNotStartedGames: 0,
       };
@@ -152,9 +163,13 @@ export function useSlateAwareProjection({
         includedNotStarted: result.includedNotStartedGames,
       });
       
+      // Extract today's stats from statsByDate
+      const todayStats = result.statsByDate.get(result.todayDate) || null;
+      
       return {
         projection: result.projection,
         error: null,
+        todayStats,
         excludedStartedGames: result.excludedStartedGames,
         includedNotStartedGames: result.includedNotStartedGames,
       };
@@ -166,6 +181,7 @@ export function useSlateAwareProjection({
           code: 'SCHEDULE_MAPPING_FAILED' as const,
           message: 'Failed to project opponent stats',
         },
+        todayStats: null,
         excludedStartedGames: 0,
         includedNotStartedGames: 0,
       };
@@ -186,6 +202,8 @@ export function useSlateAwareProjection({
     slateStatus,
     todayDate,
     remainingDates,
+    myTodayStats: myResult.todayStats,
+    oppTodayStats: oppResult.todayStats,
     excludedStartedGames: {
       my: myResult.excludedStartedGames,
       opp: oppResult.excludedStartedGames,

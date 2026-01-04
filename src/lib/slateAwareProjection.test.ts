@@ -263,6 +263,51 @@ describe('projectSlateAware', () => {
     );
   });
 
+  it('returns per-day stats in statsByDate map', () => {
+    const player = createMockPlayer({ 
+      id: 'p1', 
+      nbaTeam: 'LAL',
+      points: 25,
+      rebounds: 10,
+      assists: 5,
+    });
+    const roster: RosterSlot[] = [createMockSlot(player)];
+    
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+    
+    const gamesByDate = new Map<string, NBAGame[]>([
+      [todayStr, [createMockGame({ homeTeam: 'LAL', awayTeam: 'BOS', status: 'Scheduled' })]],
+      [tomorrowStr, [createMockGame({ homeTeam: 'LAL', awayTeam: 'PHX', status: 'Scheduled' })]],
+    ]);
+    
+    const result = projectSlateAware({
+      roster,
+      gamesByDate,
+      weekDates: [todayStr, tomorrowStr],
+    });
+    
+    // statsByDate should have entries for both days
+    expect(result.statsByDate.size).toBe(2);
+    expect(result.statsByDate.has(todayStr)).toBe(true);
+    expect(result.statsByDate.has(tomorrowStr)).toBe(true);
+    
+    // Today's stats should include the player's projected stats
+    const todayStats = result.statsByDate.get(todayStr);
+    expect(todayStats).toBeDefined();
+    expect(todayStats!.points).toBeGreaterThan(0);
+    
+    // Total stats should be sum of per-day stats
+    const totalFromDays = Array.from(result.statsByDate.values()).reduce(
+      (sum, s) => sum + s.points, 0
+    );
+    expect(result.projection.totalStats.points).toBeCloseTo(totalFromDays, 5);
+  });
+
   it('returns zero projections for post-slate scenario', () => {
     const player = createMockPlayer({ id: 'p1', nbaTeam: 'LAL', points: 20 });
     const roster: RosterSlot[] = [createMockSlot(player)];
@@ -285,6 +330,10 @@ describe('projectSlateAware', () => {
     expect(result.excludedStartedGames).toBe(1);
     expect(result.includedNotStartedGames).toBe(0);
     expect(result.projection.totalStartedGames).toBe(0);
+    
+    // statsByDate should still exist but have zero stats
+    expect(result.statsByDate.size).toBe(1);
+    expect(result.statsByDate.get(todayStr)?.points).toBe(0);
   });
 });
 
