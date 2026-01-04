@@ -1313,6 +1313,76 @@ export const MatchupProjection = ({
     setOppRosterParseFailed(false);
   };
 
+  // =====================================================
+  // PROJECTION MODE STATE MACHINE (must be BEFORE early return to satisfy Rules of Hooks)
+  // =====================================================
+  const hasCurrentTotals = !!(myCurrentTotalsWithPct && oppCurrentTotalsWithPct);
+  const hasRemainingTotals = !!(myRemainingTotalsWithPct && oppRemainingTotalsWithPct);
+  const hasBaselineTotals = !!(persistedMatchup?.myTeam?.stats && persistedMatchup?.opponent?.stats);
+
+  const projectionModeState = useMemo(() => {
+    return determineProjectionMode({
+      hasCurrentTotals,
+      hasRemainingTotals,
+      hasBaselineTotals,
+    });
+  }, [hasCurrentTotals, hasRemainingTotals, hasBaselineTotals]);
+
+  // Compute "effective projected" totals based on available data
+  const effectiveMyTotals: TeamTotalsWithPct | null = useMemo(() => {
+    if (!persistedMatchup) return null;
+    if (projectionModeState.mode === 'FINAL' && myFinalTotalsWithPct) {
+      return myFinalTotalsWithPct;
+    }
+    if (projectionModeState.mode === 'REMAINING_ONLY' && myRemainingTotalsWithPct) {
+      return myRemainingTotalsWithPct;
+    }
+    // BASELINE_ONLY: convert baseline stats (already per-game) to "x40" totals
+    if (hasBaselineTotals && persistedMatchup.myTeam?.stats) {
+      const stats = persistedMatchup.myTeam.stats;
+      return {
+        fgm: 0, fga: 0, ftm: 0, fta: 0,
+        threepm: stats.threepm * 40,
+        rebounds: stats.rebounds * 40,
+        assists: stats.assists * 40,
+        steals: stats.steals * 40,
+        blocks: stats.blocks * 40,
+        turnovers: stats.turnovers * 40,
+        points: stats.points * 40,
+        fgPct: stats.fgPct,
+        ftPct: stats.ftPct,
+      };
+    }
+    return null;
+  }, [projectionModeState.mode, myFinalTotalsWithPct, myRemainingTotalsWithPct, hasBaselineTotals, persistedMatchup]);
+
+  const effectiveOppTotals: TeamTotalsWithPct | null = useMemo(() => {
+    if (!persistedMatchup) return null;
+    if (projectionModeState.mode === 'FINAL' && oppFinalTotalsWithPct) {
+      return oppFinalTotalsWithPct;
+    }
+    if (projectionModeState.mode === 'REMAINING_ONLY' && oppRemainingTotalsWithPct) {
+      return oppRemainingTotalsWithPct;
+    }
+    // BASELINE_ONLY: convert baseline stats (already per-game) to "x40" totals
+    if (hasBaselineTotals && persistedMatchup.opponent?.stats) {
+      const stats = persistedMatchup.opponent.stats;
+      return {
+        fgm: 0, fga: 0, ftm: 0, fta: 0,
+        threepm: stats.threepm * 40,
+        rebounds: stats.rebounds * 40,
+        assists: stats.assists * 40,
+        steals: stats.steals * 40,
+        blocks: stats.blocks * 40,
+        turnovers: stats.turnovers * 40,
+        points: stats.points * 40,
+        fgPct: stats.fgPct,
+        ftPct: stats.ftPct,
+      };
+    }
+    return null;
+  }, [projectionModeState.mode, oppFinalTotalsWithPct, oppRemainingTotalsWithPct, hasBaselineTotals, persistedMatchup]);
+
   // Safe format helpers for display
   const formatAverage = (value: unknown, format: string): string => {
     const n = safeNum(value);
@@ -1327,6 +1397,9 @@ export const MatchupProjection = ({
     return Math.round(n).toString();
   };
 
+  // =====================================================
+  // EARLY RETURN: Show import UI if no matchup data
+  // =====================================================
   if (!persistedMatchup) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
@@ -1483,74 +1556,9 @@ Navigate to their team page and copy the whole page.`}
   }
 
   // =====================================================
-  // PROJECTION MODE STATE MACHINE
+  // MATCHUP DATA EXISTS - RENDER PROJECTION VIEW
   // =====================================================
-  const hasCurrentTotals = !!(myCurrentTotalsWithPct && oppCurrentTotalsWithPct);
-  const hasRemainingTotals = !!(myRemainingTotalsWithPct && oppRemainingTotalsWithPct);
-  const hasBaselineTotals = !!(persistedMatchup.myTeam.stats && persistedMatchup.opponent.stats);
-
-  const projectionModeState = useMemo(() => {
-    return determineProjectionMode({
-      hasCurrentTotals,
-      hasRemainingTotals,
-      hasBaselineTotals,
-    });
-  }, [hasCurrentTotals, hasRemainingTotals, hasBaselineTotals]);
-
   devLog(`[ProjectionMode] Mode: ${projectionModeState.mode}, hasCurrentTotals=${hasCurrentTotals}, hasRemainingTotals=${hasRemainingTotals}`);
-
-  // Compute "effective projected" totals based on available data
-  const effectiveMyTotals: TeamTotalsWithPct | null = useMemo(() => {
-    if (projectionModeState.mode === 'FINAL' && myFinalTotalsWithPct) {
-      return myFinalTotalsWithPct;
-    }
-    if (projectionModeState.mode === 'REMAINING_ONLY' && myRemainingTotalsWithPct) {
-      return myRemainingTotalsWithPct;
-    }
-    // BASELINE_ONLY: convert baseline stats (already per-game) to "x40" totals
-    if (hasBaselineTotals) {
-      const stats = persistedMatchup.myTeam.stats;
-      return {
-        fgm: 0, fga: 0, ftm: 0, fta: 0,
-        threepm: stats.threepm * 40,
-        rebounds: stats.rebounds * 40,
-        assists: stats.assists * 40,
-        steals: stats.steals * 40,
-        blocks: stats.blocks * 40,
-        turnovers: stats.turnovers * 40,
-        points: stats.points * 40,
-        fgPct: stats.fgPct,
-        ftPct: stats.ftPct,
-      };
-    }
-    return null;
-  }, [projectionModeState.mode, myFinalTotalsWithPct, myRemainingTotalsWithPct, hasBaselineTotals, persistedMatchup.myTeam.stats]);
-
-  const effectiveOppTotals: TeamTotalsWithPct | null = useMemo(() => {
-    if (projectionModeState.mode === 'FINAL' && oppFinalTotalsWithPct) {
-      return oppFinalTotalsWithPct;
-    }
-    if (projectionModeState.mode === 'REMAINING_ONLY' && oppRemainingTotalsWithPct) {
-      return oppRemainingTotalsWithPct;
-    }
-    // BASELINE_ONLY: convert baseline stats (already per-game) to "x40" totals
-    if (hasBaselineTotals) {
-      const stats = persistedMatchup.opponent.stats;
-      return {
-        fgm: 0, fga: 0, ftm: 0, fta: 0,
-        threepm: stats.threepm * 40,
-        rebounds: stats.rebounds * 40,
-        assists: stats.assists * 40,
-        steals: stats.steals * 40,
-        blocks: stats.blocks * 40,
-        turnovers: stats.turnovers * 40,
-        points: stats.points * 40,
-        fgPct: stats.fgPct,
-        ftPct: stats.ftPct,
-      };
-    }
-    return null;
-  }, [projectionModeState.mode, oppFinalTotalsWithPct, oppRemainingTotalsWithPct, hasBaselineTotals, persistedMatchup.opponent.stats]);
 
   const hasProjectedFinal = projectionModeState.mode === 'FINAL' && !!myFinalTotalsWithPct && !!oppFinalTotalsWithPct;
   const hasEffectiveProjection = !!(effectiveMyTotals && effectiveOppTotals);
