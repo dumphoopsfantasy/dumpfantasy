@@ -5,8 +5,46 @@ import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
 import { devLog, devWarn } from "@/lib/devLog";
 
 /**
+ * Sanity check for parsed player stats - catches column misalignment issues.
+ * Returns null if valid, or an error message if invalid.
+ */
+export function validatePlayerStats(player: Player): string | null {
+  // BLK per game should be 0-10 (NBA record is ~5.6 by Manute Bol)
+  if (player.blocks > 10) {
+    return `BLK=${player.blocks} is unrealistic (max ~5-6)`;
+  }
+  // STL per game should be 0-5 (NBA record is ~3.7)
+  if (player.steals > 6) {
+    return `STL=${player.steals} is unrealistic (max ~4)`;
+  }
+  // FG% must be 0-1
+  if (player.fgPct > 1 || player.fgPct < 0) {
+    return `FG%=${player.fgPct} out of range [0,1]`;
+  }
+  // FT% must be 0-1
+  if (player.ftPct > 1 || player.ftPct < 0) {
+    return `FT%=${player.ftPct} out of range [0,1]`;
+  }
+  // Points per game should be 0-60 (Wilt record ~50)
+  if (player.points > 60) {
+    return `PTS=${player.points} is unrealistic`;
+  }
+  // Minutes per game 0-48 (OT can push higher but not by much)
+  if (player.minutes > 55) {
+    return `MIN=${player.minutes} is unrealistic`;
+  }
+  return null;
+}
+
+/**
  * Parse an ESPN Fantasy Basketball team page (Ctrl+A copy) into normalized RosterSlot[]
  * so schedule-aware projections can map players to the NBA schedule.
+ * 
+ * Key insight: ESPN "Last 15" table has these columns:
+ * MIN | FGM/FGA | FG% | FTM/FTA | FT% | 3PM | REB | AST | STL | BLK | TO | PTS | PR15 | %ROST | +/-
+ * 
+ * FGM/FGA and FTM/FTA are slash-separated in the same cell.
+ * We parse them together to avoid index shifting.
  */
 export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
   if (!data?.trim()) return [];
@@ -14,12 +52,12 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
   const lines = preprocessInput(data);
   const loopGuard = createLoopGuard();
 
-  // 1) Find the stats section start (header row)
+  // 1) Find the stats section header row (MIN is the first stat column)
   let statsStartIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     loopGuard.check();
     if (lines[i] === "MIN") {
-      const nextFew = lines.slice(i, i + 8).join(" ");
+      const nextFew = lines.slice(i, i + 14).join(" ");
       if (/(FGM\/FGA|FG%|FTM\/FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS)/i.test(nextFew)) {
         statsStartIdx = i;
         break;
@@ -28,9 +66,7 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
   }
   if (statsStartIdx === -1) return [];
 
-  // 2) Collect stat tokens (fractions split into 2 tokens)
-  const statTokens: string[] = [];
-
+  // 2) Skip past header tokens to reach actual data
   let dataStartIdx = statsStartIdx + 1;
   while (
     dataStartIdx < lines.length &&
@@ -41,30 +77,177 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     dataStartIdx++;
   }
 
-  for (let i = dataStartIdx; i < lines.length; i++) {
-    loopGuard.check();
-
-    const line = lines[i];
-    if (/^(ESPN\.com|Copyright|Fantasy Chat)/i.test(line)) break;
-
-    // Fractions: 6.7/15.7
-    if (/^\d+(?:\.\d+)?\/\d+(?:\.\d+)?$/.test(line)) {
-      const [a, b] = line.split("/");
-      statTokens.push(a, b);
-      continue;
-    }
-
-    // Numbers / decimals / --
-    if (/^[-+]?\d+(?:\.\d+)?$/.test(line) || /^\.\d+$/.test(line) || line === "--") {
-      statTokens.push(line.replace(/^\+/, ""));
-    }
+  // 3) Parse stat rows - keeping fractions together as single cells
+  // Each player row has 15 logical columns:
+  // 0:MIN, 1:FGM/FGA, 2:FG%, 3:FTM/FTA, 4:FT%, 5:3PM, 6:REB, 7:AST, 8:STL, 9:BLK, 10:TO, 11:PTS, 12:PR15, 13:%ROST, 14:+/-
+  interface StatRow {
+    min: number;
+    fgm: number;
+    fga: number;
+    fgPct: number;
+    ftm: number;
+    fta: number;
+    ftPct: number;
+    threepm: number;
+    reb: number;
+    ast: number;
+    stl: number;
+    blk: number;
+    to: number;
+    pts: number;
   }
 
-  // ESPN headers include 15 columns, but we split 2 fraction columns into 4 tokens => 17 tokens per player
-  const COLS = 17;
-  const numStatRows = Math.floor(statTokens.length / COLS);
+  const statRows: StatRow[] = [];
+  let i = dataStartIdx;
+  
+  // Helper to parse next token as number
+  const parseNext = (): { value: number; advance: number } => {
+    if (i >= lines.length) return { value: 0, advance: 0 };
+    const token = lines[i];
+    
+    // Footer detection
+    if (/^(ESPN\.com|Copyright|Fantasy Chat)/i.test(token)) {
+      return { value: 0, advance: 0 };
+    }
+    
+    // Missing value
+    if (token === "--") {
+      return { value: 0, advance: 1 };
+    }
+    
+    // Slash fraction (FGM/FGA or FTM/FTA)
+    if (/^\d+(?:\.\d+)?\/\d+(?:\.\d+)?$/.test(token)) {
+      const [a, b] = token.split("/");
+      // Return just the first value, we'll handle specially
+      return { value: parseFloat(a), advance: 1 };
+    }
+    
+    // Regular number
+    if (/^[-+]?\d+(?:\.\d+)?$/.test(token) || /^\.\d+$/.test(token)) {
+      const val = parseFloat(token.replace(/^\+/, ""));
+      return { value: Number.isFinite(val) ? val : 0, advance: 1 };
+    }
+    
+    // Not a stat token - end of data
+    return { value: 0, advance: 0 };
+  };
+  
+  // Parse fraction specially to get both values
+  const parseFraction = (): { made: number; attempted: number; advance: number } => {
+    if (i >= lines.length) return { made: 0, attempted: 0, advance: 0 };
+    const token = lines[i];
+    
+    if (token === "--" || token === "--/--") {
+      return { made: 0, attempted: 0, advance: 1 };
+    }
+    
+    if (/^\d+(?:\.\d+)?\/\d+(?:\.\d+)?$/.test(token)) {
+      const [a, b] = token.split("/");
+      return { 
+        made: parseFloat(a) || 0, 
+        attempted: parseFloat(b) || 0, 
+        advance: 1 
+      };
+    }
+    
+    // Missing fraction - skip
+    return { made: 0, attempted: 0, advance: 0 };
+  };
 
-  // 3) Extract player info block (slot -> name/team/positions/opponent/status)
+  // Parse stat rows until we hit footer or non-stat content
+  while (i < lines.length) {
+    loopGuard.check();
+    
+    const startI = i;
+    const token = lines[i];
+    
+    // Stop conditions
+    if (/^(ESPN\.com|Copyright|Fantasy Chat)/i.test(token)) break;
+    if (!token) break;
+    
+    // A stat row starts with MIN (a number or --)
+    const isStatStart = /^[-+]?\d+(?:\.\d+)?$/.test(token) || token === "--";
+    if (!isStatStart) {
+      i++;
+      continue;
+    }
+    
+    // Try to parse a full 15-column row
+    const row: Partial<StatRow> = {};
+    
+    // 0: MIN
+    const minResult = parseNext();
+    if (minResult.advance === 0) break;
+    row.min = minResult.value;
+    i += minResult.advance;
+    
+    // 1: FGM/FGA (fraction)
+    const fgResult = parseFraction();
+    if (fgResult.advance === 0) { i = startI + 1; continue; }
+    row.fgm = fgResult.made;
+    row.fga = fgResult.attempted;
+    i += fgResult.advance;
+    
+    // 2: FG%
+    const fgPctResult = parseNext();
+    if (fgPctResult.advance === 0) { i = startI + 1; continue; }
+    row.fgPct = fgPctResult.value;
+    i += fgPctResult.advance;
+    
+    // 3: FTM/FTA (fraction)
+    const ftResult = parseFraction();
+    if (ftResult.advance === 0) { i = startI + 1; continue; }
+    row.ftm = ftResult.made;
+    row.fta = ftResult.attempted;
+    i += ftResult.advance;
+    
+    // 4: FT%
+    const ftPctResult = parseNext();
+    if (ftPctResult.advance === 0) { i = startI + 1; continue; }
+    row.ftPct = ftPctResult.value;
+    i += ftPctResult.advance;
+    
+    // 5-11: 3PM, REB, AST, STL, BLK, TO, PTS (7 values)
+    const countingStats: number[] = [];
+    for (let j = 0; j < 7; j++) {
+      const r = parseNext();
+      if (r.advance === 0) break;
+      countingStats.push(r.value);
+      i += r.advance;
+    }
+    
+    if (countingStats.length < 7) {
+      i = startI + 1;
+      continue;
+    }
+    
+    row.threepm = countingStats[0];
+    row.reb = countingStats[1];
+    row.ast = countingStats[2];
+    row.stl = countingStats[3];
+    row.blk = countingStats[4];
+    row.to = countingStats[5];
+    row.pts = countingStats[6];
+    
+    // 12-14: PR15, %ROST, +/- (skip these, just advance past)
+    for (let j = 0; j < 3; j++) {
+      if (i >= lines.length) break;
+      const t = lines[i];
+      if (/^[-+]?\d+(?:\.\d+)?$/.test(t) || t === "--") {
+        i++;
+      } else {
+        break;
+      }
+    }
+    
+    // Normalize percentages (ESPN shows .427 for 42.7%)
+    if (row.fgPct > 1) row.fgPct = row.fgPct / (row.fgPct >= 100 ? 1000 : 100);
+    if (row.ftPct > 1) row.ftPct = row.ftPct / (row.ftPct >= 100 ? 1000 : 100);
+    
+    statRows.push(row as StatRow);
+  }
+
+  // 4) Extract player info block (slot -> name/team/positions/opponent/status)
   const slotPattern = /^(PG|SG|SF|PF|C|G|F\/C|UTIL|Bench|IR)$/i;
   const statusPattern = /^(O|OUT|DTD|GTD|Q|SUSP|P|IR)$/i;
 
@@ -78,10 +261,10 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     slotType: "starter" | "bench" | "ir";
   }> = [];
 
-  for (let i = 0; i < lines.length; i++) {
+  for (let idx = 0; idx < lines.length; idx++) {
     loopGuard.check();
 
-    const line = lines[i];
+    const line = lines[idx];
     if (!slotPattern.test(line)) continue;
 
     const slotLabel = line;
@@ -98,7 +281,7 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     let positions: string[] = [];
     let isEmptySlot = false;
 
-    for (let j = i + 1; j < Math.min(i + 14, lines.length); j++) {
+    for (let j = idx + 1; j < Math.min(idx + 14, lines.length); j++) {
       loopGuard.check();
 
       const next = lines[j];
@@ -177,61 +360,51 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     });
   }
 
-  // 4) Build roster rows (match playerInfo row order with stats row order)
+  // 5) Build roster rows (match playerInfo row order with stats row order)
   const roster: RosterSlot[] = [];
-  const rows = Math.min(numStatRows, playerInfo.length);
-
-  const parseVal = (base: number, idx: number): number => {
-    const token = statTokens[base + idx];
-    if (!token || token === "--") return 0;
-    const n = parseFloat(token);
-    return Number.isFinite(n) ? n : 0;
-  };
+  const parseErrors: string[] = [];
+  const rows = Math.min(statRows.length, playerInfo.length);
 
   for (let row = 0; row < rows; row++) {
     loopGuard.check();
 
     const info = playerInfo[row];
-    const base = row * COLS;
+    const stats = statRows[row];
 
-    const minutes = parseVal(base, 0);
-    const fgm = parseVal(base, 1);
-    const fga = parseVal(base, 2);
+    const player: Player = {
+      id: info.name,
+      name: info.name,
+      nbaTeam: info.team,
+      positions: info.positions,
+      opponent: info.opponent,
+      status: info.status as Player["status"],
+      minutes: stats.min,
+      fgm: stats.fgm,
+      fga: stats.fga,
+      fgPct: stats.fgPct,
+      ftm: stats.ftm,
+      fta: stats.fta,
+      ftPct: stats.ftPct,
+      threepm: stats.threepm,
+      rebounds: stats.reb,
+      assists: stats.ast,
+      steals: stats.stl,
+      blocks: stats.blk,
+      turnovers: stats.to,
+      points: stats.pts,
+    };
 
-    let fgPct = parseVal(base, 3);
-    if (fgPct > 1) fgPct = fgPct / (fgPct >= 100 ? 1000 : 100);
-
-    const ftm = parseVal(base, 4);
-    const fta = parseVal(base, 5);
-
-    let ftPct = parseVal(base, 6);
-    if (ftPct > 1) ftPct = ftPct / (ftPct >= 100 ? 1000 : 100);
+    // Sanity check
+    const validationError = validatePlayerStats(player);
+    if (validationError) {
+      parseErrors.push(`${info.name}: ${validationError}`);
+      devWarn(`[parseEspnRosterSlots] Invalid stats for ${info.name}: ${validationError}`);
+    }
 
     roster.push({
       slot: info.slotLabel,
       slotType: info.slotType,
-      player: {
-        id: info.name,
-        name: info.name,
-        nbaTeam: info.team,
-        positions: info.positions,
-        opponent: info.opponent,
-        status: info.status as Player["status"],
-        minutes,
-        fgm,
-        fga,
-        fgPct,
-        ftm,
-        fta,
-        ftPct,
-        threepm: parseVal(base, 7),
-        rebounds: parseVal(base, 8),
-        assists: parseVal(base, 9),
-        steals: parseVal(base, 10),
-        blocks: parseVal(base, 11),
-        turnovers: parseVal(base, 12),
-        points: parseVal(base, 13),
-      },
+      player,
     });
   }
 
@@ -243,6 +416,10 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
   if (playersWithoutTeam > 0) {
     const unmappedNames = roster.filter(r => !r.player.nbaTeam).map(r => r.player.name);
     devWarn(`[parseEspnRosterSlots] Players missing team code:`, unmappedNames);
+  }
+  
+  if (parseErrors.length > 0) {
+    devWarn(`[parseEspnRosterSlots] Parse validation errors:`, parseErrors);
   }
 
   return roster;
