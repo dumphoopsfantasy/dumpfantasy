@@ -152,7 +152,13 @@ export function parseESPNTeamPage(data: string): PlayerStats[] {
     const line = lines[i];
     if (/^(Username|Password|ESPN|Copyright|©)/i.test(line)) break;
     
-    // Split FGM/FGA and FTM/FTA
+    // Handle --/-- (missing fraction) by expanding into two placeholder tokens
+    if (/^--\s*\/\s*--$/.test(line)) {
+      statTokens.push('--', '--');
+      continue;
+    }
+    
+    // Split numeric FGM/FGA and FTM/FTA fractions
     if (/^\d+\.?\d*\/\d+\.?\d*$/.test(line)) {
       const [a, b] = line.split('/');
       statTokens.push(a, b);
@@ -162,6 +168,14 @@ export function parseESPNTeamPage(data: string): PlayerStats[] {
     if (/^[-+]?\d+\.?\d*$/.test(line) || /^\.\d+$/.test(line) || line === '--') {
       statTokens.push(line);
     }
+  }
+  
+  // Guardrail: truncate to prevent misaligned parsing from producing huge category numbers
+  const actualCols = 17; // Standard ESPN columns after split
+  const remainder = statTokens.length % actualCols;
+  if (remainder !== 0) {
+    console.warn(`[parseESPNTeamPage] Token count ${statTokens.length} not divisible by ${actualCols} (remainder ${remainder}). Truncating.`);
+    statTokens.length = Math.floor(statTokens.length / actualCols) * actualCols;
   }
   
   // Parse player bio info before stats section
@@ -217,7 +231,6 @@ export function parseESPNTeamPage(data: string): PlayerStats[] {
   
   // Match stats to players
   const COLS_PER_ROW = numCols + (headerMap['FGM/FGA'] !== undefined ? 1 : 0) + (headerMap['FTM/FTA'] !== undefined ? 1 : 0);
-  const actualCols = 17; // Standard ESPN columns including split FGM/FGA and FTM/FTA
   
   const numRows = Math.floor(statTokens.length / actualCols);
   
