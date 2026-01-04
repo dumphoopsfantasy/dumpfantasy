@@ -340,20 +340,72 @@ export const MatchupProjection = ({
   }, [myWeeklyData]);
 
   // =========================
-  // CURRENT TOTALS (explicit import; required for "Projected Final")
+  // CURRENT TOTALS (derived from Weekly Scoreboard OR explicit import)
   // =========================
+  // First, try to derive from weeklyMatchups (Weekly tab scoreboard data)
+  const weeklyDerivedCurrentTotals = useMemo(() => {
+    if (!myWeeklyData) return null;
+    
+    // Convert WeeklyTeamStats to TeamTotalsWithPct
+    // Note: Weekly scoreboard has FG%/FT% directly but not makes/attempts
+    // We'll set fgm/fga/ftm/fta to 0 and use the percentage directly
+    const convertToTotals = (stats: WeeklyTeamStats): TeamTotalsWithPct => ({
+      fgm: 0,
+      fga: 0,
+      ftm: 0,
+      fta: 0,
+      threepm: stats.threepm,
+      rebounds: stats.rebounds,
+      assists: stats.assists,
+      steals: stats.steals,
+      blocks: stats.blocks,
+      turnovers: stats.turnovers,
+      points: stats.points,
+      fgPct: stats.fgPct,
+      ftPct: stats.ftPct,
+    });
+    
+    return {
+      myTotals: convertToTotals(myWeeklyData.myTeam.stats),
+      oppTotals: convertToTotals(myWeeklyData.opponent.stats),
+    };
+  }, [myWeeklyData]);
+
+  // Fallback: explicit paste (for advanced users)
   const myCurrentTotalsRes = useMemo(() => parseEspnMatchupTotalsFromText(myTotalsData), [myTotalsData]);
   const oppCurrentTotalsRes = useMemo(() => parseEspnMatchupTotalsFromText(oppTotalsData), [oppTotalsData]);
 
+  // Use Weekly-derived if available, otherwise fall back to explicit paste
   const myCurrentTotalsWithPct = useMemo(() => {
-    if (!myCurrentTotalsRes.ok) return null;
-    return withDerivedPct(myCurrentTotalsRes.totals);
-  }, [myCurrentTotalsRes]);
+    // Priority 1: Weekly scoreboard data
+    if (weeklyDerivedCurrentTotals?.myTotals) {
+      return weeklyDerivedCurrentTotals.myTotals;
+    }
+    // Priority 2: Explicit paste
+    if (myCurrentTotalsRes.ok) {
+      return withDerivedPct(myCurrentTotalsRes.totals);
+    }
+    return null;
+  }, [weeklyDerivedCurrentTotals, myCurrentTotalsRes]);
 
   const oppCurrentTotalsWithPct = useMemo(() => {
-    if (!oppCurrentTotalsRes.ok) return null;
-    return withDerivedPct(oppCurrentTotalsRes.totals);
-  }, [oppCurrentTotalsRes]);
+    // Priority 1: Weekly scoreboard data
+    if (weeklyDerivedCurrentTotals?.oppTotals) {
+      return weeklyDerivedCurrentTotals.oppTotals;
+    }
+    // Priority 2: Explicit paste
+    if (oppCurrentTotalsRes.ok) {
+      return withDerivedPct(oppCurrentTotalsRes.totals);
+    }
+    return null;
+  }, [weeklyDerivedCurrentTotals, oppCurrentTotalsRes]);
+
+  // Track source of current totals for UI messaging
+  const currentTotalsSource = useMemo(() => {
+    if (weeklyDerivedCurrentTotals) return 'weekly' as const;
+    if (myCurrentTotalsRes.ok && oppCurrentTotalsRes.ok) return 'explicit' as const;
+    return null;
+  }, [weeklyDerivedCurrentTotals, myCurrentTotalsRes, oppCurrentTotalsRes]);
 
   // =========================
   // REMAINING PROJECTION (schedule-aware started games)
@@ -1686,7 +1738,7 @@ Navigate to their team page and copy the whole page.`}
             <AlertDescription className="text-sm">
               <p className="font-medium">Current totals missing — showing Remaining-only projection.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Paste current matchup totals below to see the full Projected Final.
+                Import this week's scoreboard in the <span className="font-medium text-foreground">Weekly</span> tab to enable Projected Final.
               </p>
             </AlertDescription>
           </Alert>
@@ -1698,7 +1750,20 @@ Navigate to their team page and copy the whole page.`}
             <AlertDescription className="text-sm">
               <p className="font-medium">Current + schedule data missing — showing Baseline strength only.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Import opponent roster and paste current totals for full projection.
+                Import this week's scoreboard in <span className="font-medium text-foreground">Weekly</span> and opponent roster for full projection.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Success banner when using Weekly data */}
+        {currentTotalsSource === 'weekly' && projectionModeState.mode === 'FINAL' && (
+          <Alert className="mt-3 border-green-500/50 bg-green-500/10">
+            <Calendar className="h-4 w-4 text-green-500" />
+            <AlertDescription className="text-sm">
+              <p className="font-medium text-green-600 dark:text-green-400">Using live scoreboard from Weekly tab</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Current totals are pulled automatically from this week's matchup scoreboard.
               </p>
             </AlertDescription>
           </Alert>
@@ -1709,10 +1774,10 @@ Navigate to their team page and copy the whole page.`}
             <AlertTriangle className="h-4 w-4 text-amber-500" />
             <AlertDescription className="text-sm">
               <div className="space-y-2">
-                <p className="font-medium">Current totals are required to compute Projected Final.</p>
+                <p className="font-medium">Missing data for Projected Final.</p>
                 <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
-                  {!myCurrentTotalsRes.ok && <li>Your Team: {(myCurrentTotalsRes as { ok: false; error: { message: string } }).error.message}</li>}
-                  {!oppCurrentTotalsRes.ok && <li>Opponent: {(oppCurrentTotalsRes as { ok: false; error: { message: string } }).error.message}</li>}
+                  {!myCurrentTotalsWithPct && <li>Your Team current totals: Import Weekly scoreboard or paste manually below.</li>}
+                  {!oppCurrentTotalsWithPct && <li>Opponent current totals: Import Weekly scoreboard or paste manually below.</li>}
                   {scheduleOppError?.code === 'OPP_ROSTER_MISSING' && <li>Opponent roster missing — schedule-aware remaining cannot run.</li>}
                 </ul>
               </div>
@@ -1720,16 +1785,19 @@ Navigate to their team page and copy the whole page.`}
           </Alert>
         )}
 
-        {/* Current totals paste area (collapsed by default when we have data) */}
-        {!hasProjectedFinal && (
+        {/* Current totals paste area - only show if Weekly data not available */}
+        {!currentTotalsSource && !hasProjectedFinal && (
           <Collapsible defaultOpen={projectionModeState.mode !== 'BASELINE_ONLY'} className="mt-3">
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="sm" className="w-full justify-between text-xs">
-                <span>Paste current matchup totals</span>
+                <span>Or paste current matchup totals manually</span>
                 <ChevronDown className="w-3 h-3" />
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-2">
+              <p className="text-xs text-muted-foreground mb-2">
+                Tip: Import this week's scoreboard in the Weekly tab instead—it's easier and auto-updates.
+              </p>
               <div className="grid md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">Your Team current matchup totals</p>
