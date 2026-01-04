@@ -1410,8 +1410,8 @@ Navigate to their team page and copy the whole page.`}
               <div className="space-y-2">
                 <p className="font-medium">Current totals are required to compute Projected Final.</p>
                 <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
-                  {!myCurrentTotalsRes.ok && <li>Your Team: {myCurrentTotalsRes.error.message}</li>}
-                  {!oppCurrentTotalsRes.ok && <li>Opponent: {oppCurrentTotalsRes.error.message}</li>}
+                  {!myCurrentTotalsRes.ok && <li>Your Team: {(myCurrentTotalsRes as { ok: false; error: { message: string } }).error.message}</li>}
+                  {!oppCurrentTotalsRes.ok && <li>Opponent: {(oppCurrentTotalsRes as { ok: false; error: { message: string } }).error.message}</li>}
                   {scheduleOppError?.code === 'OPP_ROSTER_MISSING' && <li>Opponent roster missing — schedule-aware remaining cannot run.</li>}
                 </ul>
                 <div className="grid md:grid-cols-2 gap-3">
@@ -1774,7 +1774,7 @@ Navigate to their team page and copy the whole page.`}
               <Card className="gradient-card border-border p-3">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
-                  {!dynamicProjection?.oppHasSchedule && (
+                  {!scheduleOppProjection && (
                     <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-400/30">
                       No roster imported
                     </Badge>
@@ -1796,8 +1796,7 @@ Navigate to their team page and copy the whole page.`}
                           : formatPct(comp.theirCurrent ?? comp.theirAvg)}
                       </span>
                       <span className="text-right text-muted-foreground">
-                        {/* Show N/A for opponent +Today if roster not imported */}
-                        {dynamicProjection?.oppHasSchedule 
+                        {scheduleOppProjection 
                           ? (comp.isCountingStat ? `+${Math.round(comp.theirTodayExp ?? 0)}` : '—')
                           : <span className="text-amber-400/70">N/A</span>
                         }
@@ -1835,23 +1834,13 @@ Navigate to their team page and copy the whole page.`}
                 {comp.isCountingStat ? (
                   <>
                     <p className="font-display font-bold text-2xl md:text-3xl">{formatProjection(comp.myProjected)}</p>
-                    {usesDynamicProjection && comp.myCurrent !== null ? (
-                      <p className="text-xs text-muted-foreground">
-                        {Math.round(comp.myCurrent)} + <span className="text-primary">{Math.round(comp.myTodayExp ?? 0)}</span>
-                      </p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.myAvg, comp.format)}</p>
-                    )}
+                    <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.myAvg, comp.format)}</p>
                   </>
                 ) : (
                   <>
                     <p className="font-display font-bold text-2xl md:text-3xl">
                       {formatAverage(comp.myProjected, comp.format)}
-                      {comp.isEstimated && <span className="text-xs text-muted-foreground ml-1">(est)</span>}
                     </p>
-                    {usesDynamicProjection && comp.myCurrent !== null && (
-                      <p className="text-xs text-muted-foreground">was: {formatAverage(comp.myCurrent, comp.format)}</p>
-                    )}
                   </>
                 )}
                 {comp.winner === "you" && (
@@ -1880,20 +1869,11 @@ Navigate to their team page and copy the whole page.`}
                 {comp.isCountingStat ? (
                   <>
                     <p className="font-display font-bold text-2xl md:text-3xl">{formatProjection(comp.theirProjected)}</p>
-                    {usesDynamicProjection && comp.theirCurrent !== null ? (
-                      <p className="text-xs text-muted-foreground">
-                        {Math.round(comp.theirCurrent)} + <span className="text-muted-foreground">{Math.round(comp.theirTodayExp ?? 0)}</span>
-                      </p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.theirAvg, comp.format)}</p>
-                    )}
+                    <p className="text-xs text-muted-foreground">avg: {formatAverage(comp.theirAvg, comp.format)}</p>
                   </>
                 ) : (
                   <>
                     <p className="font-display font-bold text-2xl md:text-3xl">{formatAverage(comp.theirProjected, comp.format)}</p>
-                    {usesDynamicProjection && comp.theirCurrent !== null && (
-                      <p className="text-xs text-muted-foreground">was: {formatAverage(comp.theirCurrent, comp.format)}</p>
-                    )}
                   </>
                 )}
                 {comp.winner === "them" && (
