@@ -271,9 +271,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
   const extractEspnIdsFromBlob = (blob: string): Map<string, string> => {
     const map = new Map<string, string>();
-    const urlRegex = /player\/_\/id\/(\d+)\/([a-z0-9-]+)/gi;
-    let m: RegExpExecArray | null;
-    while ((m = urlRegex.exec(blob))) {
+    // Use matchAll for safer iteration without unbounded while loop
+    const matches = blob.matchAll(/player\/_\/id\/(\d+)\/([a-z0-9-]+)/gi);
+    for (const m of matches) {
       const id = m[1];
       const slug = m[2].replace(/-/g, " ");
       const key = normalizeKey(slug);
