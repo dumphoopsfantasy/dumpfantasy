@@ -113,23 +113,52 @@ function parseDateRangeText(dateRangeText: string, seasonYear: number): { start?
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
   const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
   const today = new Date();
+  // Normalize to start of day to avoid timezone edge cases
+  today.setHours(0, 0, 0, 0);
 
-  // Find the week whose date range contains today
+  // Build list of all weeks with their parsed date ranges
+  const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
   for (const m of schedule.matchups) {
     const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear);
     if (!start || !end) continue;
-    if (today >= start && today <= end) return m.week;
+    // Normalize dates to start of day
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999); // End of day for the end date
+    // Only add unique weeks
+    if (!weeksWithDates.find(w => w.week === m.week)) {
+      weeksWithDates.push({ week: m.week, start, end });
+    }
   }
 
-  // Otherwise pick the latest week whose end is before today
+  // Sort by week number
+  weeksWithDates.sort((a, b) => a.week - b.week);
+
+  // Find the week whose date range contains today
+  for (const w of weeksWithDates) {
+    if (today >= w.start && today <= w.end) return w.week;
+  }
+
+  // If today is after all matchup weeks, return the last week
+  const lastWeek = weeksWithDates[weeksWithDates.length - 1];
+  if (lastWeek && today > lastWeek.end) {
+    return lastWeek.week;
+  }
+
+  // If today is before the first week, return the first week
+  const firstWeek = weeksWithDates[0];
+  if (firstWeek && today < firstWeek.start) {
+    return firstWeek.week;
+  }
+
+  // Otherwise, find the most recent completed week (week whose end is before today)
   let lastCompleted = 0;
-  for (const m of schedule.matchups) {
-    const { end } = parseDateRangeText(m.dateRangeText, seasonYear);
-    if (!end) continue;
-    if (end < today) lastCompleted = Math.max(lastCompleted, m.week);
+  for (const w of weeksWithDates) {
+    if (w.end < today) {
+      lastCompleted = Math.max(lastCompleted, w.week);
+    }
   }
 
-  return lastCompleted;
+  return lastCompleted || (weeksWithDates[0]?.week ?? 0);
 }
 
 export const ScheduleForecast = ({
