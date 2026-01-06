@@ -131,9 +131,13 @@ export function ScheduleAwareProjection({
     return Math.round(val).toString();
   };
 
+  // Calculate derived metrics
+  const myMissedStarts = myProjection.totalPossibleGames - myProjection.totalStartedGames;
+  const oppMissedStarts = oppProjection ? oppProjection.totalPossibleGames - oppProjection.totalStartedGames : 0;
+
   // Warnings for schedule issues
-  const hasWarnings = myProjection.emptySlotDays > 0 || myProjection.totalBenchOverflow > 0 ||
-    (oppProjection && (oppProjection.emptySlotDays > 0 || oppProjection.totalBenchOverflow > 0));
+  const hasWarnings = myMissedStarts > 0.5 || myProjection.totalBenchOverflow > 0 ||
+    (oppProjection && (oppMissedStarts > 0.5 || oppProjection.totalBenchOverflow > 0));
 
   // Render opponent error banner
   const renderOpponentErrorBanner = () => {
@@ -197,24 +201,24 @@ export function ScheduleAwareProjection({
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge variant="outline" className="gap-1">
           <Users className="w-3 h-3" />
-          You: {myProjection.totalStartedGames.toFixed(1)} games
+          You: {myProjection.totalStartedGames.toFixed(1)} / {myProjection.totalPossibleGames.toFixed(1)} games
+          {myMissedStarts > 0.5 && (
+            <span className="text-muted-foreground">(−{myMissedStarts.toFixed(1)})</span>
+          )}
         </Badge>
         {oppProjection && (
           <Badge variant="outline" className="gap-1">
             <Users className="w-3 h-3" />
-            Opp: {oppProjection.totalStartedGames.toFixed(1)} games
+            Opp: {oppProjection.totalStartedGames.toFixed(1)} / {oppProjection.totalPossibleGames.toFixed(1)} games
+            {oppMissedStarts > 0.5 && (
+              <span className="text-muted-foreground">(−{oppMissedStarts.toFixed(1)})</span>
+            )}
           </Badge>
         )}
         {oppError?.code === 'OPP_ROSTER_MISSING' && (
           <Badge variant="secondary" className="gap-1 text-amber-600">
             <AlertTriangle className="w-3 h-3" />
             Opp: Not imported
-          </Badge>
-        )}
-        {myProjection.totalBenchOverflow > 0 && (
-          <Badge variant="secondary" className="gap-1 text-amber-600">
-            <TrendingDown className="w-3 h-3" />
-            {myProjection.totalBenchOverflow} benched
           </Badge>
         )}
         {remainingDays > 0 && (
@@ -233,14 +237,17 @@ export function ScheduleAwareProjection({
           <AlertTriangle className="h-4 w-4 text-amber-500" />
           <AlertDescription className="text-xs">
             <div className="flex flex-wrap gap-3">
-              {myProjection.emptySlotDays > 0 && (
-                <span>You: {myProjection.emptySlotDays} days with unfilled slots</span>
-              )}
               {myProjection.totalBenchOverflow > 0 && (
-                <span>You: {myProjection.totalBenchOverflow} games benched (overflow)</span>
+                <span>You: {myProjection.totalBenchOverflow} benched (overflow)</span>
               )}
-              {oppProjection?.emptySlotDays > 0 && (
-                <span>Opp: {oppProjection.emptySlotDays} days with unfilled slots</span>
+              {myProjection.emptySlotMissedGames > 0 && (
+                <span>You: {myProjection.emptySlotMissedGames} missed (empty slots)</span>
+              )}
+              {oppProjection?.totalBenchOverflow && oppProjection.totalBenchOverflow > 0 && (
+                <span>Opp: {oppProjection.totalBenchOverflow} benched (overflow)</span>
+              )}
+              {oppProjection?.emptySlotMissedGames && oppProjection.emptySlotMissedGames > 0 && (
+                <span>Opp: {oppProjection.emptySlotMissedGames} missed (empty slots)</span>
               )}
             </div>
           </AlertDescription>
@@ -254,7 +261,7 @@ export function ScheduleAwareProjection({
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-display font-semibold text-sm text-stat-positive">{myTeamName}</h3>
             <span className="text-[10px] text-muted-foreground">
-              {myProjection.totalStartedGames.toFixed(1)} games
+              {myProjection.totalStartedGames.toFixed(1)}/{myProjection.totalPossibleGames.toFixed(1)} games
             </span>
           </div>
           <div className="grid grid-cols-9 gap-1 text-center">
@@ -275,7 +282,7 @@ export function ScheduleAwareProjection({
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-display font-semibold text-sm text-stat-negative">{oppTeamName}</h3>
               <span className="text-[10px] text-muted-foreground">
-                {oppProjection.totalStartedGames.toFixed(1)} games
+                {oppProjection.totalStartedGames.toFixed(1)}/{oppProjection.totalPossibleGames.toFixed(1)} games
               </span>
             </div>
             <div className="grid grid-cols-9 gap-1 text-center">

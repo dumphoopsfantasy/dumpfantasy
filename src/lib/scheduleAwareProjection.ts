@@ -75,6 +75,8 @@ export interface WeekProjectionResult {
   totalStats: ProjectedStats;
   totalStartedGames: number;
   totalBenchOverflow: number;
+  totalPossibleGames: number;    // Sum of all player-games weighted by injury multiplier (before slot constraints)
+  emptySlotMissedGames: number;  // Games missed because not enough scheduled to fill slots
   playerProjections: PlayerProjection[];
   emptySlotDays: number;        // Days where we had fewer players than slots
   warnings: string[];
@@ -554,13 +556,19 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
   devLog('[projectWeek] Starting projection for', weekDates.length, 'days');
   
   const warnings: string[] = [];
-  const playerGameCounts = new Map<string, { started: number; benched: number; scheduled: number }>();
+  const playerGameCounts = new Map<string, { started: number; benched: number; scheduled: number; injuryMultiplier: number }>();
   let totalEmptySlotDays = 0;
+  let totalEmptySlotMissedGames = 0; // Sum of unfilled slots across all days
   
-  // Initialize player game counts
+  // Initialize player game counts with injury multipliers
   for (const slot of roster) {
     if (slot.slotType === 'ir') continue; // Skip IR players
-    playerGameCounts.set(slot.player.id, { started: 0, benched: 0, scheduled: 0 });
+    playerGameCounts.set(slot.player.id, { 
+      started: 0, 
+      benched: 0, 
+      scheduled: 0, 
+      injuryMultiplier: getInjuryMultiplier(slot.player.status) 
+    });
   }
   
   // Process each day
@@ -590,11 +598,13 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
     // Fill lineup slots for this day
     const startedToday = fillLineupsForDay(playersWithGamesToday, lineupSlots);
     
-    // Check for empty slots
+    // Check for empty slots and track missed games from empty slots
     const slotsFilled = startedToday.size;
-    if (slotsFilled < lineupSlots.length) {
+    const unfilledSlots = lineupSlots.length - slotsFilled;
+    if (unfilledSlots > 0) {
       totalEmptySlotDays++;
-      devLog(`[projectWeek] ${date}: Only ${slotsFilled}/${lineupSlots.length} slots filled`);
+      totalEmptySlotMissedGames += unfilledSlots; // Each unfilled slot = 1 missed game
+      devLog(`[projectWeek] ${date}: Only ${slotsFilled}/${lineupSlots.length} slots filled (${unfilledSlots} empty)`);
     }
     
     // Update player started/benched counts
@@ -618,14 +628,18 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
   let totalThreepm = 0, totalRebounds = 0, totalAssists = 0;
   let totalSteals = 0, totalBlocks = 0, totalTurnovers = 0, totalPoints = 0;
   let totalStartedGames = 0;
+  let totalPossibleGames = 0; // Sum of scheduled games × injury multiplier (before slot constraints)
   let totalBenchOverflow = 0;
   
   for (const slot of roster) {
     if (slot.slotType === 'ir') continue;
     
     const player = slot.player;
-    const counts = playerGameCounts.get(player.id) || { started: 0, benched: 0, scheduled: 0 };
-    const injuryMultiplier = getInjuryMultiplier(player.status);
+    const counts = playerGameCounts.get(player.id) || { started: 0, benched: 0, scheduled: 0, injuryMultiplier: 1 };
+    const injuryMultiplier = counts.injuryMultiplier;
+    
+    // Add to totalPossibleGames (scheduled games × injury multiplier, before slot constraints)
+    totalPossibleGames += counts.scheduled * injuryMultiplier;
     
     // Get blended per-game stats (handles partial data)
     const gamesPlayed = player.gamesPlayed || 10;
@@ -708,6 +722,8 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
   devLog('[projectWeek] Projection complete:', {
     totalStartedGames,
     totalBenchOverflow,
+    totalPossibleGames,
+    emptySlotMissedGames: totalEmptySlotMissedGames,
     emptySlotDays: totalEmptySlotDays,
     playerCount: playerProjections.length,
     validation,
@@ -717,6 +733,8 @@ export function projectWeek(input: ProjectWeekInput): WeekProjectionResult {
     totalStats,
     totalStartedGames,
     totalBenchOverflow,
+    totalPossibleGames,
+    emptySlotMissedGames: totalEmptySlotMissedGames,
     playerProjections,
     emptySlotDays: totalEmptySlotDays,
     warnings,
