@@ -633,7 +633,7 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     });
   }, [teams, sortKey, sortAsc]);
 
-  const handleSort = (key: SortKey) => {
+  const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
     } else {
@@ -641,7 +641,7 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
       // Default to descending for most stats (higher is better), ascending for rank
       setSortAsc(key === 'originalRank' || key === 'turnovers');
     }
-  };
+  }, [sortKey, sortAsc]);
 
   const categoryRanksByTeam = useMemo(() => {
     const byCat: Record<string, Record<string, number>> = {};
@@ -673,7 +673,15 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
     return '';
   };
 
-  const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => {
+  const renderSortIcon = useCallback((key: SortKey) => {
+    const isActive = sortKey === key;
+    if (isActive) {
+      return sortAsc ? <ArrowUp className="w-3 h-3 text-primary" /> : <ArrowDown className="w-3 h-3 text-primary" />;
+    }
+    return <ArrowUpDown className="w-3 h-3 opacity-30" />;
+  }, [sortKey, sortAsc]);
+
+  const SortHeader = useCallback(({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => {
     const isActive = sortKey === sortKeyProp;
     return (
       <th 
@@ -682,23 +690,15 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
           isActive ? "bg-primary/20" : "hover:bg-muted/50",
           className
         )}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleSort(sortKeyProp);
-        }}
+        onClick={() => handleSort(sortKeyProp)}
       >
         <div className="flex items-center justify-center gap-1">
           <span>{label}</span>
-          {isActive ? (
-            sortAsc ? <ArrowUp className="w-3 h-3 text-primary" /> : <ArrowDown className="w-3 h-3 text-primary" />
-          ) : (
-            <ArrowUpDown className="w-3 h-3 opacity-30" />
-          )}
+          {renderSortIcon(sortKeyProp)}
         </div>
       </th>
     );
-  };
+  }, [sortKey, sortAsc, handleSort, renderSortIcon]);
 
   const scoreKey = useCris ? 'cri' : 'wCri';
   const scoreLabel = useCris ? 'CRI' : 'wCRI';
