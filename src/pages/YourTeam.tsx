@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { RosterSlot, Player } from "@/types/fantasy";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
+import { PlayerCompareModal } from "@/components/roster/PlayerCompareModal";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { CrisExplanation } from "@/components/CrisExplanation";
 import { formatPct, CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { sampleRoster } from "@/data/sampleData";
 import { cn } from "@/lib/utils";
+import { GitCompare, X } from "lucide-react";
 
 type SlotFilter = "all" | "starter" | "bench" | "ir";
 
@@ -19,6 +21,7 @@ export const YourTeam = () => {
   const [slotFilter, setSlotFilter] = useState<SlotFilter>("all");
   const [sortColumn, setSortColumn] = useState<string>(useCris ? "cri" : "wCri");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [compareSelection, setCompareSelection] = useState<Player[]>([]);
 
   // Calculate CRI/wCRI using exact logic from user spec
   const { enhancedRoster, categoryRanks, activePlayerCount } = useMemo(() => {
@@ -246,6 +249,29 @@ export const YourTeam = () => {
     setSortDirection("desc");
   };
 
+  // Compare player toggle
+  const handleCompareToggle = (player: Player) => {
+    setCompareSelection((prev) => {
+      const isSelected = prev.some((p) => p.id === player.id);
+      if (isSelected) {
+        return prev.filter((p) => p.id !== player.id);
+      }
+      if (prev.length >= 2) {
+        // Replace oldest selection
+        return [prev[1], player];
+      }
+      return [...prev, player];
+    });
+  };
+
+  const clearCompareSelection = () => {
+    setCompareSelection([]);
+  };
+
+  const isPlayerSelectedForCompare = (playerId: string) => {
+    return compareSelection.some((p) => p.id === playerId);
+  };
+
   // Get active players for team averages (excluding IR)
   const activePlayers = roster
     .filter((slot) => slot.slotType !== "ir" && slot.player.minutes > 0)
@@ -397,6 +423,24 @@ export const YourTeam = () => {
         <div className="flex items-center gap-2 flex-wrap">
           <h2 className="font-display font-bold text-lg">My Roster</h2>
           <Badge variant="outline" className="text-[10px]">{roster.length} players</Badge>
+          
+          {/* Compare Selection Indicator */}
+          {compareSelection.length > 0 && (
+            <div className="flex items-center gap-1 bg-primary/20 rounded-md px-2 py-1">
+              <GitCompare className="w-3 h-3 text-primary" />
+              <span className="text-xs text-primary font-medium">
+                {compareSelection.length}/2 selected
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-4 w-4 p-0 ml-1 hover:bg-primary/20"
+                onClick={clearCompareSelection}
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -458,6 +502,8 @@ export const YourTeam = () => {
           onPlayerClick={setSelectedPlayer}
           categoryRanks={categoryRanks}
           activePlayerCount={activePlayerCount}
+          compareSelection={compareSelection}
+          onCompareToggle={handleCompareToggle}
         />
       </Card>
 
@@ -466,6 +512,12 @@ export const YourTeam = () => {
         open={!!selectedPlayer}
         onOpenChange={(open) => !open && setSelectedPlayer(null)}
         allPlayers={roster.map(slot => slot.player)}
+      />
+
+      <PlayerCompareModal
+        players={compareSelection}
+        open={compareSelection.length === 2}
+        onClose={clearCompareSelection}
       />
     </div>
   );

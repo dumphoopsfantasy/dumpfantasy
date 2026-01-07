@@ -4,23 +4,25 @@
 
 @layer base {
   :root {
-    --background: 222 47% 6%;
+    /* NEUTRAL BASE PALETTE - Always dark, never team-colored for readability */
+    --background: 222 20% 6%;
     --foreground: 210 40% 98%;
 
-    --card: 222 47% 9%;
+    --card: 222 20% 9%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 222 47% 9%;
+    --popover: 222 20% 9%;
     --popover-foreground: 210 40% 98%;
 
+    /* Team accent color - only thing that changes with theme */
     --primary: 25 95% 53%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 217 33% 17%;
+    --secondary: 222 20% 17%;
     --secondary-foreground: 210 40% 98%;
 
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 78%;
+    --muted: 222 20% 14%;
+    --muted-foreground: 215 20% 70%;
 
     --accent: 25 95% 53%;
     --accent-foreground: 0 0% 100%;
@@ -34,23 +36,32 @@
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 10%;
 
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
+    --border: 222 20% 20%;
+    --input: 222 20% 17%;
     --ring: 25 95% 53%;
 
     --radius: 0.625rem;
 
+    /* Functional stat colors - NEVER change with theme */
     --stat-positive: 142 76% 42%;
     --stat-negative: 0 72% 55%;
     --stat-neutral: 45 93% 55%;
 
+    /* Accent utility variants - for safe accent usage */
+    --accent-soft: 25 60% 53% / 0.12;
+    --accent-border: 25 60% 53% / 0.35;
+    --accent-hover: 25 60% 53% / 0.18;
+    --accent-selected: 25 50% 53% / 0.25;
+    --accent-pill: 25 70% 53% / 0.22;
+
+    /* Gradients and shadows */
     --gradient-primary: linear-gradient(135deg, hsl(25 95% 53%) 0%, hsl(15 90% 45%) 100%);
-    --gradient-card: linear-gradient(165deg, hsl(222 47% 11%) 0%, hsl(222 47% 7%) 100%);
-    --gradient-glass: linear-gradient(135deg, hsl(217 33% 17% / 0.5) 0%, hsl(217 33% 12% / 0.3) 100%);
+    --gradient-card: linear-gradient(165deg, hsl(222 20% 11%) 0%, hsl(222 20% 7%) 100%);
+    --gradient-glass: linear-gradient(135deg, hsl(222 20% 17% / 0.5) 0%, hsl(222 20% 12% / 0.3) 100%);
     
-    --shadow-glow: 0 0 60px hsl(25 95% 53% / 0.15);
-    --shadow-card: 0 4px 24px -4px hsl(222 47% 4% / 0.5);
-    --shadow-elevated: 0 20px 40px -12px hsl(222 47% 4% / 0.6);
+    --shadow-glow: 0 0 60px hsl(25 95% 53% / 0.12);
+    --shadow-card: 0 4px 24px -4px hsl(222 20% 4% / 0.5);
+    --shadow-elevated: 0 20px 40px -12px hsl(222 20% 4% / 0.6);
   }
 }
 
