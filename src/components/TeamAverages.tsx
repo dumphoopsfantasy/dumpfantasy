@@ -9,7 +9,7 @@ interface TeamAveragesProps {
   teamName?: string;
 }
 
-const WEEKLY_MULTIPLIER = 40;
+const WEEKLY_STARTS = 40;
 
 // Map category keys to league stat keys
 const CATEGORY_TO_LEAGUE_KEY: Record<string, keyof LeagueTeam> = {
@@ -25,9 +25,9 @@ const CATEGORY_TO_LEAGUE_KEY: Record<string, keyof LeagueTeam> = {
 };
 
 export const TeamAverages = ({ players, leagueTeams = [], teamName }: TeamAveragesProps) => {
-  // Only include active players (with minutes > 0)
-  const activePlayers = players.filter(p => p.minutes > 0);
-  const count = activePlayers.length || 1;
+  // Include all non-IR players with valid stats (minutes > 0)
+  const validPlayers = players.filter(p => p.minutes > 0 && p.slot !== 'IR');
+  const totalMinutes = validPlayers.reduce((sum, p) => sum + p.minutes, 0);
 
   // Find user's team in standings (Mr. Bane)
   const userTeam = leagueTeams.find(t => t.name.toLowerCase().includes('bane'));
@@ -62,28 +62,36 @@ export const TeamAverages = ({ players, leagueTeams = [], teamName }: TeamAverag
     return '';
   };
 
-  // Calculate TEAM AVERAGES (sum of all player stats / player count)
-  const averages = {
-    fgPct: activePlayers.reduce((sum, p) => sum + p.fgPct, 0) / count,
-    ftPct: activePlayers.reduce((sum, p) => sum + p.ftPct, 0) / count,
-    threepm: activePlayers.reduce((sum, p) => sum + p.threepm, 0) / count,
-    reb: activePlayers.reduce((sum, p) => sum + p.rebounds, 0) / count,
-    ast: activePlayers.reduce((sum, p) => sum + p.assists, 0) / count,
-    stl: activePlayers.reduce((sum, p) => sum + p.steals, 0) / count,
-    blk: activePlayers.reduce((sum, p) => sum + p.blocks, 0) / count,
-    to: activePlayers.reduce((sum, p) => sum + p.turnovers, 0) / count,
-    pts: activePlayers.reduce((sum, p) => sum + p.points, 0) / count,
+  // Minutes-weighted average helper: sum(stat * minutes) / sum(minutes)
+  const weightedAvg = (getStat: (p: PlayerStats) => number): number => {
+    if (totalMinutes === 0) return 0;
+    const weightedSum = validPlayers.reduce((sum, p) => sum + getStat(p) * p.minutes, 0);
+    return weightedSum / totalMinutes;
   };
 
-  // Weekly projections: team average × 40
+  // Calculate minutes-weighted roster averages (per-game)
+  // For FG%/FT%: use minutes-weighted average of percentages (since we don't have makes/attempts)
+  const averages = {
+    threepm: weightedAvg(p => p.threepm),
+    reb: weightedAvg(p => p.rebounds),
+    ast: weightedAvg(p => p.assists),
+    stl: weightedAvg(p => p.steals),
+    blk: weightedAvg(p => p.blocks),
+    to: weightedAvg(p => p.turnovers),
+    pts: weightedAvg(p => p.points),
+    fgPct: weightedAvg(p => p.fgPct),
+    ftPct: weightedAvg(p => p.ftPct),
+  };
+
+  // Weekly projections: minutes-weighted average × 40 starts
   const projections = {
-    threepm: Math.round(averages.threepm * WEEKLY_MULTIPLIER),
-    reb: Math.round(averages.reb * WEEKLY_MULTIPLIER),
-    ast: Math.round(averages.ast * WEEKLY_MULTIPLIER),
-    stl: Math.round(averages.stl * WEEKLY_MULTIPLIER),
-    blk: Math.round(averages.blk * WEEKLY_MULTIPLIER),
-    to: Math.round(averages.to * WEEKLY_MULTIPLIER),
-    pts: Math.round(averages.pts * WEEKLY_MULTIPLIER),
+    threepm: Math.round(averages.threepm * WEEKLY_STARTS),
+    reb: Math.round(averages.reb * WEEKLY_STARTS),
+    ast: Math.round(averages.ast * WEEKLY_STARTS),
+    stl: Math.round(averages.stl * WEEKLY_STARTS),
+    blk: Math.round(averages.blk * WEEKLY_STARTS),
+    to: Math.round(averages.to * WEEKLY_STARTS),
+    pts: Math.round(averages.pts * WEEKLY_STARTS),
   };
 
   return (
@@ -93,9 +101,9 @@ export const TeamAverages = ({ players, leagueTeams = [], teamName }: TeamAverag
           {displayTeamName && (
             <h3 className="text-sm font-display font-bold text-primary">{displayTeamName}</h3>
           )}
-          <span className="text-xs text-muted-foreground">×{WEEKLY_MULTIPLIER}</span>
+          <span className="text-xs text-muted-foreground" title="Roster Strength: Minutes-weighted averages of all non-IR players, normalized to 40 starts">×{WEEKLY_STARTS}</span>
         </div>
-        <span className="text-xs text-muted-foreground">Weekly projection</span>
+        <span className="text-xs text-muted-foreground" title="Minutes-weighted roster strength normalized to 40 starts (all non-IR players)">Roster Strength (Per-40)</span>
       </div>
       <div className="grid grid-cols-5 md:grid-cols-9 gap-2">
         <StatBox label="FG%" value={`${(averages.fgPct * 100).toFixed(1)}%`} colorClass={getCategoryRankColor('fgPct')} />
