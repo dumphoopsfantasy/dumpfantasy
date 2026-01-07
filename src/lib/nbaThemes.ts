@@ -1,4 +1,6 @@
 // NBA Team Theme Presets
+import { getReadableTextColor, createAccentVariants } from './themeUtils';
+
 export interface NBATheme {
   team: string;
   abbr: string;
@@ -70,61 +72,93 @@ function hexToHSL(hex: string): { h: number; s: number; l: number } {
 }
 
 // Apply theme to CSS variables
+// KEY CHANGE: Use NEUTRAL dark backgrounds, team colors ONLY for accents
 export function applyTheme(theme: NBATheme): void {
   const primary = hexToHSL(theme.primary);
   const secondary = hexToHSL(theme.secondary);
-  const accent = hexToHSL(theme.accent);
   
   const root = document.documentElement;
   
-  // Primary color
+  // NEUTRAL BASE PALETTE - Always dark slate, never team-colored
+  // This ensures readability regardless of team selection
+  const neutralHue = 222; // Slate blue-gray
+  const neutralSat = 20;  // Low saturation for neutrality
+  
+  root.style.setProperty('--background', `${neutralHue} ${neutralSat}% 6%`);
+  root.style.setProperty('--card', `${neutralHue} ${neutralSat}% 9%`);
+  root.style.setProperty('--popover', `${neutralHue} ${neutralSat}% 9%`);
+  root.style.setProperty('--muted', `${neutralHue} ${neutralSat}% 14%`);
+  root.style.setProperty('--border', `${neutralHue} ${neutralSat}% 20%`);
+  root.style.setProperty('--input', `${neutralHue} ${neutralSat}% 17%`);
+  root.style.setProperty('--secondary', `${neutralHue} ${neutralSat}% 17%`);
+  
+  // Text colors - always neutral for readability
+  root.style.setProperty('--foreground', '210 40% 98%');
+  root.style.setProperty('--card-foreground', '210 40% 98%');
+  root.style.setProperty('--popover-foreground', '210 40% 98%');
+  root.style.setProperty('--secondary-foreground', '210 40% 98%');
+  root.style.setProperty('--muted-foreground', '215 20% 70%');
+  
+  // ACCENT COLORS - Team primary used ONLY here
   root.style.setProperty('--primary', `${primary.h} ${primary.s}% ${primary.l}%`);
-  root.style.setProperty('--accent', `${accent.h} ${accent.s}% ${accent.l}%`);
+  root.style.setProperty('--primary-foreground', getReadableTextColor(primary.h, primary.s, primary.l) === 'dark' ? '0 0% 10%' : '0 0% 100%');
   root.style.setProperty('--ring', `${primary.h} ${primary.s}% ${primary.l}%`);
   
-  // Secondary - use for card backgrounds and secondary elements
-  root.style.setProperty('--secondary', `${secondary.h} ${Math.min(secondary.s, 33)}% ${Math.max(17, Math.min(secondary.l, 25))}%`);
+  // Create safe accent variants for UI elements
+  const variants = createAccentVariants(primary.h, primary.s, primary.l);
+  root.style.setProperty('--accent', `${primary.h} ${Math.min(primary.s, 50)}% ${Math.max(primary.l, 35)}%`);
+  root.style.setProperty('--accent-foreground', getReadableTextColor(primary.h, primary.s, primary.l) === 'dark' ? '0 0% 10%' : '0 0% 100%');
   
-  // Background - derive from secondary with very dark luminosity
-  const bgHue = secondary.h;
-  const bgSat = Math.min(secondary.s, 50);
-  const bgLight = 6; // Keep it dark but tinted
-  root.style.setProperty('--background', `${bgHue} ${bgSat}% ${bgLight}%`);
+  // NEW: Accent utility variables for components
+  root.style.setProperty('--accent-soft', variants.softBg);
+  root.style.setProperty('--accent-border', variants.border);
+  root.style.setProperty('--accent-hover', variants.hover);
+  root.style.setProperty('--accent-selected', variants.selected);
+  root.style.setProperty('--accent-pill', variants.pillBg);
   
-  // Card background - slightly lighter than background
-  root.style.setProperty('--card', `${bgHue} ${bgSat}% 9%`);
-  root.style.setProperty('--popover', `${bgHue} ${bgSat}% 9%`);
-  
-  // Muted colors based on theme
-  root.style.setProperty('--muted', `${bgHue} ${Math.min(bgSat, 33)}% 14%`);
-  root.style.setProperty('--border', `${bgHue} ${Math.min(bgSat, 33)}% 17%`);
-  root.style.setProperty('--input', `${bgHue} ${Math.min(bgSat, 33)}% 17%`);
-  
-  // Update gradients
+  // Gradients - subtle team tinting, not overwhelming
   const primaryDarker = { ...primary, l: Math.max(primary.l - 8, 30) };
   root.style.setProperty('--gradient-primary', 
     `linear-gradient(135deg, hsl(${primary.h} ${primary.s}% ${primary.l}%) 0%, hsl(${primaryDarker.h} ${primaryDarker.s}% ${primaryDarker.l}%) 100%)`
   );
   root.style.setProperty('--gradient-card', 
-    `linear-gradient(165deg, hsl(${bgHue} ${bgSat}% 11%) 0%, hsl(${bgHue} ${bgSat}% 7%) 100%)`
+    `linear-gradient(165deg, hsl(${neutralHue} ${neutralSat}% 11%) 0%, hsl(${neutralHue} ${neutralSat}% 7%) 100%)`
   );
-  root.style.setProperty('--shadow-glow', `0 0 60px hsl(${primary.h} ${primary.s}% ${primary.l}% / 0.15)`);
+  root.style.setProperty('--shadow-glow', `0 0 60px hsl(${primary.h} ${primary.s}% ${primary.l}% / 0.12)`);
 }
 
 // Reset to default theme
 export function resetTheme(): void {
   const root = document.documentElement;
   
-  root.style.setProperty('--primary', '25 95% 53%');
-  root.style.setProperty('--accent', '25 95% 53%');
-  root.style.setProperty('--ring', '25 95% 53%');
-  root.style.setProperty('--secondary', '217 33% 17%');
+  // Neutral base
   root.style.setProperty('--background', '222 47% 6%');
   root.style.setProperty('--card', '222 47% 9%');
   root.style.setProperty('--popover', '222 47% 9%');
   root.style.setProperty('--muted', '217 33% 14%');
   root.style.setProperty('--border', '217 33% 17%');
   root.style.setProperty('--input', '217 33% 17%');
+  root.style.setProperty('--secondary', '217 33% 17%');
+  
+  // Text
+  root.style.setProperty('--foreground', '210 40% 98%');
+  root.style.setProperty('--muted-foreground', '215 20% 70%');
+  
+  // Accent
+  root.style.setProperty('--primary', '25 95% 53%');
+  root.style.setProperty('--primary-foreground', '0 0% 100%');
+  root.style.setProperty('--accent', '25 95% 53%');
+  root.style.setProperty('--accent-foreground', '0 0% 100%');
+  root.style.setProperty('--ring', '25 95% 53%');
+  
+  // Accent utilities
+  root.style.setProperty('--accent-soft', '25 60% 53% / 0.12');
+  root.style.setProperty('--accent-border', '25 60% 53% / 0.35');
+  root.style.setProperty('--accent-hover', '25 60% 53% / 0.18');
+  root.style.setProperty('--accent-selected', '25 50% 53% / 0.25');
+  root.style.setProperty('--accent-pill', '25 70% 53% / 0.22');
+  
+  // Gradients
   root.style.setProperty('--gradient-primary', 'linear-gradient(135deg, hsl(25 95% 53%) 0%, hsl(15 90% 45%) 100%)');
   root.style.setProperty('--gradient-card', 'linear-gradient(165deg, hsl(222 47% 11%) 0%, hsl(222 47% 7%) 100%)');
   root.style.setProperty('--shadow-glow', '0 0 60px hsl(25 95% 53% / 0.15)');

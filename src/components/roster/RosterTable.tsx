@@ -2,12 +2,14 @@ import { Player, RosterSlot } from "@/types/fantasy";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getStatusColor } from "@/lib/playerUtils";
 import { formatPct } from "@/lib/crisUtils";
 import { cn } from "@/lib/utils";
-import { ArrowUpDown, ArrowUp, ArrowDown, Lock } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Lock, GitCompare } from "lucide-react";
 
 interface PlayerWithCRI extends Player {
   cri?: number;
@@ -25,6 +27,8 @@ interface RosterTableProps {
   onPlayerClick: (player: Player) => void;
   categoryRanks: Record<string, Record<string, number>>;
   activePlayerCount: number;
+  compareSelection?: Player[];
+  onCompareToggle?: (player: Player) => void;
 }
 
 // Map column keys to category rank keys
@@ -49,9 +53,15 @@ export const RosterTable = ({
   onPlayerClick,
   categoryRanks,
   activePlayerCount,
+  compareSelection = [],
+  onCompareToggle,
 }: RosterTableProps) => {
+  const isPlayerSelected = (playerId: string) => 
+    compareSelection.some((p) => p.id === playerId);
+
   // Build columns dynamically based on useCris toggle
   const columns = [
+    { key: "compare", label: "", sortable: false, className: "w-[32px]" },
     { key: "rank", label: "#", sortable: false, className: "w-[36px]" },
     { key: "player", label: "Player", sortable: true, className: "min-w-[160px]" },
     { key: "slot", label: "Slot", sortable: false, className: "w-[60px]" },
@@ -154,7 +164,7 @@ export const RosterTable = ({
     <TooltipProvider>
       <div className="overflow-x-auto bg-card/30 rounded-lg border border-border">
         <Table className="w-full">
-        <TableHeader className="bg-accent/20">
+        <TableHeader className="bg-secondary/50">
           <TableRow className="hover:bg-transparent border-border">
             {columns.map((col) => (
               <TableHead
@@ -180,7 +190,7 @@ export const RosterTable = ({
             const statusColor = getStatusColor(player.status);
             const isIR = slot.slotType === "ir";
             const hasStats = player.minutes > 0;
-            
+            const isSelected = isPlayerSelected(player.id);
             // Determine which rank to display in # column
             const displayRank = useCris ? player.criRank : player.wCriRank;
             
@@ -191,12 +201,38 @@ export const RosterTable = ({
             return (
               <TableRow
                 key={player.id + idx}
-                onClick={() => onPlayerClick(player)}
                 className={cn(
                   "cursor-pointer hover:bg-primary/5 border-border transition-colors",
-                  isIR && "opacity-60 bg-destructive/5"
+                  isIR && "opacity-60 bg-destructive/5",
+                  isSelected && "bg-primary/10 ring-1 ring-primary/40"
                 )}
               >
+                {/* Compare Checkbox */}
+                <TableCell className="px-2 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
+                  {hasStats && onCompareToggle && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCompareToggle(player);
+                          }}
+                          className={cn(
+                            "w-5 h-5 rounded border flex items-center justify-center transition-colors",
+                            isSelected 
+                              ? "bg-primary border-primary text-primary-foreground" 
+                              : "border-border hover:border-primary/50"
+                          )}
+                        >
+                          {isSelected && <GitCompare className="w-3 h-3" />}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        {isSelected ? 'Remove from compare' : 'Add to compare'}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </TableCell>
                 {/* Rank - shows custom rank when active, else CRI/wCRI rank */}
                 <TableCell className="px-2 py-1.5 text-center">
                   {displayRank ? (
@@ -219,7 +255,7 @@ export const RosterTable = ({
                 </TableCell>
 
                 {/* Player */}
-                <TableCell className="px-2 py-1.5">
+                <TableCell className="px-2 py-1.5" onClick={() => onPlayerClick(player)}>
                   <div className="flex items-center gap-2">
                     <PlayerPhoto name={player.name} size="xs" />
                     <NBATeamLogo teamCode={player.nbaTeam} size="xs" />
