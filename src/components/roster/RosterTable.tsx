@@ -127,7 +127,7 @@ export const RosterTable = ({
   };
 
   // Helper to wrap stat cell with tooltip if needed
-  const StatCell = ({ playerId, categoryKey, isIR, hasStats, value, format = "num" }: {
+  const StatCell = ({ playerId, categoryKey, isIR, hasStats: cellHasStats, value, format = "num" }: {
     playerId: string;
     categoryKey: string;
     isIR: boolean;
@@ -135,8 +135,8 @@ export const RosterTable = ({
     value: number | undefined;
     format?: "pct" | "num";
   }) => {
-    const { color, tooltip } = getHeatmapInfo(playerId, categoryKey, isIR, hasStats);
-    const displayValue = hasStats ? formatStat(value, format) : "--";
+    const { color, tooltip } = getHeatmapInfo(playerId, categoryKey, isIR, cellHasStats);
+    const displayValue = cellHasStats ? formatStat(value, format) : "--";
     
     if (tooltip) {
       return (
