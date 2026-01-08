@@ -397,6 +397,119 @@ export const RestOfWeekPlanner = ({
         )}
       </div>
 
+      {/* Diagnosis Info - shows excluded players summary for both teams */}
+      {hasOpponent && (() => {
+        // Aggregate excluded players across all remaining days
+        const userExcluded = userStats.remainingPerDay.flatMap(d => d.excludedPlayers);
+        const oppExcluded = oppStats.remainingPerDay.flatMap(d => d.excludedPlayers);
+        
+        // Count by reason (deduplicated by playerId)
+        const countByReason = (excluded: typeof userExcluded) => {
+          const seen = new Set<string>();
+          const counts = { ir: 0, missingTeam: 0, noPositions: 0, total: 0 };
+          for (const p of excluded) {
+            if (seen.has(p.playerId)) continue;
+            seen.add(p.playerId);
+            counts.total++;
+            if (p.reason === "IR slot") counts.ir++;
+            else if (p.reason === "Missing team") counts.missingTeam++;
+            else if (p.reason === "No positions") counts.noPositions++;
+          }
+          return counts;
+        };
+        
+        const userCounts = countByReason(userExcluded);
+        const oppCounts = countByReason(oppExcluded);
+        
+        // Get unique excluded players by name for display
+        const getUniqueExcluded = (excluded: typeof userExcluded) => {
+          const seen = new Map<string, typeof excluded[0]>();
+          for (const p of excluded) {
+            if (!seen.has(p.playerId)) seen.set(p.playerId, p);
+          }
+          return Array.from(seen.values());
+        };
+        
+        const oppUniqueExcluded = getUniqueExcluded(oppExcluded);
+        const hasDiagnosticIssue = oppCounts.missingTeam > 0 || oppCounts.noPositions > 0;
+        
+        if (!hasDiagnosticIssue && oppCounts.total === 0) return null;
+        
+        return (
+          <Collapsible className="mt-2 border-t border-border/50 pt-2">
+            <CollapsibleTrigger className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors w-full">
+              <Info className="w-3 h-3" />
+              <span>Diagnosis</span>
+              {hasDiagnosticIssue && (
+                <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0 border-warning text-warning">
+                  {oppCounts.missingTeam + oppCounts.noPositions} issues
+                </Badge>
+              )}
+              <ChevronDown className="w-3 h-3 ml-auto" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-2 p-2 bg-muted/10 rounded text-[9px] space-y-2">
+                {/* User excluded summary */}
+                <div>
+                  <span className="text-primary font-medium">You:</span>{" "}
+                  <span className="text-muted-foreground">
+                    {userCounts.total === 0 ? "All players valid" : (
+                      <>
+                        {userCounts.ir > 0 && `${userCounts.ir} IR`}
+                        {userCounts.missingTeam > 0 && `${userCounts.ir > 0 ? ", " : ""}${userCounts.missingTeam} missing team`}
+                        {userCounts.noPositions > 0 && `${(userCounts.ir > 0 || userCounts.missingTeam > 0) ? ", " : ""}${userCounts.noPositions} no positions`}
+                      </>
+                    )}
+                  </span>
+                </div>
+                
+                {/* Opponent excluded summary */}
+                <div>
+                  <span className="text-stat-negative font-medium">Opp:</span>{" "}
+                  <span className={cn("text-muted-foreground", hasDiagnosticIssue && "text-warning")}>
+                    {oppCounts.total === 0 ? "All players valid" : (
+                      <>
+                        {oppCounts.ir > 0 && `${oppCounts.ir} IR`}
+                        {oppCounts.missingTeam > 0 && `${oppCounts.ir > 0 ? ", " : ""}${oppCounts.missingTeam} missing team`}
+                        {oppCounts.noPositions > 0 && `${(oppCounts.ir > 0 || oppCounts.missingTeam > 0) ? ", " : ""}${oppCounts.noPositions} no positions`}
+                      </>
+                    )}
+                  </span>
+                </div>
+                
+                {/* Show excluded opponent players if there are parsing issues */}
+                {hasDiagnosticIssue && oppUniqueExcluded.length > 0 && (
+                  <div className="mt-1 pt-1 border-t border-border/30">
+                    <p className="text-muted-foreground mb-1">Opp excluded players:</p>
+                    <div className="space-y-0.5 text-[8px]">
+                      {oppUniqueExcluded
+                        .filter(p => p.reason !== "IR slot")
+                        .slice(0, 10)
+                        .map((p) => (
+                          <div key={p.playerId} className="flex items-center gap-1">
+                            <span className="text-warning">⚠</span>
+                            <span>{p.playerName}</span>
+                            <span className="text-muted-foreground">
+                              — {p.reason}
+                              {p.reason === "Missing team" && p.nbaTeam && ` (got: "${p.nbaTeam}")`}
+                              {p.reason === "No positions" && p.positions && ` (got: [${p.positions.join(",")}])`}
+                            </span>
+                          </div>
+                        ))}
+                      {oppUniqueExcluded.filter(p => p.reason !== "IR slot").length > 10 && (
+                        <div className="text-muted-foreground">
+                          ...and {oppUniqueExcluded.filter(p => p.reason !== "IR slot").length - 10} more
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })()}
+
       {/* Dev-only debug panel */}
       {isDevMode && (
         <Collapsible open={showDebug} onOpenChange={setShowDebug} className="mt-2">
