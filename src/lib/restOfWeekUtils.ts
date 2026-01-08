@@ -26,11 +26,11 @@ export interface PlayerSlotAssignment {
 
 export interface DayStartsBreakdown {
   date: string;
-  playersWithGame: number;
-  filteredOut: number; // O/IR etc excluded
-  startsUsed: number;
-  overflow: number;
-  unusedSlots: number;
+  playersWithGame: number;       // Raw count of players with games (roster games)
+  filteredOut: number;           // O/IR etc excluded
+  startsUsed: number;            // Optimized starts (matched to slots)
+  overflow: number;              // Players with games that can't start (slot limits)
+  unusedSlots: number;           // Slots that couldn't be filled
   missingTeamIdCount: number;
   slotAssignments: PlayerSlotAssignment[];
   playerDetails: Array<{
@@ -45,10 +45,12 @@ export interface DayStartsBreakdown {
 }
 
 export interface RestOfWeekStats {
-  projectedStarts: number;
-  maxPossibleStarts: number;
-  unusedStarts: number;
-  overflowGames: number;
+  // Key metrics
+  projectedStarts: number;       // Optimized starts (slot-matched)
+  maxPossibleStarts: number;     // dailySlots × daysRemaining
+  unusedStarts: number;          // maxPossible - projected
+  overflowGames: number;         // Games that can't start due to slot limits
+  rosterGamesRemaining: number;  // Raw player-games (before slot constraints)
   daysRemaining: number;
   perDay: DayStartsBreakdown[];
 }
@@ -202,7 +204,7 @@ function calculateDayStartsOptimized(
   games: NBAGame[],
   injuryPolicy: InjuryPolicy,
   dailyActiveSlots: number = STANDARD_LINEUP_SLOTS.length
-): DayStartsBreakdown & { date: string } {
+): Omit<DayStartsBreakdown, 'date'> {
   const playerDetails: DayStartsBreakdown['playerDetails'] = [];
   const eligiblePlayers: EligiblePlayer[] = [];
   let missingTeamIdCount = 0;
@@ -225,21 +227,6 @@ function calculateDayStartsOptimized(
     }
     
     const player = slot.player;
-    
-    // Skip players with 0 minutes (likely not active)
-    if (!player.minutes || player.minutes <= 0) {
-      filteredOut++;
-      playerDetails.push({
-        name: player.name,
-        nbaTeam: player.nbaTeam || null,
-        normalizedTeam: normalizeNbaTeamCode(player.nbaTeam),
-        hasGame: false,
-        injuryMult: 0,
-        started: false,
-        filteredReason: '0 minutes',
-      });
-      continue;
-    }
     
     // Normalize team code - SAME FUNCTION for both teams
     const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
@@ -327,7 +314,6 @@ function calculateDayStartsOptimized(
   const unusedSlots = Math.max(0, dailyActiveSlots - matchCount);
   
   return {
-    date: '', // Will be set by caller
     playersWithGame: playersWithGameCount,
     filteredOut,
     startsUsed: Math.round(weightedStarts * 10) / 10,
@@ -378,6 +364,7 @@ export function computeRestOfWeekStarts({
   let totalProjectedStarts = 0;
   let totalOverflow = 0;
   let totalUnused = 0;
+  let totalRosterGames = 0;
   
   for (const dateStr of futureDates) {
     const games = gamesByDate.get(dateStr) || [];
@@ -396,6 +383,7 @@ export function computeRestOfWeekStarts({
     totalProjectedStarts += dayResult.startsUsed;
     totalOverflow += dayResult.overflow;
     totalUnused += dayResult.unusedSlots;
+    totalRosterGames += dayResult.playersWithGame;
   }
   
   const maxPossibleStarts = dailyActiveSlots * futureDates.length;
@@ -405,6 +393,7 @@ export function computeRestOfWeekStarts({
     maxPossibleStarts,
     unusedStarts: Math.round((maxPossibleStarts - totalProjectedStarts) * 10) / 10,
     overflowGames: totalOverflow,
+    rosterGamesRemaining: totalRosterGames,
     daysRemaining: futureDates.length,
     perDay,
   };
