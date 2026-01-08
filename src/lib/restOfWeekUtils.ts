@@ -19,6 +19,83 @@ import {
 } from "@/lib/scheduleAwareProjection";
 
 // ============================================================================
+// DATE/TIME UTILITIES
+// ============================================================================
+
+/**
+ * Returns today's date as YYYY-MM-DD in local time.
+ */
+export function getTodayDateStr(): string {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Determines whether "today" should be considered elapsed (started/in-progress).
+ * - If ANY game today has status 'live' or 'final', treat today as elapsed.
+ * - Otherwise, check if current time >= earliest game time.
+ */
+export function hasTodayStarted(todayGames: NBAGame[]): boolean {
+  if (!todayGames || todayGames.length === 0) return false;
+  
+  // Check if any game is live or final
+  const hasLiveOrFinal = todayGames.some((g) => {
+    const status = (g.status || "").toLowerCase();
+    return status === "live" || status === "final" || status.includes("in progress");
+  });
+  
+  if (hasLiveOrFinal) return true;
+  
+  // If no live/final, check if current time >= earliest game time
+  const now = new Date();
+  for (const g of todayGames) {
+    if (g.gameTime) {
+      try {
+        const gameDate = new Date(g.gameTime);
+        if (now >= gameDate) return true;
+      } catch {
+        // Invalid date, ignore
+      }
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Categorizes matchup dates into:
+ * - elapsed: days that have already completed (past days + today if started)
+ * - remaining: days that haven't started yet (future days + today if not started)
+ */
+export function categorizeDates(
+  matchupDates: string[],
+  gamesByDate: Map<string, NBAGame[]>
+): { elapsed: string[]; remaining: string[] } {
+  const todayStr = getTodayDateStr();
+  const todayGames = gamesByDate.get(todayStr) || [];
+  const todayIsElapsed = hasTodayStarted(todayGames);
+  
+  const elapsed: string[] = [];
+  const remaining: string[] = [];
+  
+  for (const d of matchupDates) {
+    if (d < todayStr) {
+      elapsed.push(d);
+    } else if (d === todayStr) {
+      if (todayIsElapsed) {
+        elapsed.push(d);
+      } else {
+        remaining.push(d);
+      }
+    } else {
+      remaining.push(d);
+    }
+  }
+  
+  return { elapsed: elapsed.sort(), remaining: remaining.sort() };
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -246,56 +323,99 @@ export interface ComputeRestOfWeekParams {
   lineupSlots?: LineupSlotConfig[];
 }
 
+export interface RestOfWeekResult {
+  // Elapsed (already happened or in-progress)
+  elapsedDays: number;
+  elapsedStarts: number; // optimized starts on elapsed days
+  elapsedPerDay: DayStartsBreakdown[];
+  
+  // Remaining (future)
+  remainingDays: number;
+  remainingStarts: number; // optimized starts on remaining days (before cap)
+  remainingRosterGames: number;
+  remainingOverflow: number;
+  remainingUnusedSlots: number;
+  remainingPerDay: DayStartsBreakdown[];
+  
+  // Combined
+  allPerDay: DayStartsBreakdown[];
+  maxPossibleStarts: number; // slots × remaining days
+  
+  // Today status
+  todayIsElapsed: boolean;
+}
+
 export function computeRestOfWeekStarts({
   rosterPlayers,
   matchupDates,
   gamesByDate,
   lineupSlots = STANDARD_LINEUP_SLOTS,
-}: ComputeRestOfWeekParams): RestOfWeekStats {
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}: ComputeRestOfWeekParams): RestOfWeekResult {
+  const { elapsed, remaining } = categorizeDates(matchupDates, gamesByDate);
+  const todayStr = getTodayDateStr();
+  const todayGames = gamesByDate.get(todayStr) || [];
+  const todayIsElapsed = hasTodayStarted(todayGames);
+  
+  const elapsedPerDay: DayStartsBreakdown[] = [];
+  const remainingPerDay: DayStartsBreakdown[] = [];
+  
+  let elapsedStarts = 0;
+  let remainingStarts = 0;
+  let remainingRosterGames = 0;
+  let remainingOverflow = 0;
+  let remainingUnusedSlots = 0;
 
-  const futureDates = matchupDates
-    .filter((d) => d >= todayStr)
-    .slice()
-    .sort();
-
-  const perDay: DayStartsBreakdown[] = [];
-
-  let totalProjectedStarts = 0;
-  let totalOverflow = 0;
-  let totalUnused = 0;
-  let totalRosterGames = 0;
-
-  for (const dateStr of futureDates) {
+  // Compute elapsed days
+  for (const dateStr of elapsed) {
     const games = gamesByDate.get(dateStr) || [];
-
-    const dayResult = calculateDayStartsOptimized(
-      rosterPlayers,
-      games,
-      lineupSlots
-    );
-
-    perDay.push({
-      ...dayResult,
-      date: dateStr,
-    });
-
-    totalProjectedStarts += dayResult.startsUsed;
-    totalOverflow += dayResult.overflow;
-    totalUnused += dayResult.unusedSlots;
-    totalRosterGames += dayResult.playersWithGame;
+    const dayResult = calculateDayStartsOptimized(rosterPlayers, games, lineupSlots);
+    const breakdown = { ...dayResult, date: dateStr };
+    elapsedPerDay.push(breakdown);
+    elapsedStarts += dayResult.startsUsed;
   }
 
-  const maxPossibleStarts = lineupSlots.length * futureDates.length;
+  // Compute remaining days
+  for (const dateStr of remaining) {
+    const games = gamesByDate.get(dateStr) || [];
+    const dayResult = calculateDayStartsOptimized(rosterPlayers, games, lineupSlots);
+    const breakdown = { ...dayResult, date: dateStr };
+    remainingPerDay.push(breakdown);
+    remainingStarts += dayResult.startsUsed;
+    remainingRosterGames += dayResult.playersWithGame;
+    remainingOverflow += dayResult.overflow;
+    remainingUnusedSlots += dayResult.unusedSlots;
+  }
+
+  const allPerDay = [...elapsedPerDay, ...remainingPerDay].sort((a, b) => 
+    a.date.localeCompare(b.date)
+  );
 
   return {
-    projectedStarts: totalProjectedStarts,
-    maxPossibleStarts,
-    unusedStarts: maxPossibleStarts - totalProjectedStarts,
-    overflowGames: totalOverflow,
-    rosterGamesRemaining: totalRosterGames,
-    daysRemaining: futureDates.length,
-    perDay,
+    elapsedDays: elapsed.length,
+    elapsedStarts,
+    elapsedPerDay,
+    
+    remainingDays: remaining.length,
+    remainingStarts,
+    remainingRosterGames,
+    remainingOverflow,
+    remainingUnusedSlots,
+    remainingPerDay,
+    
+    allPerDay,
+    maxPossibleStarts: lineupSlots.length * remaining.length,
+    
+    todayIsElapsed,
   };
+}
+
+// Legacy compat export (deprecated - use RestOfWeekResult instead)
+export interface RestOfWeekStats {
+  projectedStarts: number;
+  maxPossibleStarts: number;
+  unusedStarts: number;
+  overflowGames: number;
+  rosterGamesRemaining: number;
+  daysRemaining: number;
+  perDay: DayStartsBreakdown[];
 }
