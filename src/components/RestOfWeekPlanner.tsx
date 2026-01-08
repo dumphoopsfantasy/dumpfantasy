@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Tooltip,
   TooltipContent,
@@ -15,7 +17,7 @@ import {
 import { RosterSlot } from "@/types/fantasy";
 import { NBAGame } from "@/lib/nbaApi";
 import { cn } from "@/lib/utils";
-import { CalendarDays, Users, ArrowUp, AlertCircle, ChevronDown, Bug } from "lucide-react";
+import { CalendarDays, Users, ArrowUp, AlertCircle, ChevronDown, Bug, Settings2 } from "lucide-react";
 import { 
   computeRestOfWeekStarts, 
   RestOfWeekStats,
@@ -70,6 +72,7 @@ export const RestOfWeekPlanner = ({
   applyInjuryMultipliers = true,
 }: RestOfWeekPlannerProps) => {
   const [showDebug, setShowDebug] = useState(false);
+  const [assumeOpponentOptimizes, setAssumeOpponentOptimizes] = useState(true);
   const hasOpponent = opponentRoster.length > 0;
   
   const dateStrings = useMemo(() => weekDates.map(wd => wd.dateStr), [weekDates]);
@@ -151,6 +154,32 @@ export const RestOfWeekPlanner = ({
       <div className="flex items-center gap-2 mb-3">
         <CalendarDays className="w-4 h-4 text-primary" />
         <h4 className="font-display font-bold text-xs">Rest of Week Planner</h4>
+        
+        {/* Opponent optimization toggle */}
+        {hasOpponent && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1.5 ml-2">
+                  <Switch
+                    id="opp-optimize"
+                    checked={assumeOpponentOptimizes}
+                    onCheckedChange={setAssumeOpponentOptimizes}
+                    className="h-3.5 w-6 data-[state=checked]:bg-primary"
+                  />
+                  <Label htmlFor="opp-optimize" className="text-[9px] text-muted-foreground cursor-pointer">
+                    Opp optimizes
+                  </Label>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[220px] text-xs">
+                <p><strong>ON:</strong> Assume opponent will optimize their lineup to maximize starts (recommended for projections).</p>
+                <p className="mt-1"><strong>OFF:</strong> Use opponent's currently-set lineup (may undercount if they haven't set future lineups).</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -159,7 +188,7 @@ export const RestOfWeekPlanner = ({
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-[250px] text-xs">
-              <p>Projected starts = total lineup slots that can be filled by players with games on remaining days, capped by daily slot limits and weighted by injury probability.</p>
+              <p>Projected starts = maximum lineup slots fillable by players with games, using position-based slot matching. Weighted by injury probability.</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -429,19 +458,23 @@ export const RestOfWeekPlanner = ({
                     <thead>
                       <tr className="border-b border-border">
                         <th className="p-1">Date</th>
-                        <th className="p-1">Players w/Game</th>
+                        <th className="p-1">w/Game</th>
+                        <th className="p-1">Filtered</th>
                         <th className="p-1">Starts</th>
                         <th className="p-1">Overflow</th>
+                        <th className="p-1">Unused</th>
                         <th className="p-1">Missing ID</th>
                       </tr>
                     </thead>
                     <tbody>
                       {userStats.perDay.map((day) => (
                         <tr key={day.date} className="border-b border-border/50">
-                          <td className="p-1">{day.date}</td>
+                          <td className="p-1">{day.date.slice(5)}</td>
                           <td className="p-1">{day.playersWithGame}</td>
-                          <td className="p-1">{day.startsUsed}</td>
-                          <td className="p-1">{day.overflow}</td>
+                          <td className="p-1">{day.filteredOut || 0}</td>
+                          <td className="p-1 text-stat-positive">{day.startsUsed}</td>
+                          <td className={cn("p-1", day.overflow > 0 && "text-warning")}>{day.overflow}</td>
+                          <td className={cn("p-1", day.unusedSlots > 0 && "text-muted-foreground")}>{day.unusedSlots}</td>
                           <td className={cn("p-1", day.missingTeamIdCount > 0 && "text-stat-negative")}>
                             {day.missingTeamIdCount}
                           </td>
@@ -455,25 +488,34 @@ export const RestOfWeekPlanner = ({
               {/* Opponent team debug */}
               {hasOpponent && (
                 <div>
-                  <p className="font-semibold text-stat-negative mb-1">Opponent ({opponentRoster.length} players)</p>
+                  <p className="font-semibold text-stat-negative mb-1">
+                    Opponent ({opponentRoster.length} players) 
+                    <span className="text-muted-foreground font-normal ml-1">
+                      [{assumeOpponentOptimizes ? 'optimized' : 'actual set'}]
+                    </span>
+                  </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
                         <tr className="border-b border-border">
                           <th className="p-1">Date</th>
-                          <th className="p-1">Players w/Game</th>
+                          <th className="p-1">w/Game</th>
+                          <th className="p-1">Filtered</th>
                           <th className="p-1">Starts</th>
                           <th className="p-1">Overflow</th>
+                          <th className="p-1">Unused</th>
                           <th className="p-1">Missing ID</th>
                         </tr>
                       </thead>
                       <tbody>
                         {oppStats.perDay.map((day) => (
                           <tr key={day.date} className="border-b border-border/50">
-                            <td className="p-1">{day.date}</td>
+                            <td className="p-1">{day.date.slice(5)}</td>
                             <td className="p-1">{day.playersWithGame}</td>
-                            <td className="p-1">{day.startsUsed}</td>
-                            <td className="p-1">{day.overflow}</td>
+                            <td className="p-1">{day.filteredOut || 0}</td>
+                            <td className="p-1 text-stat-positive">{day.startsUsed}</td>
+                            <td className={cn("p-1", day.overflow > 0 && "text-warning")}>{day.overflow}</td>
+                            <td className={cn("p-1", day.unusedSlots > 0 && "text-muted-foreground")}>{day.unusedSlots}</td>
                             <td className={cn("p-1", day.missingTeamIdCount > 0 && "text-stat-negative")}>
                               {day.missingTeamIdCount}
                             </td>
@@ -483,15 +525,49 @@ export const RestOfWeekPlanner = ({
                     </table>
                   </div>
                   
+                  {/* Show slot assignments for first future day */}
+                  {oppStats.perDay[0]?.slotAssignments && oppStats.perDay[0].slotAssignments.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-muted-foreground mb-1">Slot Assignments ({oppStats.perDay[0].date.slice(5)}):</p>
+                      <div className="flex flex-wrap gap-1">
+                        {oppStats.perDay[0].slotAssignments.map((a, i) => (
+                          <Badge key={i} variant="outline" className="text-[8px] py-0">
+                            {a.assignedSlot}: {a.playerName.split(' ').pop()}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Show filtered out players */}
+                  {oppStats.perDay[0]?.playerDetails && (
+                    <div className="mt-2">
+                      <p className="text-muted-foreground mb-1">Filtered Out:</p>
+                      <div className="max-h-20 overflow-y-auto">
+                        {oppStats.perDay[0].playerDetails
+                          .filter(p => p.filteredReason)
+                          .map((p, i) => (
+                            <p key={i} className="text-[8px] text-stat-negative">
+                              {p.name}: {p.filteredReason}
+                            </p>
+                          ))
+                        }
+                        {oppStats.perDay[0].playerDetails.filter(p => p.filteredReason).length === 0 && (
+                          <p className="text-[8px] text-muted-foreground">None</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
                   {/* Show missing player details if any */}
                   {oppStats.perDay.some(d => d.missingTeamIdCount > 0) && (
                     <div className="mt-2">
-                      <p className="text-stat-negative mb-1">⚠ Opponent Players Missing Team ID:</p>
-                      <div className="max-h-24 overflow-y-auto">
+                      <p className="text-stat-negative mb-1">⚠ Missing Team ID:</p>
+                      <div className="max-h-20 overflow-y-auto">
                         {oppStats.perDay[0]?.playerDetails
-                          .filter(p => !p.normalizedTeam)
+                          .filter(p => !p.normalizedTeam && !p.filteredReason)
                           .map((p, i) => (
-                            <p key={i} className="text-muted-foreground">
+                            <p key={i} className="text-[8px] text-muted-foreground">
                               {p.name}: nbaTeam="{p.nbaTeam || 'null'}"
                             </p>
                           ))
