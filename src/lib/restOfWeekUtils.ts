@@ -1,17 +1,22 @@
 /**
  * Rest of Week Start Computation Utilities
- * 
- * Shared logic for computing projected starts for both user and opponent teams.
- * Uses identical pipeline for both to ensure consistent calculations.
- * 
- * IMPORTANT: Uses maximum bipartite matching algorithm to maximize filled slots,
- * not a greedy approach. This ensures opponent projections are optimized even if
- * their current lineup is empty.
+ *
+ * Deterministic, integer-only start optimization used for BOTH user and opponent.
+ *
+ * Rules (per user requirements):
+ * - NO injury weighting and NO expected-value logic (no decimals)
+ * - DTD/Q/O statuses are NOT filtered (we can add injury modeling later)
+ * - IR players are excluded ONLY if they are in an IR roster slot
+ * - Starts are computed by maximum bipartite matching (players ↔ lineup slots)
  */
 
 import { RosterSlot, Player } from "@/types/fantasy";
 import { NBAGame } from "@/lib/nbaApi";
-import { normalizeNbaTeamCode, STANDARD_LINEUP_SLOTS } from "@/lib/scheduleAwareProjection";
+import {
+  normalizeNbaTeamCode,
+  STANDARD_LINEUP_SLOTS,
+  type LineupSlotConfig,
+} from "@/lib/scheduleAwareProjection";
 
 // ============================================================================
 // TYPES
@@ -24,168 +29,54 @@ export interface PlayerSlotAssignment {
   positions: string[];
 }
 
+export interface ExcludedPlayer {
+  playerName: string;
+  playerId: string;
+  reason: "IR slot" | "Missing team" | "No positions";
+  nbaTeam?: string | null;
+  positions?: string[];
+}
+
 export interface DayStartsBreakdown {
   date: string;
-  playersWithGame: number;       // Raw count of players with games (roster games)
-  filteredOut: number;           // O/IR etc excluded
-  startsUsed: number;            // Optimized starts (matched to slots)
-  overflow: number;              // Players with games that can't start (slot limits)
-  unusedSlots: number;           // Slots that couldn't be filled
+
+  // Inputs
+  slotsCount: number;
+  scheduleGamesCount: number;
+
+  // Candidates
+  playersWithGame: number; // aka candidatesCount
+  filteredOut: number; // excluded players (IR slot / missing team / no positions)
+
+  // Optimization outputs (integers)
+  startsUsed: number; // aka optimizedStarts
+  overflow: number; // aka optimizedBenchedGames (schedule overflow)
+  unusedSlots: number;
+
+  // Debug
   missingTeamIdCount: number;
   slotAssignments: PlayerSlotAssignment[];
-  playerDetails: Array<{
-    name: string;
-    nbaTeam: string | null;
-    normalizedTeam: string | null;
-    hasGame: boolean;
-    injuryMult: number;
-    started: boolean;
-    filteredReason?: string;
-  }>;
+  excludedPlayers: ExcludedPlayer[];
 }
 
 export interface RestOfWeekStats {
   // Key metrics
-  projectedStarts: number;       // Optimized starts (slot-matched)
-  maxPossibleStarts: number;     // dailySlots × daysRemaining
-  unusedStarts: number;          // maxPossible - projected
-  overflowGames: number;         // Games that can't start due to slot limits
-  rosterGamesRemaining: number;  // Raw player-games (before slot constraints)
+  projectedStarts: number; // sum(startsUsed) across remaining days (integer)
+  maxPossibleStarts: number; // slotsCount × daysRemaining
+  unusedStarts: number; // maxPossible - projected
+
+  overflowGames: number; // sum(overflow) across remaining days
+  rosterGamesRemaining: number; // sum(playersWithGame) across remaining days
+
   daysRemaining: number;
   perDay: DayStartsBreakdown[];
 }
 
-export interface InjuryPolicy {
-  excludeOut: boolean;
-  applyDTDMultiplier: boolean;
-}
-
 // ============================================================================
-// INJURY HANDLING
+// MATCHING / OPTIMIZATION
 // ============================================================================
 
-export function getInjuryMultiplier(status?: string, policy: InjuryPolicy = { excludeOut: true, applyDTDMultiplier: true }): number {
-  if (!status) return 1.0;
-  const s = status.toUpperCase().trim();
-  
-  // Out / IR / Suspended = 0 games expected
-  if (s === 'O' || s === 'OUT' || s === 'IR' || s === 'SUSP' || s.includes('(O)')) {
-    return policy.excludeOut ? 0 : 1.0;
-  }
-  
-  if (!policy.applyDTDMultiplier) return 1.0;
-  
-  // Day-to-day = 60% expected games
-  if (s === 'DTD' || s.includes('DTD')) return 0.6;
-  
-  // Questionable = 70%
-  if (s === 'Q' || s === 'QUESTIONABLE') return 0.7;
-  
-  // Game-time decision / Probable = 85%
-  if (s === 'GTD' || s === 'P' || s === 'PROBABLE') return 0.85;
-  
-  return 1.0;
-}
-
-// ============================================================================
-// MAXIMUM BIPARTITE MATCHING
-// ============================================================================
-
-/**
- * Maximum Bipartite Matching using augmenting paths (Hopcroft-Karp simplified)
- * 
- * This ensures we maximize filled slots even for opponent teams with empty lineups.
- * Players are matched to slots based on position eligibility.
- */
-function findMaximumMatching(
-  players: Array<{ id: string; name: string; positions: string[]; injuryMult: number }>,
-  slots: Array<{ slot: string; eligiblePositions: string[] }>
-): { matchCount: number; assignments: PlayerSlotAssignment[] } {
-  // Build adjacency: which slots can each player fill?
-  const playerToSlots: Map<string, number[]> = new Map();
-  
-  for (let pIdx = 0; pIdx < players.length; pIdx++) {
-    const player = players[pIdx];
-    const playerPositions = player.positions.map(p => p.toUpperCase());
-    const eligibleSlotIndices: number[] = [];
-    
-    for (let sIdx = 0; sIdx < slots.length; sIdx++) {
-      const slot = slots[sIdx];
-      if (slot.eligiblePositions.some(ep => playerPositions.includes(ep))) {
-        eligibleSlotIndices.push(sIdx);
-      }
-    }
-    playerToSlots.set(player.id, eligibleSlotIndices);
-  }
-  
-  // Matching state: slotMatch[slotIdx] = playerIdx or -1
-  const slotMatch: number[] = new Array(slots.length).fill(-1);
-  const playerMatch: number[] = new Array(players.length).fill(-1);
-  
-  // Try to find augmenting path from player pIdx
-  function tryAugment(pIdx: number, visited: Set<number>): boolean {
-    const eligibleSlots = playerToSlots.get(players[pIdx].id) || [];
-    
-    for (const sIdx of eligibleSlots) {
-      if (visited.has(sIdx)) continue;
-      visited.add(sIdx);
-      
-      // If slot is free, or we can reassign the current occupant
-      if (slotMatch[sIdx] === -1 || tryAugment(slotMatch[sIdx], visited)) {
-        slotMatch[sIdx] = pIdx;
-        playerMatch[pIdx] = sIdx;
-        return true;
-      }
-    }
-    return false;
-  }
-  
-  // Run matching for each player
-  let matchCount = 0;
-  for (let pIdx = 0; pIdx < players.length; pIdx++) {
-    const visited = new Set<number>();
-    if (tryAugment(pIdx, visited)) {
-      matchCount++;
-    }
-  }
-  
-  // Build assignment list
-  const assignments: PlayerSlotAssignment[] = [];
-  for (let sIdx = 0; sIdx < slots.length; sIdx++) {
-    if (slotMatch[sIdx] !== -1) {
-      const player = players[slotMatch[sIdx]];
-      assignments.push({
-        playerName: player.name,
-        playerId: player.id,
-        assignedSlot: slots[sIdx].slot,
-        positions: player.positions,
-      });
-    }
-  }
-  
-  return { matchCount, assignments };
-}
-
-// ============================================================================
-// CORE COMPUTATION - SAME FOR BOTH TEAMS
-// ============================================================================
-
-interface EligiblePlayer {
-  player: Player;
-  normalizedTeam: string | null;
-  hasGame: boolean;
-  injuryMult: number;
-  positions: string[];
-}
-
-/**
- * Check if a player has a game on a specific date
- * This is the SAME function used for both user and opponent teams
- */
-function hasGameOnDate(
-  normalizedTeam: string | null,
-  games: NBAGame[]
-): boolean {
+function hasGameOnDate(normalizedTeam: string | null, games: NBAGame[]): boolean {
   if (!normalizedTeam) return false;
   return games.some(
     (g) => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam
@@ -193,205 +84,215 @@ function hasGameOnDate(
 }
 
 /**
- * Calculate OPTIMIZED starts for a single day using maximum matching
- * UNIFIED FUNCTION - used identically for user and opponent
- * 
- * This computes the maximum possible starts from the full roster,
- * NOT based on currently-set lineup slots.
+ * Maximum bipartite matching via DFS augmenting paths.
+ * Deterministic: players are processed in stable order (id, then name).
  */
+function findMaximumMatching(
+  players: Array<{ id: string; name: string; positions: string[] }>,
+  slots: LineupSlotConfig[]
+): { matchCount: number; assignments: PlayerSlotAssignment[] } {
+  const sortedPlayers = [...players].sort((a, b) =>
+    a.id.localeCompare(b.id) || a.name.localeCompare(b.name)
+  );
+
+  // Build adjacency: playerIdx -> slotIdx[]
+  const playerToSlots: number[][] = sortedPlayers.map((p) => {
+    const playerPositions = (p.positions || []).map((x) => x.toUpperCase());
+    const eligible: number[] = [];
+
+    for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+      const slot = slots[sIdx];
+      if (slot.eligiblePositions.some((ep) => playerPositions.includes(ep))) {
+        eligible.push(sIdx);
+      }
+    }
+    return eligible;
+  });
+
+  const slotMatch: number[] = new Array(slots.length).fill(-1); // slotIdx -> playerIdx
+
+  function tryAugment(pIdx: number, visited: boolean[]): boolean {
+    for (const sIdx of playerToSlots[pIdx]) {
+      if (visited[sIdx]) continue;
+      visited[sIdx] = true;
+
+      if (slotMatch[sIdx] === -1 || tryAugment(slotMatch[sIdx], visited)) {
+        slotMatch[sIdx] = pIdx;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  let matchCount = 0;
+  for (let pIdx = 0; pIdx < sortedPlayers.length; pIdx++) {
+    const visited = new Array(slots.length).fill(false);
+    if (tryAugment(pIdx, visited)) matchCount++;
+  }
+
+  const assignments: PlayerSlotAssignment[] = [];
+  for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+    const pIdx = slotMatch[sIdx];
+    if (pIdx === -1) continue;
+
+    const p = sortedPlayers[pIdx];
+    assignments.push({
+      playerId: p.id,
+      playerName: p.name,
+      assignedSlot: slots[sIdx].slot,
+      positions: p.positions,
+    });
+  }
+
+  return { matchCount, assignments };
+}
+
 function calculateDayStartsOptimized(
   roster: RosterSlot[],
   games: NBAGame[],
-  injuryPolicy: InjuryPolicy,
-  dailyActiveSlots: number = STANDARD_LINEUP_SLOTS.length
-): Omit<DayStartsBreakdown, 'date'> {
-  const playerDetails: DayStartsBreakdown['playerDetails'] = [];
-  const eligiblePlayers: EligiblePlayer[] = [];
-  let missingTeamIdCount = 0;
+  lineupSlots: LineupSlotConfig[]
+): Omit<DayStartsBreakdown, "date"> {
+  const excludedPlayers: ExcludedPlayer[] = [];
+  const candidates: Array<{ id: string; name: string; positions: string[] }> = [];
+
   let filteredOut = 0;
-  
+  let missingTeamIdCount = 0;
+
   for (const slot of roster) {
-    // Skip IR slots
-    if (slot.slotType === 'ir') {
+    if (slot.slotType === "ir") {
       filteredOut++;
-      playerDetails.push({
-        name: slot.player.name,
+      excludedPlayers.push({
+        playerId: slot.player.id,
+        playerName: slot.player.name,
+        reason: "IR slot",
         nbaTeam: slot.player.nbaTeam || null,
-        normalizedTeam: normalizeNbaTeamCode(slot.player.nbaTeam),
-        hasGame: false,
-        injuryMult: 0,
-        started: false,
-        filteredReason: 'IR slot',
+        positions: slot.player.positions || [],
       });
       continue;
     }
-    
-    const player = slot.player;
-    
-    // Normalize team code - SAME FUNCTION for both teams
+
+    const player: Player = slot.player;
+
+    const positions = player.positions || [];
+    if (positions.length === 0) {
+      filteredOut++;
+      excludedPlayers.push({
+        playerId: player.id,
+        playerName: player.name,
+        reason: "No positions",
+        nbaTeam: player.nbaTeam || null,
+        positions,
+      });
+      continue;
+    }
+
     const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
-    
     if (!normalizedTeam) {
       missingTeamIdCount++;
-      playerDetails.push({
-        name: player.name,
-        nbaTeam: player.nbaTeam || null,
-        normalizedTeam: null,
-        hasGame: false,
-        injuryMult: 1.0,
-        started: false,
-        filteredReason: 'Missing team ID',
-      });
-      continue;
-    }
-    
-    // Check if team has game - SAME FUNCTION for both teams
-    const hasGame = hasGameOnDate(normalizedTeam, games);
-    const injuryMult = getInjuryMultiplier(player.status, injuryPolicy);
-    
-    // Check if filtered out due to injury
-    if (injuryMult === 0) {
       filteredOut++;
-      playerDetails.push({
-        name: player.name,
+      excludedPlayers.push({
+        playerId: player.id,
+        playerName: player.name,
+        reason: "Missing team",
         nbaTeam: player.nbaTeam || null,
-        normalizedTeam,
-        hasGame,
-        injuryMult: 0,
-        started: false,
-        filteredReason: 'OUT/IR status',
+        positions,
       });
       continue;
     }
-    
-    playerDetails.push({
+
+    if (!hasGameOnDate(normalizedTeam, games)) continue;
+
+    candidates.push({
+      id: player.id,
       name: player.name,
-      nbaTeam: player.nbaTeam || null,
-      normalizedTeam,
-      hasGame,
-      injuryMult,
-      started: false, // Will update below
-    });
-    
-    if (!hasGame) continue;
-    
-    eligiblePlayers.push({
-      player,
-      normalizedTeam,
-      hasGame: true,
-      injuryMult,
-      positions: player.positions || [],
+      positions,
     });
   }
-  
-  // Use maximum matching to find optimal slot assignment
-  const playersForMatching = eligiblePlayers.map(ep => ({
-    id: ep.player.id,
-    name: ep.player.name,
-    positions: ep.positions,
-    injuryMult: ep.injuryMult,
-  }));
-  
-  const { matchCount, assignments } = findMaximumMatching(
-    playersForMatching,
-    STANDARD_LINEUP_SLOTS.slice(0, dailyActiveSlots)
-  );
-  
-  // Calculate weighted starts (applying injury multiplier)
-  let weightedStarts = 0;
-  for (const assignment of assignments) {
-    const player = eligiblePlayers.find(ep => ep.player.id === assignment.playerId);
-    if (player) {
-      weightedStarts += player.injuryMult;
-      // Mark as started in details
-      const detail = playerDetails.find(d => d.name === player.player.name);
-      if (detail) detail.started = true;
-    }
-  }
-  
-  const playersWithGameCount = eligiblePlayers.length;
-  const overflow = Math.max(0, playersWithGameCount - matchCount);
-  const unusedSlots = Math.max(0, dailyActiveSlots - matchCount);
-  
+
+  const { matchCount, assignments } = findMaximumMatching(candidates, lineupSlots);
+
+  const playersWithGame = candidates.length;
+  const startsUsed = matchCount;
+  const overflow = Math.max(0, playersWithGame - startsUsed);
+  const unusedSlots = Math.max(0, lineupSlots.length - startsUsed);
+
   return {
-    playersWithGame: playersWithGameCount,
+    slotsCount: lineupSlots.length,
+    scheduleGamesCount: games.length,
+
+    playersWithGame,
     filteredOut,
-    startsUsed: Math.round(weightedStarts * 10) / 10,
+
+    startsUsed,
     overflow,
     unusedSlots,
+
     missingTeamIdCount,
     slotAssignments: assignments,
-    playerDetails,
+    excludedPlayers,
   };
 }
 
 // ============================================================================
-// MAIN EXPORT - COMPUTE REST OF WEEK STARTS
+// MAIN EXPORT
 // ============================================================================
 
 export interface ComputeRestOfWeekParams {
   rosterPlayers: RosterSlot[];
   matchupDates: string[];
-  dailyActiveSlots?: number;
   gamesByDate: Map<string, NBAGame[]>;
-  injuryPolicy?: InjuryPolicy;
+
+  /** Override lineup slots if league settings support it; defaults to STANDARD_LINEUP_SLOTS */
+  lineupSlots?: LineupSlotConfig[];
 }
 
-/**
- * Compute rest-of-week starts for a team.
- * 
- * THIS IS THE UNIFIED FUNCTION used by BOTH user team AND opponent team.
- * It uses identical logic, normalization, and game lookup for consistency.
- * 
- * Uses maximum bipartite matching to OPTIMIZE lineup filling, ensuring
- * opponent projections reflect their maximum possible starts even if
- * their future lineup is currently empty.
- */
 export function computeRestOfWeekStarts({
   rosterPlayers,
   matchupDates,
-  dailyActiveSlots = STANDARD_LINEUP_SLOTS.length,
   gamesByDate,
-  injuryPolicy = { excludeOut: true, applyDTDMultiplier: true },
+  lineupSlots = STANDARD_LINEUP_SLOTS,
 }: ComputeRestOfWeekParams): RestOfWeekStats {
   const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  
-  // Filter to non-past dates
-  const futureDates = matchupDates.filter(d => d >= todayStr);
-  
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  const futureDates = matchupDates
+    .filter((d) => d >= todayStr)
+    .slice()
+    .sort();
+
   const perDay: DayStartsBreakdown[] = [];
+
   let totalProjectedStarts = 0;
   let totalOverflow = 0;
   let totalUnused = 0;
   let totalRosterGames = 0;
-  
+
   for (const dateStr of futureDates) {
     const games = gamesByDate.get(dateStr) || [];
+
     const dayResult = calculateDayStartsOptimized(
       rosterPlayers,
       games,
-      injuryPolicy,
-      dailyActiveSlots
+      lineupSlots
     );
-    
+
     perDay.push({
       ...dayResult,
       date: dateStr,
     });
-    
+
     totalProjectedStarts += dayResult.startsUsed;
     totalOverflow += dayResult.overflow;
     totalUnused += dayResult.unusedSlots;
     totalRosterGames += dayResult.playersWithGame;
   }
-  
-  const maxPossibleStarts = dailyActiveSlots * futureDates.length;
-  
+
+  const maxPossibleStarts = lineupSlots.length * futureDates.length;
+
   return {
-    projectedStarts: Math.round(totalProjectedStarts * 10) / 10,
+    projectedStarts: totalProjectedStarts,
     maxPossibleStarts,
-    unusedStarts: Math.round((maxPossibleStarts - totalProjectedStarts) * 10) / 10,
+    unusedStarts: maxPossibleStarts - totalProjectedStarts,
     overflowGames: totalOverflow,
     rosterGamesRemaining: totalRosterGames,
     daysRemaining: futureDates.length,
