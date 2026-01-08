@@ -1,12 +1,29 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
+import { RestOfWeekPlanner } from "@/components/RestOfWeekPlanner";
 import { RosterSlot, Player, CategoryStats, SlotType } from "@/types/fantasy";
+import { NBAGame, formatDateForAPI } from "@/lib/nbaApi";
+import { normalizeNbaTeamCode, getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, XCircle, AlertCircle, Calendar, TrendingUp, Lock, AlertTriangle, Target } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, Calendar, TrendingUp, Lock, AlertTriangle, Target, Settings2 } from "lucide-react";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { CustomWeights } from "@/components/WeightSettings";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 // Category definitions with labels
 const CATEGORIES = [
@@ -58,7 +75,7 @@ interface CategoryUrgency {
   key: CategoryKey;
   label: string;
   urgency: "HIGH" | "MED" | "LOW";
-  currentDelta: number; // positive = winning, negative = losing
+  currentDelta: number;
   lowerBetter: boolean;
 }
 
@@ -85,6 +102,15 @@ interface PlayerRecommendation {
   assignedSlot?: string;
 }
 
+interface MatchupWeekDate {
+  dateStr: string;
+  date: Date;
+  dayLabel: string;
+  dateLabel: string;
+  isToday: boolean;
+  isPast: boolean;
+}
+
 interface StartSitAdvisorProps {
   roster: RosterSlot[];
   useCris?: boolean;
@@ -92,6 +118,7 @@ interface StartSitAdvisorProps {
   weeklyMatchups?: WeeklyMatchup[];
   leagueTeams?: { name: string }[];
   effectiveWeights?: CustomWeights;
+  gamesByDate?: Map<string, NBAGame[]>;
 }
 
 // Check if a player is OUT (various formats)
@@ -112,13 +139,66 @@ function getInjuryStatus(status?: string): "healthy" | "DTD" | "GTD" | "OUT" {
 }
 
 // Get injury multiplier
-function getInjuryMultiplier(injuryStatus: "healthy" | "DTD" | "GTD" | "OUT"): number {
+function getInjuryMultiplier(injuryStatus: "healthy" | "DTD" | "GTD" | "OUT", applyInjury: boolean = true): number {
+  if (!applyInjury) return injuryStatus === "OUT" ? 0 : 1.0;
   switch (injuryStatus) {
     case "OUT": return 0;
     case "DTD": return 0.70;
     case "GTD": return 0.85;
     default: return 1.0;
   }
+}
+
+// Check if player has game on a specific date based on schedule
+function playerHasGameOnDate(
+  player: Player,
+  games: NBAGame[]
+): boolean {
+  const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
+  if (!normalizedTeam) return false;
+  
+  return games.some(
+    (g) => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam
+  );
+}
+
+// Get opponent from schedule
+function getOpponentFromSchedule(
+  player: Player,
+  games: NBAGame[]
+): string | null {
+  const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
+  if (!normalizedTeam) return null;
+  
+  const game = games.find(
+    (g) => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam
+  );
+  
+  if (!game) return null;
+  return game.homeTeam === normalizedTeam ? game.awayTeam : game.homeTeam;
+}
+
+// Generate matchup week dates
+function generateMatchupWeekDates(): MatchupWeekDate[] {
+  const weekDateStrs = getMatchupWeekDates();
+  const now = new Date();
+  const todayStr = formatDateForAPI(now);
+  
+  return weekDateStrs.map((dateStr) => {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+    const dayLabel = date.toLocaleDateString("en-US", { weekday: "short" });
+    const dateLabel = `${month}/${day}`;
+    
+    return {
+      dateStr,
+      date,
+      dayLabel,
+      dateLabel,
+      isToday: dateStr === todayStr,
+      isPast: dateStr < todayStr,
+    };
+  });
 }
 
 export const StartSitAdvisor = ({
@@ -128,9 +208,47 @@ export const StartSitAdvisor = ({
   weeklyMatchups = [],
   leagueTeams = [],
   effectiveWeights,
+  gamesByDate = new Map(),
 }: StartSitAdvisorProps) => {
   // Use effective weights if provided, otherwise fall back to default CRIS_WEIGHTS
   const weights = effectiveWeights || (CRIS_WEIGHTS as CustomWeights);
+  
+  // Generate matchup week dates
+  const matchupWeekDates = useMemo(() => generateMatchupWeekDates(), []);
+  
+  // Get today's date string
+  const todayStr = useMemo(() => formatDateForAPI(new Date()), []);
+  
+  // State for selected day
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(todayStr);
+  
+  // Settings state
+  const [applyInjuryMultipliers, setApplyInjuryMultipliers] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // Ensure selected date is valid (not past, within week)
+  useEffect(() => {
+    const validDates = matchupWeekDates.filter((d) => !d.isPast);
+    if (validDates.length > 0 && !validDates.some((d) => d.dateStr === selectedDateStr)) {
+      setSelectedDateStr(validDates[0].dateStr);
+    }
+  }, [matchupWeekDates, selectedDateStr]);
+  
+  // Get games for the selected day
+  const selectedDayGames = useMemo(() => {
+    return gamesByDate.get(selectedDateStr) || [];
+  }, [gamesByDate, selectedDateStr]);
+  
+  // Selected day info
+  const selectedDayInfo = useMemo(() => {
+    return matchupWeekDates.find((d) => d.dateStr === selectedDateStr);
+  }, [matchupWeekDates, selectedDateStr]);
+  
+  // Get non-past days for selector
+  const selectableDays = useMemo(() => {
+    return matchupWeekDates.filter((d) => !d.isPast);
+  }, [matchupWeekDates]);
+
   // Find my team's weekly data if available
   const myWeeklyData = useMemo(() => {
     if (!matchupData || weeklyMatchups.length === 0) return null;
@@ -156,10 +274,9 @@ export const StartSitAdvisor = ({
     return null;
   }, [matchupData, weeklyMatchups]);
 
-  // Calculate category urgency based on Weekly + Matchup projections + today's expected
+  // Calculate category urgency based on Weekly + Matchup projections
   const categoryUrgency = useMemo((): CategoryUrgency[] => {
     if (!matchupData) {
-      // No matchup data - return all MED urgency
       return CATEGORIES.map(cat => ({
         key: cat.key,
         label: cat.label,
@@ -172,13 +289,11 @@ export const StartSitAdvisor = ({
     const projectedMy = matchupData.myTeam.stats;
     const projectedOpp = matchupData.opponent.stats;
     
-    // Use weekly actuals if available
     const currentMy = myWeeklyData?.myTeam.stats;
     const currentOpp = myWeeklyData?.opponent.stats;
     const hasWeeklyData = !!myWeeklyData;
 
     return CATEGORIES.map(cat => {
-      // Use current weekly values or projected baseline
       const myCurrentVal = hasWeeklyData 
         ? (currentMy?.[cat.key as keyof MatchupStats] || 0)
         : (projectedMy[cat.key as keyof MatchupStats] * (cat.key === "fgPct" || cat.key === "ftPct" ? 1 : 40)) || 0;
@@ -186,20 +301,16 @@ export const StartSitAdvisor = ({
         ? (currentOpp?.[cat.key as keyof MatchupStats] || 0)
         : (projectedOpp[cat.key as keyof MatchupStats] * (cat.key === "fgPct" || cat.key === "ftPct" ? 1 : 40)) || 0;
       
-      // Calculate delta (positive = winning)
       let delta: number;
       if (cat.lowerBetter) {
-        // For TO, lower is better, so if I have less, I'm winning
         delta = oppCurrentVal - myCurrentVal;
       } else {
         delta = myCurrentVal - oppCurrentVal;
       }
 
-      // Determine urgency based on current state and projections
       const projMyVal = projectedMy[cat.key as keyof MatchupStats] || 0;
       const projOppVal = projectedOpp[cat.key as keyof MatchupStats] || 0;
       
-      // For projections, use ×40 for counting stats
       const projMyTotal = (cat.key === "fgPct" || cat.key === "ftPct") ? projMyVal : projMyVal * 40;
       const projOppTotal = (cat.key === "fgPct" || cat.key === "ftPct") ? projOppVal : projOppVal * 40;
       
@@ -210,29 +321,23 @@ export const StartSitAdvisor = ({
         projDelta = projMyTotal - projOppTotal;
       }
 
-      // Swingable thresholds (percentage of remaining projection)
       const swingThreshold = 0.15;
       let isSwingable = false;
       
       if (cat.key === "fgPct" || cat.key === "ftPct") {
-        // Percentages: swingable if difference <= 0.020
         isSwingable = Math.abs(delta) <= 0.020;
       } else {
-        // Counting stats: swingable if deficit <= 15% of remaining projection
         const remaining = Math.max(0, (projMyTotal + projOppTotal) / 2 - Math.max(myCurrentVal, oppCurrentVal));
         isSwingable = Math.abs(delta) <= remaining * swingThreshold || Math.abs(delta) <= 10;
       }
 
       let urgency: "HIGH" | "MED" | "LOW";
       if (delta < 0 && isSwingable) {
-        // Currently losing but swingable
         urgency = "HIGH";
       } else if (Math.abs(delta) < (cat.key === "fgPct" || cat.key === "ftPct" ? 0.015 : 8) || 
                  (projDelta < 0 && delta >= 0)) {
-        // Close or projected to lose
         urgency = "MED";
       } else if (delta > 0) {
-        // Winning comfortably
         urgency = "LOW";
       } else {
         urgency = "MED";
@@ -248,7 +353,7 @@ export const StartSitAdvisor = ({
     });
   }, [matchupData, myWeeklyData]);
 
-  // Identify core players (top 6 by CRI on the team) - protected from benching
+  // Identify core players (top 6 by CRI on the team)
   const corePlayers = useMemo(() => {
     const activePlayers = roster.filter(
       (slot) => slot.slotType !== "ir" && slot.player.minutes > 0
@@ -269,22 +374,32 @@ export const StartSitAdvisor = ({
     return slotEligible.some(eligible => playerPositions.includes(eligible));
   };
 
-  // Position-aware lineup optimizer for TODAY
+  // Position-aware lineup optimizer for SELECTED DAY
   const lineupRecommendation = useMemo(() => {
-    // Get players with games today (not OUT)
-    const todayPlayers = roster.filter(slot => {
-      const hasGame = !!slot.player.opponent;
+    // Get players with games on selected day (not OUT)
+    const dayPlayers = roster.filter(slot => {
+      if (slot.slotType === "ir" || slot.player.minutes <= 0) return false;
+      
+      // Check if player has game on selected day
+      const hasGame = selectedDayGames.length > 0 
+        ? playerHasGameOnDate(slot.player, selectedDayGames)
+        : !!slot.player.opponent; // Fall back to imported opponent if no schedule
+      
       const injuryStatus = getInjuryStatus(slot.player.status);
-      return hasGame && injuryStatus !== "OUT" && slot.slotType !== "ir" && slot.player.minutes > 0;
+      return hasGame && injuryStatus !== "OUT";
     });
 
     // Calculate effective score for each player
-    const playersWithScores = todayPlayers.map(slot => {
+    const playersWithScores = dayPlayers.map(slot => {
       const injuryStatus = getInjuryStatus(slot.player.status);
-      const injuryMultiplier = getInjuryMultiplier(injuryStatus);
+      const injuryMultiplier = getInjuryMultiplier(injuryStatus, applyInjuryMultipliers);
       const isCore = corePlayers.has(slot.player.id);
       
-      // Calculate impact score based on category urgency
+      // Get opponent from schedule if available
+      const opponent = selectedDayGames.length > 0
+        ? getOpponentFromSchedule(slot.player, selectedDayGames)
+        : slot.player.opponent;
+      
       let impactScore = 0;
       const helps: string[] = [];
       const risks: string[] = [];
@@ -292,11 +407,9 @@ export const StartSitAdvisor = ({
       categoryUrgency.forEach((cat) => {
         const playerVal = slot.player[cat.key as keyof Player] as number || 0;
         
-        // Weight based on urgency (close categories get boosted +20%, locked get -30%)
         const urgencyWeight = cat.urgency === "HIGH" ? 1.2 : cat.urgency === "MED" ? 1.0 : 0.7;
         const importanceWeight = weights[cat.key as keyof typeof weights] || 1;
         
-        // Normalize player contribution
         let contribution: number;
         if (cat.key === "fgPct" || cat.key === "ftPct") {
           contribution = cat.lowerBetter ? (0.45 - playerVal) : (playerVal - 0.45);
@@ -309,7 +422,6 @@ export const StartSitAdvisor = ({
         const catScore = contribution * urgencyWeight * importanceWeight;
         impactScore += catScore;
 
-        // Track helps/risks for urgent categories
         if (cat.urgency === "HIGH" || cat.urgency === "MED") {
           if (cat.key === "turnovers") {
             if (playerVal > 2.5) risks.push(cat.label);
@@ -323,10 +435,9 @@ export const StartSitAdvisor = ({
         }
       });
 
-      // Apply injury multiplier to effective score (DTD players = 0.70 effective)
+      // Apply injury multiplier to effective score
       impactScore *= injuryMultiplier;
 
-      // Add base CRI/wCRI component (50% weight)
       const baseScore = useCris ? (slot.player.cri ?? 0) : (slot.player.wCri ?? 0);
       const finalScore = impactScore * 0.5 + baseScore * 0.5;
 
@@ -334,7 +445,7 @@ export const StartSitAdvisor = ({
       else if (injuryStatus === "GTD") risks.push("GTD");
 
       return {
-        slot,
+        slot: { ...slot, player: { ...slot.player, opponent: opponent || slot.player.opponent } },
         score: finalScore,
         helps: helps.slice(0, 2),
         risks: risks.slice(0, 2),
@@ -348,18 +459,16 @@ export const StartSitAdvisor = ({
     // Sort by score descending
     playersWithScores.sort((a, b) => b.score - a.score);
 
-    // Greedy slot assignment (position-aware)
+    // Greedy slot assignment
     const usedSlots = new Set<number>();
     const assignedPlayers = new Set<string>();
     const startLineup: PlayerRecommendation[] = [];
     const benchToday: PlayerRecommendation[] = [];
     const unfilledSlots: string[] = [];
 
-    // Try to fill each slot in order
     for (let slotIdx = 0; slotIdx < LINEUP_SLOTS.length; slotIdx++) {
       const slotDef = LINEUP_SLOTS[slotIdx];
       
-      // Find best available player for this slot
       const bestPlayer = playersWithScores.find(p => 
         !assignedPlayers.has(p.slot.player.id) && 
         canFillSlot(p.slot.player, slotDef.eligible)
@@ -375,7 +484,6 @@ export const StartSitAdvisor = ({
       }
     }
 
-    // Remaining players with games today go to bench
     playersWithScores.forEach(p => {
       if (!assignedPlayers.has(p.slot.player.id)) {
         benchToday.push(p);
@@ -383,9 +491,9 @@ export const StartSitAdvisor = ({
     });
 
     return { startLineup, benchToday, unfilledSlots };
-  }, [roster, categoryUrgency, corePlayers, useCris, weights]);
+  }, [roster, selectedDayGames, categoryUrgency, corePlayers, useCris, weights, applyInjuryMultipliers]);
 
-  // Get OUT players and no-game players
+  // Get OUT players and no-game players for selected day
   const { outPlayers, noGamePlayers, monitorPlayers } = useMemo(() => {
     const out: PlayerRecommendation[] = [];
     const noGame: PlayerRecommendation[] = [];
@@ -394,16 +502,24 @@ export const StartSitAdvisor = ({
     roster.filter(slot => slot.slotType !== "ir" && slot.player.minutes > 0).forEach(slot => {
       const injuryStatus = getInjuryStatus(slot.player.status);
       const isCore = corePlayers.has(slot.player.id);
-      const hasGame = !!slot.player.opponent;
+      
+      // Check if player has game on selected day
+      const hasGame = selectedDayGames.length > 0
+        ? playerHasGameOnDate(slot.player, selectedDayGames)
+        : !!slot.player.opponent;
+      
+      const opponent = selectedDayGames.length > 0
+        ? getOpponentFromSchedule(slot.player, selectedDayGames)
+        : slot.player.opponent;
       
       const rec: PlayerRecommendation = {
-        slot,
+        slot: { ...slot, player: { ...slot.player, opponent: opponent || undefined } },
         score: slot.player.cri ?? 0,
         helps: [],
         risks: injuryStatus === "DTD" ? ["DTD"] : injuryStatus === "GTD" ? ["GTD"] : [],
         isCore,
         injuryStatus,
-        injuryMultiplier: getInjuryMultiplier(injuryStatus),
+        injuryMultiplier: getInjuryMultiplier(injuryStatus, applyInjuryMultipliers),
       };
 
       if (injuryStatus === "OUT") {
@@ -416,7 +532,7 @@ export const StartSitAdvisor = ({
     });
 
     return { outPlayers: out, noGamePlayers: noGame, monitorPlayers: monitor };
-  }, [roster, corePlayers]);
+  }, [roster, selectedDayGames, corePlayers, applyInjuryMultipliers]);
 
   // Get close categories for summary line
   const closeCategories = useMemo(() => {
@@ -426,10 +542,8 @@ export const StartSitAdvisor = ({
       .map(c => c.label);
   }, [categoryUrgency]);
 
-  // Determine if we have weekly data
   const hasWeeklyData = !!myWeeklyData;
 
-  // Don't render if no roster
   if (roster.length === 0) {
     return null;
   }
@@ -437,153 +551,254 @@ export const StartSitAdvisor = ({
   const scoreLabel = useCris ? "CRI" : "wCRI";
   const { startLineup, benchToday, unfilledSlots } = lineupRecommendation;
   const hasAnyPlayers = startLineup.length > 0 || benchToday.length > 0 || noGamePlayers.length > 0 || outPlayers.length > 0;
+  const selectedDayLabel = selectedDayInfo?.isToday ? "Today" : `${selectedDayInfo?.dayLabel} ${selectedDayInfo?.dateLabel}`;
 
   return (
-    <Card className="gradient-card border-border p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <TrendingUp className="w-4 h-4 text-primary" />
-        <h3 className="font-display font-bold text-sm">Start/Sit Advisor</h3>
-        <Badge variant="outline" className="text-[10px] ml-auto">
-          {hasWeeklyData ? "Weekly + Proj" : matchupData ? "Projections" : scoreLabel}
-        </Badge>
-      </div>
-
-      {/* Fallback notice if no game data */}
-      {!matchupData && (
-        <div className="text-[10px] text-muted-foreground mb-2 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3" />
-          Unable to read matchup — using {scoreLabel}-only logic
+    <div className="space-y-3">
+      <Card className="gradient-card border-border p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingUp className="w-4 h-4 text-primary" />
+          <h3 className="font-display font-bold text-sm">Start/Sit Advisor</h3>
+          <Badge variant="outline" className="text-[10px] ml-auto">
+            {hasWeeklyData ? "Weekly + Proj" : matchupData ? "Projections" : scoreLabel}
+          </Badge>
         </div>
-      )}
 
-      {!hasAnyPlayers ? (
-        <div className="text-center py-4 text-muted-foreground text-sm">
-          <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p>No players with games detected.</p>
-          <p className="text-xs mt-1">Import your roster on the Roster tab first.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Optimized for close categories notice */}
-          {closeCategories.length > 0 && (
-            <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-              <Target className="w-3 h-3 text-primary" />
-              Optimized for: {closeCategories.join(", ")}
+        {/* Day Selector */}
+        {selectableDays.length > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] text-muted-foreground font-medium">Select day:</span>
+              <Collapsible open={showSettings} onOpenChange={setShowSettings}>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                    <Settings2 className="w-3 h-3" />
+                    Settings
+                  </button>
+                </CollapsibleTrigger>
+              </Collapsible>
             </div>
-          )}
+            
+            <ToggleGroup
+              type="single"
+              value={selectedDateStr}
+              onValueChange={(val) => val && setSelectedDateStr(val)}
+              className="flex flex-wrap gap-1 justify-start"
+            >
+              {selectableDays.map((day) => (
+                <ToggleGroupItem
+                  key={day.dateStr}
+                  value={day.dateStr}
+                  className={cn(
+                    "text-[10px] px-2 py-1 h-auto",
+                    day.isToday && "border-primary"
+                  )}
+                >
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="font-semibold">{day.isToday ? "Today" : day.dayLabel}</span>
+                    <span className="text-muted-foreground">{day.dateLabel}</span>
+                  </div>
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+            
+            {/* Settings Panel */}
+            <Collapsible open={showSettings} onOpenChange={setShowSettings}>
+              <CollapsibleContent className="mt-2">
+                <div className="bg-muted/30 rounded-md p-2 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Label htmlFor="injury-toggle" className="text-[10px] cursor-help">
+                            Apply injury probabilities
+                          </Label>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-[180px]">
+                          <p className="text-xs">DTD = 70%, GTD = 85%, Q = 70%. Turn off to assume all play.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <Switch
+                      id="injury-toggle"
+                      checked={applyInjuryMultipliers}
+                      onCheckedChange={setApplyInjuryMultipliers}
+                    />
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+        )}
 
-          {/* Recommended Lineup (Today) */}
-          {startLineup.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-stat-positive" />
-                <span className="text-xs font-semibold text-stat-positive">Recommended Lineup (Today)</span>
-                <span className="text-[10px] text-muted-foreground">({startLineup.length})</span>
-              </div>
-              <div className="space-y-1.5">
-                {startLineup.map((rec) => (
-                  <PlayerRow
-                    key={rec.slot.player.id}
-                    rec={rec}
-                    recommendation="start"
-                  />
-                ))}
-              </div>
-              {unfilledSlots.length > 0 && (
-                <p className="text-[10px] text-stat-negative mt-1">
-                  Unfilled slots: {unfilledSlots.length} ({unfilledSlots.join(", ")})
-                </p>
-              )}
-            </div>
-          )}
+        {/* Fallback notice if no game data */}
+        {!matchupData && (
+          <div className="text-[10px] text-muted-foreground mb-2 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Unable to read matchup — using {scoreLabel}-only logic
+          </div>
+        )}
+        
+        {/* Schedule data notice */}
+        {selectedDayGames.length === 0 && !selectedDayInfo?.isToday && (
+          <div className="text-[10px] text-muted-foreground mb-2 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            No schedule data for {selectedDayLabel} — using imported opponent info
+          </div>
+        )}
 
-          {/* Monitor (Core + DTD) */}
-          {monitorPlayers.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <AlertTriangle className="w-3.5 h-3.5 text-warning" />
-                <span className="text-xs font-semibold text-warning">Monitor</span>
-                <span className="text-[10px] text-muted-foreground">({monitorPlayers.length})</span>
+        {!hasAnyPlayers ? (
+          <div className="text-center py-4 text-muted-foreground text-sm">
+            <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p>No players with games detected.</p>
+            <p className="text-xs mt-1">Import your roster on the Roster tab first.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Optimized for close categories notice */}
+            {closeCategories.length > 0 && (
+              <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <Target className="w-3 h-3 text-primary" />
+                Optimized for: {closeCategories.join(", ")}
               </div>
-              <div className="space-y-1.5">
-                {monitorPlayers.map((rec) => (
-                  <PlayerRow
-                    key={rec.slot.player.id}
-                    rec={rec}
-                    recommendation="monitor"
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Bench (Today) */}
-          {benchToday.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <XCircle className="w-3.5 h-3.5 text-stat-negative" />
-                <span className="text-xs font-semibold text-stat-negative">Bench (Today)</span>
-                <span className="text-[10px] text-muted-foreground">({benchToday.length})</span>
-              </div>
-              <div className="space-y-1.5">
-                {benchToday.map((rec) => (
-                  <PlayerRow
-                    key={rec.slot.player.id}
-                    rec={rec}
-                    recommendation="bench"
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Unavailable (OUT) */}
-          {outPlayers.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <XCircle className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-xs font-semibold text-muted-foreground">Unavailable (OUT)</span>
-                <span className="text-[10px] text-muted-foreground">({outPlayers.length})</span>
-              </div>
-              <div className="space-y-1.5 opacity-50">
-                {outPlayers.map((rec) => (
-                  <PlayerRow
-                    key={rec.slot.player.id}
-                    rec={rec}
-                    recommendation="out"
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* No Game Today */}
-          {noGamePlayers.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <AlertCircle className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-xs font-semibold text-muted-foreground">No Game Today</span>
-                <span className="text-[10px] text-muted-foreground">({noGamePlayers.length})</span>
-              </div>
-              <div className="space-y-1.5 opacity-60">
-                {noGamePlayers.slice(0, 5).map((rec) => (
-                  <PlayerRow
-                    key={rec.slot.player.id}
-                    rec={rec}
-                    recommendation="none"
-                  />
-                ))}
-                {noGamePlayers.length > 5 && (
-                  <p className="text-[10px] text-muted-foreground text-center">
-                    +{noGamePlayers.length - 5} more without games
+            {/* Recommended Lineup */}
+            {startLineup.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-stat-positive" />
+                  <span className="text-xs font-semibold text-stat-positive">
+                    Recommended Lineup ({selectedDayLabel})
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">({startLineup.length})</span>
+                </div>
+                <div className="space-y-1.5">
+                  {startLineup.map((rec) => (
+                    <PlayerRow
+                      key={rec.slot.player.id}
+                      rec={rec}
+                      recommendation="start"
+                    />
+                  ))}
+                </div>
+                {unfilledSlots.length > 0 && (
+                  <p className="text-[10px] text-stat-negative mt-1">
+                    Unfilled slots: {unfilledSlots.length} ({unfilledSlots.join(", ")})
                   </p>
                 )}
               </div>
-            </div>
-          )}
-        </div>
+            )}
+
+            {/* Monitor (Core + DTD) */}
+            {monitorPlayers.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-warning" />
+                  <span className="text-xs font-semibold text-warning">Monitor</span>
+                  <span className="text-[10px] text-muted-foreground">({monitorPlayers.length})</span>
+                </div>
+                <div className="space-y-1.5">
+                  {monitorPlayers.map((rec) => (
+                    <PlayerRow
+                      key={rec.slot.player.id}
+                      rec={rec}
+                      recommendation="monitor"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Bench */}
+            {benchToday.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <XCircle className="w-3.5 h-3.5 text-stat-negative" />
+                  <span className="text-xs font-semibold text-stat-negative">
+                    Bench ({selectedDayLabel})
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">({benchToday.length})</span>
+                </div>
+                <div className="space-y-1.5">
+                  {benchToday.map((rec) => (
+                    <PlayerRow
+                      key={rec.slot.player.id}
+                      rec={rec}
+                      recommendation="bench"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Unavailable (OUT) */}
+            {outPlayers.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <XCircle className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-muted-foreground">Unavailable (OUT)</span>
+                  <span className="text-[10px] text-muted-foreground">({outPlayers.length})</span>
+                </div>
+                <div className="space-y-1.5 opacity-50">
+                  {outPlayers.map((rec) => (
+                    <PlayerRow
+                      key={rec.slot.player.id}
+                      rec={rec}
+                      recommendation="out"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* No Game on Selected Day */}
+            {noGamePlayers.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    No Game ({selectedDayLabel})
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">({noGamePlayers.length})</span>
+                </div>
+                <div className="space-y-1.5 opacity-60">
+                  {noGamePlayers.slice(0, 5).map((rec) => (
+                    <PlayerRow
+                      key={rec.slot.player.id}
+                      rec={rec}
+                      recommendation="none"
+                    />
+                  ))}
+                  {noGamePlayers.length > 5 && (
+                    <p className="text-[10px] text-muted-foreground text-center">
+                      +{noGamePlayers.length - 5} more without games
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+      
+      {/* Rest of Week Planner */}
+      {roster.length > 0 && gamesByDate.size > 0 && (
+        <RestOfWeekPlanner
+          roster={roster}
+          weekDates={matchupWeekDates.map((d) => ({
+            dateStr: d.dateStr,
+            dayLabel: d.dayLabel,
+            dateLabel: d.dateLabel,
+            isToday: d.isToday,
+          }))}
+          gamesByDate={gamesByDate}
+          selectedDateStr={selectedDateStr}
+          onSelectDate={setSelectedDateStr}
+          applyInjuryMultipliers={applyInjuryMultipliers}
+        />
       )}
-    </Card>
+    </div>
   );
 };
 
