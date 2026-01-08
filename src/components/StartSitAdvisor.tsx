@@ -798,7 +798,6 @@ export const StartSitAdvisor = ({
           gamesByDate={gamesByDate}
           selectedDateStr={selectedDateStr}
           onSelectDate={setSelectedDateStr}
-          applyInjuryMultipliers={applyInjuryMultipliers}
         />
       )}
     </div>
