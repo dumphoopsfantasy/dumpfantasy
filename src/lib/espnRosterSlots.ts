@@ -283,8 +283,10 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     let status = "";
     let positions: string[] = [];
     let isEmptySlot = false;
+    let foundPositions = false; // Track if we've found positions (helps distinguish team vs fantasy owner)
 
-    for (let j = idx + 1; j < Math.min(idx + 14, lines.length); j++) {
+    // Increase lookahead window from 14 to 30 to handle ESPN copies with extra tokens
+    for (let j = idx + 1; j < Math.min(idx + 30, lines.length); j++) {
       loopGuard.check();
 
       const next = lines[j];
@@ -302,18 +304,30 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
 
       if (next === "MOVE" || next === "--") continue;
 
-      // Positions like "SG, SF" or "PF, C"
-      if (positions.length === 0 && /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i.test(next)) {
+      // Positions like "SG, SF" or "PF,C" (handle varied spacing)
+      // Also handle "SG" alone or "PG,SG,SF"
+      if (positions.length === 0 && /^(PG|SG|SF|PF|C)(,\s*(PG|SG|SF|PF|C))*$/i.test(next.replace(/\s/g, ''))) {
         positions = parsePositions(next);
+        foundPositions = true;
         continue;
       }
 
       // Team codes appear like "Cha", "Mia", "GS", "Utah" (case varies)
-      if (!team && /^[A-Za-z]{2,4}$/.test(next)) {
+      // IMPORTANT: If we've already found positions AND team, subsequent 2-4 letter codes
+      // are likely fantasy owner abbreviations (e.g., "SAS" appearing after "SA" + "PG,SG")
+      if (/^[A-Za-z]{2,4}$/.test(next)) {
         const normalized = normalizeNbaTeamCode(next);
         if (normalized) {
-          team = normalized;
-          continue;
+          // Only set team if we haven't found one yet
+          // OR if we found it but it was before positions (early in block = likely team)
+          if (!team) {
+            team = normalized;
+            continue;
+          }
+          // If we already have team AND positions, this is likely fantasy owner - skip
+          if (team && foundPositions) {
+            continue;
+          }
         }
       }
 
@@ -347,9 +361,29 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
 
     if (isEmptySlot || !name) continue;
 
+    // Second pass: if no team found, search more aggressively in the first 10 tokens after slot
+    if (!team) {
+      for (let j = idx + 1; j < Math.min(idx + 10, lines.length); j++) {
+        const next = lines[j];
+        if (slotPattern.test(next)) break;
+        if (/^[A-Za-z]{2,4}$/.test(next)) {
+          const normalized = normalizeNbaTeamCode(next);
+          if (normalized) {
+            team = normalized;
+            break;
+          }
+        }
+      }
+    }
+
     // Warn if we couldn't extract team code
     if (!team) {
       devWarn(`[parseEspnRosterSlots] No team code found for player: ${name}`);
+    }
+
+    // Warn if no positions found (common parsing issue)
+    if (positions.length === 0) {
+      devWarn(`[parseEspnRosterSlots] No positions found for player: ${name}`);
     }
 
     playerInfo.push({
