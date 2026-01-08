@@ -810,6 +810,7 @@ const Index = () => {
                 <div className="lg:w-80 shrink-0 order-first">
                 <StartSitAdvisor 
                     roster={rosterWithCRI} 
+                    opponentRoster={opponentRoster}
                     useCris={useCris} 
                     matchupData={matchupData}
                     weeklyMatchups={weeklyMatchups}
