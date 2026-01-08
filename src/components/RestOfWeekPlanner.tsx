@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -7,11 +7,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { RosterSlot, Player } from "@/types/fantasy";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { RosterSlot } from "@/types/fantasy";
 import { NBAGame } from "@/lib/nbaApi";
-import { normalizeNbaTeamCode, STANDARD_LINEUP_SLOTS } from "@/lib/scheduleAwareProjection";
 import { cn } from "@/lib/utils";
-import { CalendarDays, Users, ArrowUp, AlertCircle } from "lucide-react";
+import { CalendarDays, Users, ArrowUp, AlertCircle, ChevronDown, Bug } from "lucide-react";
+import { 
+  computeRestOfWeekStarts, 
+  RestOfWeekStats,
+  DayStartsBreakdown 
+} from "@/lib/restOfWeekUtils";
 
 interface DayStats {
   dateStr: string;
@@ -25,10 +34,12 @@ interface DayStats {
   startsUsed: number;
   overflow: number;
   unusedStarts: number;
+  missingTeamIdCount: number;
   // Opponent
   oppPlayersWithGames: number;
   oppStartsUsed: number;
   oppOverflow: number;
+  oppMissingTeamIdCount: number;
 }
 
 interface RestOfWeekPlannerProps {
@@ -46,92 +57,8 @@ interface RestOfWeekPlannerProps {
   applyInjuryMultipliers?: boolean;
 }
 
-// Check if player can fill a slot based on positions
-function canFillSlot(positions: string[], eligiblePositions: string[]): boolean {
-  const playerPositions = positions.map((p) => p.toUpperCase());
-  return eligiblePositions.some((eligible) => playerPositions.includes(eligible));
-}
-
-// Get injury multiplier
-function getInjuryMultiplier(status?: string, applyInjury: boolean = true): number {
-  if (!applyInjury) return 1.0;
-  if (!status) return 1.0;
-  const s = status.toUpperCase().trim();
-  if (s === "O" || s === "OUT" || s === "IR" || s === "SUSP" || s.includes("(O)")) return 0;
-  if (s === "DTD" || s.includes("DTD")) return 0.6;
-  if (s === "Q" || s === "QUESTIONABLE") return 0.7;
-  if (s === "GTD" || s === "P" || s === "PROBABLE") return 0.85;
-  return 1.0;
-}
-
-// Calculate starts for a single day using greedy slot filling
-function calculateDayStarts(
-  roster: RosterSlot[],
-  games: NBAGame[],
-  applyInjury: boolean
-): { startsUsed: number; playersWithGames: number; maxSlots: number } {
-  // Get players with games on this day (non-IR)
-  const playersWithGames: { player: Player; injuryMult: number; positions: string[] }[] = [];
-  
-  for (const slot of roster) {
-    if (slot.slotType === "ir") continue;
-    const player = slot.player;
-    if (!player.minutes || player.minutes <= 0) continue;
-    
-    const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
-    if (!normalizedTeam) continue;
-    
-    const hasGame = games.some(
-      (g) => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam
-    );
-    if (!hasGame) continue;
-    
-    const injuryMult = getInjuryMultiplier(player.status, applyInjury);
-    if (injuryMult === 0) continue;
-    
-    playersWithGames.push({
-      player,
-      injuryMult,
-      positions: player.positions || [],
-    });
-  }
-  
-  // Greedy slot filling: prioritize more constrained players
-  const playersWithEligibility = playersWithGames.map((p) => {
-    let eligibleSlots = 0;
-    for (const slot of STANDARD_LINEUP_SLOTS) {
-      if (canFillSlot(p.positions, slot.eligiblePositions)) eligibleSlots++;
-    }
-    return { ...p, eligibleSlots };
-  });
-  
-  playersWithEligibility.sort((a, b) => a.eligibleSlots - b.eligibleSlots);
-  
-  const usedSlots = new Set<string>();
-  const usedPlayers = new Set<string>();
-  let startsUsed = 0;
-  
-  for (const player of playersWithEligibility) {
-    if (usedPlayers.has(player.player.id)) continue;
-    
-    for (const slotDef of STANDARD_LINEUP_SLOTS) {
-      if (usedSlots.has(slotDef.slot)) continue;
-      
-      if (canFillSlot(player.positions, slotDef.eligiblePositions)) {
-        startsUsed += player.injuryMult;
-        usedSlots.add(slotDef.slot);
-        usedPlayers.add(player.player.id);
-        break;
-      }
-    }
-  }
-  
-  return {
-    startsUsed: Math.round(startsUsed * 10) / 10,
-    playersWithGames: playersWithGames.length,
-    maxSlots: STANDARD_LINEUP_SLOTS.length,
-  };
-}
+// Check if we're in dev mode
+const isDevMode = import.meta.env.DEV;
 
 export const RestOfWeekPlanner = ({
   roster,
@@ -142,30 +69,57 @@ export const RestOfWeekPlanner = ({
   onSelectDate,
   applyInjuryMultipliers = true,
 }: RestOfWeekPlannerProps) => {
+  const [showDebug, setShowDebug] = useState(false);
   const hasOpponent = opponentRoster.length > 0;
   
-  // Calculate stats for each day
+  const dateStrings = useMemo(() => weekDates.map(wd => wd.dateStr), [weekDates]);
+  
+  const injuryPolicy = useMemo(() => ({
+    excludeOut: true,
+    applyDTDMultiplier: applyInjuryMultipliers,
+  }), [applyInjuryMultipliers]);
+  
+  // Compute user team stats using unified function
+  const userStats: RestOfWeekStats = useMemo(() => {
+    return computeRestOfWeekStarts({
+      rosterPlayers: roster,
+      matchupDates: dateStrings,
+      gamesByDate,
+      injuryPolicy,
+    });
+  }, [roster, dateStrings, gamesByDate, injuryPolicy]);
+  
+  // Compute opponent stats using SAME unified function
+  const oppStats: RestOfWeekStats = useMemo(() => {
+    if (!hasOpponent) {
+      return {
+        projectedStarts: 0,
+        maxPossibleStarts: 0,
+        unusedStarts: 0,
+        overflowGames: 0,
+        daysRemaining: 0,
+        perDay: [],
+      };
+    }
+    return computeRestOfWeekStarts({
+      rosterPlayers: opponentRoster,
+      matchupDates: dateStrings,
+      gamesByDate,
+      injuryPolicy,
+    });
+  }, [opponentRoster, dateStrings, gamesByDate, injuryPolicy, hasOpponent]);
+  
+  // Build day stats for grid display
   const dayStats = useMemo((): DayStats[] => {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     
     return weekDates.map((wd) => {
-      const games = gamesByDate.get(wd.dateStr) || [];
       const isPast = wd.dateStr < todayStr;
       
-      // My team
-      const { startsUsed, playersWithGames, maxSlots } = isPast
-        ? { startsUsed: 0, playersWithGames: 0, maxSlots: 8 }
-        : calculateDayStarts(roster, games, applyInjuryMultipliers);
-      
-      // Opponent
-      const oppResult = isPast || !hasOpponent
-        ? { startsUsed: 0, playersWithGames: 0, maxSlots: 8 }
-        : calculateDayStarts(opponentRoster, games, applyInjuryMultipliers);
-      
-      const overflow = Math.max(0, playersWithGames - maxSlots);
-      const unusedStarts = Math.max(0, maxSlots - Math.ceil(startsUsed));
-      const oppOverflow = Math.max(0, oppResult.playersWithGames - oppResult.maxSlots);
+      // Find the day breakdown from computed stats
+      const userDay = userStats.perDay.find(d => d.date === wd.dateStr);
+      const oppDay = oppStats.perDay.find(d => d.date === wd.dateStr);
       
       return {
         dateStr: wd.dateStr,
@@ -173,35 +127,24 @@ export const RestOfWeekPlanner = ({
         dateLabel: wd.dateLabel,
         isToday: wd.dateStr === todayStr,
         isPast,
-        playersWithGames,
-        maxSlots,
-        startsUsed,
-        overflow,
-        unusedStarts: isPast ? 0 : (playersWithGames < maxSlots ? unusedStarts : 0),
-        oppPlayersWithGames: oppResult.playersWithGames,
-        oppStartsUsed: oppResult.startsUsed,
-        oppOverflow,
+        // User team
+        playersWithGames: userDay?.playersWithGame ?? 0,
+        maxSlots: 8,
+        startsUsed: userDay?.startsUsed ?? 0,
+        overflow: userDay?.overflow ?? 0,
+        unusedStarts: userDay?.unusedSlots ?? 0,
+        missingTeamIdCount: userDay?.missingTeamIdCount ?? 0,
+        // Opponent
+        oppPlayersWithGames: oppDay?.playersWithGame ?? 0,
+        oppStartsUsed: oppDay?.startsUsed ?? 0,
+        oppOverflow: oppDay?.overflow ?? 0,
+        oppMissingTeamIdCount: oppDay?.missingTeamIdCount ?? 0,
       };
     });
-  }, [weekDates, gamesByDate, roster, opponentRoster, applyInjuryMultipliers, hasOpponent]);
-  
-  // Calculate totals
-  const totals = useMemo(() => {
-    const nonPast = dayStats.filter((d) => !d.isPast);
-    return {
-      totalStarts: nonPast.reduce((sum, d) => sum + d.startsUsed, 0),
-      totalMaxSlots: nonPast.reduce((sum, d) => sum + d.maxSlots, 0),
-      totalOverflow: nonPast.reduce((sum, d) => sum + d.overflow, 0),
-      totalUnused: nonPast.reduce((sum, d) => sum + d.unusedStarts, 0),
-      daysRemaining: nonPast.length,
-      // Opponent totals
-      oppTotalStarts: nonPast.reduce((sum, d) => sum + d.oppStartsUsed, 0),
-      oppTotalOverflow: nonPast.reduce((sum, d) => sum + d.oppOverflow, 0),
-    };
-  }, [dayStats]);
+  }, [weekDates, userStats, oppStats]);
   
   // Calculate start advantage
-  const startAdvantage = totals.totalStarts - totals.oppTotalStarts;
+  const startAdvantage = userStats.projectedStarts - oppStats.projectedStarts;
   
   return (
     <Card className="gradient-card border-border p-3">
@@ -212,11 +155,11 @@ export const RestOfWeekPlanner = ({
           <Tooltip>
             <TooltipTrigger asChild>
               <Badge variant="outline" className="text-[9px] ml-auto cursor-help">
-                {totals.totalStarts.toFixed(0)} / {totals.totalMaxSlots} starts
+                {userStats.daysRemaining} days left
               </Badge>
             </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-[200px] text-xs">
-              <p>Projected starts remaining this week (weighted by injury probability)</p>
+            <TooltipContent side="top" className="max-w-[250px] text-xs">
+              <p>Projected starts = total lineup slots that can be filled by players with games on remaining days, capped by daily slot limits and weighted by injury probability.</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -295,7 +238,7 @@ export const RestOfWeekPlanner = ({
                   )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-[200px]">
+              <TooltipContent side="bottom" className="max-w-[220px]">
                 <div className="text-xs space-y-1">
                   <p className="font-semibold">{day.dayLabel} {day.dateLabel}</p>
                   {day.isPast ? (
@@ -321,6 +264,11 @@ export const RestOfWeekPlanner = ({
                           {day.unusedStarts} slots unfilled
                         </p>
                       )}
+                      {day.missingTeamIdCount > 0 && (
+                        <p className="text-stat-negative text-[10px]">
+                          ⚠ {day.missingTeamIdCount} players missing team ID
+                        </p>
+                      )}
                       
                       {hasOpponent && (
                         <>
@@ -338,6 +286,11 @@ export const RestOfWeekPlanner = ({
                               ⚠ {day.oppOverflow} overflow
                             </p>
                           )}
+                          {day.oppMissingTeamIdCount > 0 && (
+                            <p className="text-stat-negative text-[10px]">
+                              ⚠ {day.oppMissingTeamIdCount} players missing team ID
+                            </p>
+                          )}
                         </>
                       )}
                     </>
@@ -349,75 +302,44 @@ export const RestOfWeekPlanner = ({
         ))}
       </div>
       
-      {/* Summary stats */}
-      <div className="flex items-center justify-between text-[10px] border-t border-border pt-2">
-        <div className="flex items-center gap-3">
+      {/* Summary stats - improved format: X / Y starts (Z unused) */}
+      <div className="flex flex-col gap-2 border-t border-border pt-2">
+        {/* User team summary */}
+        <div className="flex items-center justify-between text-[10px]">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="flex items-center gap-1 cursor-help">
-                  <span className="text-muted-foreground">You:</span>
-                  <span className="font-mono font-medium">{totals.totalStarts.toFixed(0)}</span>
+                <span className="flex items-center gap-1.5 cursor-help">
+                  <span className="text-primary font-medium">You:</span>
+                  <span className="font-mono font-semibold">
+                    {userStats.projectedStarts.toFixed(0)} / {userStats.maxPossibleStarts}
+                  </span>
+                  <span className="text-muted-foreground">
+                    starts ({userStats.unusedStarts.toFixed(0)} unused)
+                  </span>
                 </span>
               </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Your projected starts ({totals.daysRemaining} days remaining)</p>
+              <TooltipContent side="top" className="max-w-[250px]">
+                <div className="text-xs space-y-1">
+                  <p className="font-semibold">Your Projected Starts</p>
+                  <p><span className="font-mono">{userStats.projectedStarts.toFixed(0)}</span> projected starts remaining</p>
+                  <p><span className="font-mono">{userStats.maxPossibleStarts}</span> max possible (8 slots × {userStats.daysRemaining} days)</p>
+                  <p><span className="font-mono">{userStats.unusedStarts.toFixed(0)}</span> starts unused (empty slots)</p>
+                  {userStats.overflowGames > 0 && (
+                    <p className="text-warning"><span className="font-mono">{userStats.overflowGames}</span> overflow (benched due to slot limits)</p>
+                  )}
+                </div>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
           
-          {hasOpponent && (
-            <>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="flex items-center gap-1 cursor-help">
-                      <span className="text-muted-foreground">Opp:</span>
-                      <span className="font-mono font-medium">{totals.oppTotalStarts.toFixed(0)}</span>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">Opponent's projected starts</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge 
-                      variant="outline" 
-                      className={cn(
-                        "text-[9px] cursor-help",
-                        startAdvantage > 0 ? "border-stat-positive text-stat-positive" : 
-                        startAdvantage < 0 ? "border-stat-negative text-stat-negative" : 
-                        "border-muted-foreground text-muted-foreground"
-                      )}
-                    >
-                      {startAdvantage > 0 ? "+" : ""}{startAdvantage.toFixed(0)} edge
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">
-                      {startAdvantage > 0 
-                        ? `You have ${startAdvantage.toFixed(0)} more starts than opponent` 
-                        : startAdvantage < 0 
-                        ? `Opponent has ${Math.abs(startAdvantage).toFixed(0)} more starts than you`
-                        : "Even start count with opponent"}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </>
-          )}
-          
-          {totals.totalOverflow > 0 && (
+          {userStats.overflowGames > 0 && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="flex items-center gap-1 text-warning cursor-help">
                     <AlertCircle className="w-3 h-3" />
-                    <span>{totals.totalOverflow} overflow</span>
+                    <span>{userStats.overflowGames} overflow</span>
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -427,7 +349,162 @@ export const RestOfWeekPlanner = ({
             </TooltipProvider>
           )}
         </div>
+        
+        {/* Opponent team summary */}
+        {hasOpponent && (
+          <div className="flex items-center justify-between text-[10px]">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex items-center gap-1.5 cursor-help">
+                    <span className="text-stat-negative font-medium">Opp:</span>
+                    <span className="font-mono font-semibold">
+                      {oppStats.projectedStarts.toFixed(0)} / {oppStats.maxPossibleStarts}
+                    </span>
+                    <span className="text-muted-foreground">
+                      starts ({oppStats.unusedStarts.toFixed(0)} unused)
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[250px]">
+                  <div className="text-xs space-y-1">
+                    <p className="font-semibold">Opponent's Projected Starts</p>
+                    <p><span className="font-mono">{oppStats.projectedStarts.toFixed(0)}</span> projected starts remaining</p>
+                    <p><span className="font-mono">{oppStats.maxPossibleStarts}</span> max possible (8 slots × {oppStats.daysRemaining} days)</p>
+                    <p><span className="font-mono">{oppStats.unusedStarts.toFixed(0)}</span> starts unused (empty slots)</p>
+                    {oppStats.overflowGames > 0 && (
+                      <p className="text-warning"><span className="font-mono">{oppStats.overflowGames}</span> overflow (benched due to slot limits)</p>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            
+            {/* Start advantage badge */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge 
+                    variant="outline" 
+                    className={cn(
+                      "text-[9px] cursor-help",
+                      startAdvantage > 0 ? "border-stat-positive text-stat-positive" : 
+                      startAdvantage < 0 ? "border-stat-negative text-stat-negative" : 
+                      "border-muted-foreground text-muted-foreground"
+                    )}
+                  >
+                    {startAdvantage > 0 ? "+" : ""}{startAdvantage.toFixed(0)} edge
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">
+                    {startAdvantage > 0 
+                      ? `You have ${startAdvantage.toFixed(0)} more starts than opponent` 
+                      : startAdvantage < 0 
+                      ? `Opponent has ${Math.abs(startAdvantage).toFixed(0)} more starts than you`
+                      : "Even start count with opponent"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )}
       </div>
+      
+      {/* Dev-only debug panel */}
+      {isDevMode && (
+        <Collapsible open={showDebug} onOpenChange={setShowDebug} className="mt-2">
+          <CollapsibleTrigger className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors">
+            <Bug className="w-3 h-3" />
+            <span>Planner Debug</span>
+            <ChevronDown className={cn("w-3 h-3 transition-transform", showDebug && "rotate-180")} />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-2 p-2 bg-muted/30 rounded text-[9px] font-mono space-y-2">
+              {/* User team debug */}
+              <div>
+                <p className="font-semibold text-primary mb-1">Your Team ({roster.length} players)</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="p-1">Date</th>
+                        <th className="p-1">Players w/Game</th>
+                        <th className="p-1">Starts</th>
+                        <th className="p-1">Overflow</th>
+                        <th className="p-1">Missing ID</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userStats.perDay.map((day) => (
+                        <tr key={day.date} className="border-b border-border/50">
+                          <td className="p-1">{day.date}</td>
+                          <td className="p-1">{day.playersWithGame}</td>
+                          <td className="p-1">{day.startsUsed}</td>
+                          <td className="p-1">{day.overflow}</td>
+                          <td className={cn("p-1", day.missingTeamIdCount > 0 && "text-stat-negative")}>
+                            {day.missingTeamIdCount}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              {/* Opponent team debug */}
+              {hasOpponent && (
+                <div>
+                  <p className="font-semibold text-stat-negative mb-1">Opponent ({opponentRoster.length} players)</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="p-1">Date</th>
+                          <th className="p-1">Players w/Game</th>
+                          <th className="p-1">Starts</th>
+                          <th className="p-1">Overflow</th>
+                          <th className="p-1">Missing ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {oppStats.perDay.map((day) => (
+                          <tr key={day.date} className="border-b border-border/50">
+                            <td className="p-1">{day.date}</td>
+                            <td className="p-1">{day.playersWithGame}</td>
+                            <td className="p-1">{day.startsUsed}</td>
+                            <td className="p-1">{day.overflow}</td>
+                            <td className={cn("p-1", day.missingTeamIdCount > 0 && "text-stat-negative")}>
+                              {day.missingTeamIdCount}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* Show missing player details if any */}
+                  {oppStats.perDay.some(d => d.missingTeamIdCount > 0) && (
+                    <div className="mt-2">
+                      <p className="text-stat-negative mb-1">⚠ Opponent Players Missing Team ID:</p>
+                      <div className="max-h-24 overflow-y-auto">
+                        {oppStats.perDay[0]?.playerDetails
+                          .filter(p => !p.normalizedTeam)
+                          .map((p, i) => (
+                            <p key={i} className="text-muted-foreground">
+                              {p.name}: nbaTeam="{p.nbaTeam || 'null'}"
+                            </p>
+                          ))
+                        }
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </Card>
   );
 };
