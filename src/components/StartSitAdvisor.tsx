@@ -113,6 +113,7 @@ interface MatchupWeekDate {
 
 interface StartSitAdvisorProps {
   roster: RosterSlot[];
+  opponentRoster?: RosterSlot[];
   useCris?: boolean;
   matchupData?: MatchupProjectionData | null;
   weeklyMatchups?: WeeklyMatchup[];
@@ -203,6 +204,7 @@ function generateMatchupWeekDates(): MatchupWeekDate[] {
 
 export const StartSitAdvisor = ({
   roster,
+  opponentRoster = [],
   useCris = true,
   matchupData,
   weeklyMatchups = [],
@@ -786,6 +788,7 @@ export const StartSitAdvisor = ({
       {roster.length > 0 && gamesByDate.size > 0 && (
         <RestOfWeekPlanner
           roster={roster}
+          opponentRoster={opponentRoster}
           weekDates={matchupWeekDates.map((d) => ({
             dateStr: d.dateStr,
             dayLabel: d.dayLabel,
