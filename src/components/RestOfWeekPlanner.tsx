@@ -99,6 +99,30 @@ export const RestOfWeekPlanner = ({
     });
   }, [roster, dateStrings, gamesByDate]);
 
+  // Runtime diagnostics for opponent roster data quality
+  const oppRosterDiagnostics = useMemo(() => {
+    const rosterSize = opponentRoster.length;
+    const teamsPresent = opponentRoster.filter(s => s.player.nbaTeam && s.player.nbaTeam.length > 0).length;
+    const positionsPresent = opponentRoster.filter(s => s.player.positions && s.player.positions.length > 0).length;
+    
+    const hasDataIssue = rosterSize > 0 && (teamsPresent === 0 || positionsPresent === 0);
+    
+    if (hasDataIssue) {
+      console.warn(`[RestOfWeekPlanner] Opponent roster data issue detected:`, {
+        rosterSize,
+        teamsPresent,
+        positionsPresent,
+        samplePlayers: opponentRoster.slice(0, 3).map(s => ({
+          name: s.player.name,
+          nbaTeam: s.player.nbaTeam,
+          positions: s.player.positions,
+        })),
+      });
+    }
+    
+    return { rosterSize, teamsPresent, positionsPresent, hasDataIssue };
+  }, [opponentRoster]);
+
   const oppStats: RestOfWeekResult = useMemo(() => {
     if (!hasOpponent) {
       return {
@@ -361,6 +385,21 @@ export const RestOfWeekPlanner = ({
         {/* Opponent */}
         {hasOpponent && (
           <>
+            {/* Warning banner if opponent roster has missing teams/positions */}
+            {oppRosterDiagnostics.hasDataIssue && (
+              <div className="p-2 bg-destructive/10 border border-destructive/30 rounded text-[9px] text-destructive mb-2">
+                <p className="font-medium">⚠ Opponent roster missing teams/positions</p>
+                <p className="text-destructive/80 mt-0.5">
+                  Roster: {oppRosterDiagnostics.rosterSize} players · 
+                  Teams found: {oppRosterDiagnostics.teamsPresent} · 
+                  Positions found: {oppRosterDiagnostics.positionsPresent}
+                </p>
+                <p className="text-destructive/70 mt-1">
+                  Re-import opponent roster data (include the full stats table).
+                </p>
+              </div>
+            )}
+            
             <div className="flex items-start justify-between gap-2 pt-1 border-t border-border/30">
               <div className="flex items-center gap-2">
                 <span className="text-stat-negative font-medium w-8">Opp</span>
@@ -370,7 +409,25 @@ export const RestOfWeekPlanner = ({
                 </span>
                 <span className="text-muted-foreground">possible starts</span>
               </div>
-              <span className="text-muted-foreground">{oppStats.remainingRosterGames}g</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground cursor-help flex items-center gap-1">
+                      <Info className="w-3 h-3" />
+                      {oppStats.remainingRosterGames}g
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">Opp roster games remaining: {oppStats.remainingRosterGames}</p>
+                    <p className="text-xs">Possible starts (optimized): {oppStats.remainingStarts}</p>
+                    <p className="text-xs">Unfilled slots: {oppStats.remainingUnusedSlots}</p>
+                    <p className="text-xs">Overflow games: {oppStats.remainingOverflow}</p>
+                    <p className="text-xs mt-1 border-t pt-1">
+                      Data: {oppRosterDiagnostics.rosterSize} players, {oppRosterDiagnostics.teamsPresent} teams, {oppRosterDiagnostics.positionsPresent} positions
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
 
             <div className="flex items-center justify-between text-muted-foreground">
