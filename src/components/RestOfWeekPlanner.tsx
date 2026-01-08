@@ -67,84 +67,14 @@ interface RestOfWeekPlannerProps {
   gamesByDate: Map<string, NBAGame[]>;
   selectedDateStr: string;
   onSelectDate: (dateStr: string) => void;
-  /** Optional weekly starts cap (default 32) */
+  /** Optional weekly starts cap (default 32) - kept for future use */
   weeklyStartsCap?: number;
 }
 
 // Check if we're in dev mode
 const isDevMode = import.meta.env.DEV;
 
-const DEFAULT_WEEKLY_STARTS_CAP = 32;
 const DAILY_SLOTS = 8; // ESPN default (PG, SG, SF, PF, C, G, F, UTIL)
-
-/**
- * Allocates starts across remaining days, respecting the weekly cap.
- * Returns: per-day starts used after cap, per-day cap overflow, and totals.
- */
-function allocateWeeklyCap(
-  remainingPerDay: DayStartsBreakdown[],
-  startsUsedSoFar: number,
-  weeklyCap: number
-): {
-  byDate: Record<
-    string,
-    {
-      startsUsed: number;
-      overflowByCap: number;
-      remainingBefore: number;
-      remainingAfter: number;
-    }
-  >;
-  totals: {
-    startsUsedSoFar: number;
-    remainingCap: number;
-    projectedAdditionalStarts: number;
-    projectedFinalStarts: number;
-    capOverflowTotal: number;
-  };
-} {
-  const byDate: Record<
-    string,
-    {
-      startsUsed: number;
-      overflowByCap: number;
-      remainingBefore: number;
-      remainingAfter: number;
-    }
-  > = {};
-
-  let remaining = Math.max(0, weeklyCap - startsUsedSoFar);
-  let add = 0;
-  let overflowTotal = 0;
-
-  for (const d of [...remainingPerDay].sort((a, b) => a.date.localeCompare(b.date))) {
-    const before = remaining;
-    const used = Math.min(d.startsUsed, remaining);
-    const overflow = Math.max(0, d.startsUsed - used);
-
-    remaining -= used;
-    add += used;
-    overflowTotal += overflow;
-
-    byDate[d.date] = {
-      startsUsed: used,
-      overflowByCap: overflow,
-      remainingBefore: before,
-      remainingAfter: remaining,
-    };
-  }
-
-  return {
-    byDate,
-    totals: {
-      startsUsedSoFar,
-      remainingCap: Math.max(0, weeklyCap - startsUsedSoFar),
-      projectedAdditionalStarts: add,
-      projectedFinalStarts: Math.min(weeklyCap, startsUsedSoFar + add),
-      capOverflowTotal: overflowTotal,
-    },
-  };
-}
 
 export const RestOfWeekPlanner = ({
   roster,
@@ -153,7 +83,6 @@ export const RestOfWeekPlanner = ({
   gamesByDate,
   selectedDateStr,
   onSelectDate,
-  weeklyStartsCap = DEFAULT_WEEKLY_STARTS_CAP,
 }: RestOfWeekPlannerProps) => {
   const [showDebug, setShowDebug] = useState(false);
   const hasOpponent = opponentRoster.length > 0;
@@ -195,18 +124,7 @@ export const RestOfWeekPlanner = ({
     });
   }, [opponentRoster, dateStrings, gamesByDate, hasOpponent]);
 
-  // Weekly cap allocation using elapsed starts (deterministic, no "unknown")
-  const youCap = useMemo(
-    () => allocateWeeklyCap(userStats.remainingPerDay, userStats.elapsedStarts, weeklyStartsCap),
-    [userStats.remainingPerDay, userStats.elapsedStarts, weeklyStartsCap]
-  );
-
-  const oppCap = useMemo(
-    () => allocateWeeklyCap(oppStats.remainingPerDay, oppStats.elapsedStarts, weeklyStartsCap),
-    [oppStats.remainingPerDay, oppStats.elapsedStarts, weeklyStartsCap]
-  );
-
-  // Build day stats for grid display
+  // Build day stats for grid display (no cap logic - just optimized starts per day)
   const dayStats = useMemo((): DayStats[] => {
     return weekDates.map((wd) => {
       const userDay = userStats.allPerDay.find((d) => d.date === wd.dateStr);
@@ -216,16 +134,7 @@ export const RestOfWeekPlanner = ({
       const isElapsed = userStats.elapsedPerDay.some((d) => d.date === wd.dateStr);
 
       const optimizedStarts = userDay?.startsUsed ?? 0;
-      const startsUsed = isElapsed
-        ? optimizedStarts // Elapsed days: use actual optimized starts (already counted)
-        : (youCap.byDate[wd.dateStr]?.startsUsed ?? optimizedStarts);
-      const capOverflow = isElapsed ? 0 : (youCap.byDate[wd.dateStr]?.overflowByCap ?? 0);
-
       const oppOptimizedStarts = oppDay?.startsUsed ?? 0;
-      const oppStartsUsed = isElapsed
-        ? oppOptimizedStarts
-        : (oppCap.byDate[wd.dateStr]?.startsUsed ?? oppOptimizedStarts);
-      const oppCapOverflow = isElapsed ? 0 : (oppCap.byDate[wd.dateStr]?.overflowByCap ?? 0);
 
       return {
         dateStr: wd.dateStr,
@@ -236,31 +145,32 @@ export const RestOfWeekPlanner = ({
 
         rosterGames: userDay?.playersWithGame ?? 0,
         optimizedStarts,
-        startsUsed,
-        capOverflow,
+        startsUsed: optimizedStarts, // No cap clamping - just pure optimized
+        capOverflow: 0, // Not using cap in remaining view
         maxSlots: DAILY_SLOTS,
         benchedGames: userDay?.overflow ?? 0,
         unusedSlots: userDay?.unusedSlots ?? DAILY_SLOTS,
 
         oppRosterGames: oppDay?.playersWithGame ?? 0,
         oppOptimizedStarts,
-        oppStartsUsed,
-        oppCapOverflow,
+        oppStartsUsed: oppOptimizedStarts,
+        oppCapOverflow: 0,
         oppBenchedGames: oppDay?.overflow ?? 0,
         oppUnusedSlots: oppDay?.unusedSlots ?? DAILY_SLOTS,
 
-        startEdge: startsUsed - oppStartsUsed,
+        startEdge: optimizedStarts - oppOptimizedStarts,
 
         userDay,
         oppDay,
       };
     });
-  }, [weekDates, userStats, oppStats, youCap.byDate, oppCap.byDate, todayStr]);
+  }, [weekDates, userStats, oppStats, todayStr]);
 
-  const projectedFinalEdge = useMemo(() => {
+  // Edge = you remaining starts - opp remaining starts
+  const remainingEdge = useMemo(() => {
     if (!hasOpponent) return 0;
-    return youCap.totals.projectedFinalStarts - oppCap.totals.projectedFinalStarts;
-  }, [hasOpponent, youCap.totals.projectedFinalStarts, oppCap.totals.projectedFinalStarts]);
+    return userStats.remainingStarts - oppStats.remainingStarts;
+  }, [hasOpponent, userStats.remainingStarts, oppStats.remainingStarts]);
 
   return (
     <Card className="border-border/50 bg-card/50 p-3">
@@ -304,13 +214,14 @@ export const RestOfWeekPlanner = ({
 
                   <div className="flex flex-col items-center mt-0.5 gap-0">
                     {/* Starts: you / slots (left) vs opp (right) */}
+                    {/* Optimized starts / slots (not cap-clamped for remaining view) */}
                     <span
                       className={cn(
                         "font-mono text-[10px]",
                         day.rosterGames > 0 ? "text-foreground" : "text-muted-foreground"
                       )}
                     >
-                      {day.rosterGames > 0 ? `${day.startsUsed}/${day.maxSlots}` : "—"}
+                      {day.rosterGames > 0 ? `${day.optimizedStarts}/${day.maxSlots}` : "—"}
                     </span>
 
                     {/* Roster games today */}
@@ -320,15 +231,15 @@ export const RestOfWeekPlanner = ({
                       </span>
                     )}
 
-                    {/* Daily edge */}
-                    {hasOpponent && !day.isElapsed && day.rosterGames > 0 && day.startEdge !== 0 && (
+                    {/* Daily edge (based on optimized starts, not cap-clamped) */}
+                    {hasOpponent && !day.isElapsed && day.rosterGames > 0 && (day.optimizedStarts - day.oppOptimizedStarts) !== 0 && (
                       <span
                         className={cn(
                           "text-[8px] font-medium",
-                          day.startEdge > 0 ? "text-stat-positive" : "text-stat-negative"
+                          (day.optimizedStarts - day.oppOptimizedStarts) > 0 ? "text-stat-positive" : "text-stat-negative"
                         )}
                       >
-                        {day.startEdge > 0 ? "+" : ""}{day.startEdge}
+                        {(day.optimizedStarts - day.oppOptimizedStarts) > 0 ? "+" : ""}{day.optimizedStarts - day.oppOptimizedStarts}
                       </span>
                     )}
                   </div>
@@ -411,19 +322,17 @@ export const RestOfWeekPlanner = ({
         ))}
       </div>
 
-      {/* Summary */}
+      {/* Summary - Remaining Starts Outlook */}
       <div className="space-y-2 text-[10px] border-t border-border/50 pt-2">
         {/* You */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="text-primary font-medium w-8">You</span>
             <span className="font-mono">
-              <span className="font-semibold">
-                {youCap.totals.startsUsedSoFar}
-              </span>
-              <span className="text-muted-foreground">/{weeklyStartsCap}</span>
+              <span className="font-semibold">{userStats.remainingStarts}</span>
+              <span className="text-muted-foreground">/{userStats.maxPossibleStarts}</span>
             </span>
-            <span className="text-muted-foreground">starts used</span>
+            <span className="text-muted-foreground">possible starts</span>
           </div>
 
           <TooltipProvider>
@@ -436,23 +345,17 @@ export const RestOfWeekPlanner = ({
               </TooltipTrigger>
               <TooltipContent>
                 <p className="text-xs">Roster games remaining: {userStats.remainingRosterGames}</p>
-                <p className="text-xs">Max startable (optimized): {userStats.remainingStarts}</p>
-                <p className="text-xs">Benched (schedule overflow): {userStats.remainingOverflow}</p>
-                <p className="text-xs">Unfilled slot opportunities: {userStats.remainingUnusedSlots}</p>
-                <p className="text-xs">Cap overflow (blocked): {youCap.totals.capOverflowTotal}</p>
+                <p className="text-xs">Possible starts (optimized): {userStats.remainingStarts}</p>
+                <p className="text-xs">Unfilled slots: {userStats.remainingUnusedSlots}</p>
+                <p className="text-xs">Overflow games: {userStats.remainingOverflow}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
 
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">+ Projected additional:</span>
-          <span className="font-mono font-semibold">{youCap.totals.projectedAdditionalStarts}</span>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">= Projected final:</span>
-          <span className="font-mono font-semibold">{youCap.totals.projectedFinalStarts}</span>
+        <div className="flex items-center justify-between text-muted-foreground">
+          <span>{userStats.remainingUnusedSlots} unfilled slots</span>
+          <span>{userStats.remainingOverflow} overflow games</span>
         </div>
 
         {/* Opponent */}
@@ -462,22 +365,17 @@ export const RestOfWeekPlanner = ({
               <div className="flex items-center gap-2">
                 <span className="text-stat-negative font-medium w-8">Opp</span>
                 <span className="font-mono">
-                  <span className="font-semibold">{oppCap.totals.startsUsedSoFar}</span>
-                  <span className="text-muted-foreground">/{weeklyStartsCap}</span>
+                  <span className="font-semibold">{oppStats.remainingStarts}</span>
+                  <span className="text-muted-foreground">/{oppStats.maxPossibleStarts}</span>
                 </span>
-                <span className="text-muted-foreground">starts used</span>
+                <span className="text-muted-foreground">possible starts</span>
               </div>
               <span className="text-muted-foreground">{oppStats.remainingRosterGames}g</span>
             </div>
 
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">+ Projected additional:</span>
-              <span className="font-mono font-semibold">{oppCap.totals.projectedAdditionalStarts}</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">= Projected final:</span>
-              <span className="font-mono font-semibold">{oppCap.totals.projectedFinalStarts}</span>
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span>{oppStats.remainingUnusedSlots} unfilled slots</span>
+              <span>{oppStats.remainingOverflow} overflow games</span>
             </div>
 
             <div className="flex justify-end pt-1">
@@ -485,14 +383,14 @@ export const RestOfWeekPlanner = ({
                 variant="outline"
                 className={cn(
                   "text-[9px] px-2",
-                  projectedFinalEdge > 0
+                  remainingEdge > 0
                     ? "border-stat-positive/50 text-stat-positive bg-stat-positive/5"
-                    : projectedFinalEdge < 0
+                    : remainingEdge < 0
                       ? "border-stat-negative/50 text-stat-negative bg-stat-negative/5"
                       : "border-muted-foreground/30"
                 )}
               >
-                {projectedFinalEdge > 0 ? "+" : ""}{projectedFinalEdge} start edge
+                {remainingEdge > 0 ? "+" : ""}{remainingEdge} start edge (remaining)
               </Badge>
             </div>
           </>
@@ -515,57 +413,50 @@ export const RestOfWeekPlanner = ({
               
               <div className="space-y-2">
                 {[
-                  { label: "You", stats: userStats, cap: youCap, color: "text-primary" },
-                  ...(hasOpponent ? [{ label: "Opp", stats: oppStats, cap: oppCap, color: "text-stat-negative" }] : [])
+                  { label: "You", stats: userStats, color: "text-primary" },
+                  ...(hasOpponent ? [{ label: "Opp", stats: oppStats, color: "text-stat-negative" }] : [])
                 ].map((t) => (
                   <div key={t.label}>
                     <p className={cn("font-semibold mb-1", t.color)}>
-                      {t.label} · elapsed={t.stats.elapsedDays}d/{t.stats.elapsedStarts}s · remaining={t.stats.remainingDays}d · cap={t.cap.totals.remainingCap}
+                      {t.label} · remaining={t.stats.remainingDays}d · opt={t.stats.remainingStarts}/{t.stats.maxPossibleStarts} · unfilled={t.stats.remainingUnusedSlots} · overflow={t.stats.remainingOverflow}
                     </p>
 
                     <div className="space-y-1">
-                      {t.stats.allPerDay.map((d) => {
-                        const isElapsed = t.stats.elapsedPerDay.some((e) => e.date === d.date);
-                        const capRow = t.cap.byDate[d.date];
-                        const used = isElapsed ? d.startsUsed : (capRow?.startsUsed ?? d.startsUsed);
-                        const overflowByCap = isElapsed ? 0 : (capRow?.overflowByCap ?? 0);
-
-                        return (
-                          <details key={d.date} className="bg-muted/10 rounded p-1">
-                            <summary className="cursor-pointer select-none">
-                              {isElapsed ? "✓" : "○"} {d.date} · cand={d.playersWithGame} · slots={d.slotsCount} · opt={d.startsUsed} · unfilled={d.unusedSlots} · benched={d.overflow} · used={used} · capOv={overflowByCap}
-                            </summary>
-                            <div className="mt-1 space-y-1">
-                              <div className="text-muted-foreground">Assignments ({d.slotAssignments.length}):</div>
-                              <div className="flex flex-wrap gap-0.5">
-                                {d.slotAssignments.length ? (
-                                  d.slotAssignments.map((a, i) => (
-                                    <span key={i} className="bg-muted/30 px-1 rounded">
-                                      {a.assignedSlot}→{a.playerName}
-                                    </span>
-                                  ))
-                                ) : (
-                                  <span className="text-muted-foreground">(none)</span>
-                                )}
-                              </div>
-
-                              <div className="text-muted-foreground mt-1">Excluded ({d.excludedPlayers.length}):</div>
-                              <div className="space-y-0.5">
-                                {d.excludedPlayers.length ? (
-                                  d.excludedPlayers.slice(0, 20).map((p) => (
-                                    <div key={p.playerId}>
-                                      {p.playerName}: {p.reason}
-                                      {p.reason === "Missing team" && p.nbaTeam ? ` ("${p.nbaTeam}")` : ""}
-                                    </div>
-                                  ))
-                                ) : (
-                                  <div className="text-muted-foreground">(none)</div>
-                                )}
-                              </div>
+                      {t.stats.remainingPerDay.map((d) => (
+                        <details key={d.date} className="bg-muted/10 rounded p-1">
+                          <summary className="cursor-pointer select-none">
+                            ○ {d.date} · cand={d.playersWithGame} · slots={d.slotsCount} · opt={d.startsUsed} · unfilled={d.unusedSlots} · overflow={d.overflow}
+                          </summary>
+                          <div className="mt-1 space-y-1">
+                            <div className="text-muted-foreground">Assignments ({d.slotAssignments.length}):</div>
+                            <div className="flex flex-wrap gap-0.5">
+                              {d.slotAssignments.length ? (
+                                d.slotAssignments.map((a, i) => (
+                                  <span key={i} className="bg-muted/30 px-1 rounded">
+                                    {a.assignedSlot}→{a.playerName}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-muted-foreground">(none)</span>
+                              )}
                             </div>
-                          </details>
-                        );
-                      })}
+
+                            <div className="text-muted-foreground mt-1">Excluded ({d.excludedPlayers.length}):</div>
+                            <div className="space-y-0.5">
+                              {d.excludedPlayers.length ? (
+                                d.excludedPlayers.slice(0, 20).map((p) => (
+                                  <div key={p.playerId}>
+                                    {p.playerName}: {p.reason}
+                                    {p.reason === "Missing team" && p.nbaTeam ? ` ("${p.nbaTeam}")` : ""}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-muted-foreground">(none)</div>
+                              )}
+                            </div>
+                          </div>
+                        </details>
+                      ))}
                     </div>
                   </div>
                 ))}
