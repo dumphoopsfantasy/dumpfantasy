@@ -149,6 +149,9 @@ const Index = () => {
   
   // Dynamic wCRI
   const dynamicWeights = useDynamicWeights(globalWeights);
+  
+  // NBA Schedule for Start/Sit Advisor
+  const { gamesByDate } = useNBAUpcomingSchedule(7);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -805,13 +808,14 @@ const Index = () => {
               {/* Start/Sit Advisor on LEFT side under Your Team */}
               {matchupData && rosterWithCRI.length > 0 && (
                 <div className="lg:w-80 shrink-0 order-first">
-                  <StartSitAdvisor 
+                <StartSitAdvisor 
                     roster={rosterWithCRI} 
                     useCris={useCris} 
                     matchupData={matchupData}
                     weeklyMatchups={weeklyMatchups}
                     leagueTeams={leagueTeams}
                     effectiveWeights={dynamicWeights.effectiveWeights}
+                    gamesByDate={gamesByDate}
                   />
                 </div>
               )}
