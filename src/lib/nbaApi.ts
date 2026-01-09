@@ -1,6 +1,7 @@
 // NBA API utilities for fetching real scores and games
 // Uses Lovable Cloud edge function for live data from ESPN
 
+import { normalizeNbaTeamCode } from './scheduleAwareProjection';
 export interface NBAGame {
   gameId: string;
   homeTeam: string;
@@ -156,9 +157,10 @@ export const isTeamPlayingOnDate = (
   teamCode: string, 
   games: NBAGame[]
 ): boolean => {
-  const upperTeam = teamCode.toUpperCase();
+  const normalizedTeam = normalizeNbaTeamCode(teamCode);
+  if (!normalizedTeam) return false;
   return games.some(
-    game => game.homeTeam === upperTeam || game.awayTeam === upperTeam
+    game => game.homeTeam === normalizedTeam || game.awayTeam === normalizedTeam
   );
 };
 
@@ -167,14 +169,16 @@ export const getOpponentForTeam = (
   teamCode: string,
   games: NBAGame[]
 ): { opponent: string; isHome: boolean; gameTime?: string } | null => {
-  const upperTeam = teamCode.toUpperCase();
+  const normalizedTeam = normalizeNbaTeamCode(teamCode);
+  if (!normalizedTeam) return null;
+  
   const game = games.find(
-    g => g.homeTeam === upperTeam || g.awayTeam === upperTeam
+    g => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam
   );
   
   if (!game) return null;
   
-  const isHome = game.homeTeam === upperTeam;
+  const isHome = game.homeTeam === normalizedTeam;
   const opponent = isHome ? game.awayTeam : game.homeTeam;
   
   return { opponent, isHome, gameTime: game.gameTime };
