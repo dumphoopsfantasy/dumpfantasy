@@ -58,9 +58,15 @@ export const StreamingPlanner = ({
     const dateLabels = new Map<string, string>();
     scheduleDates.forEach(sd => dateLabels.set(sd.dateStr, sd.dayLabel));
 
+    // DEBUG: Log filtering context
+    console.log(`[StreamingPlanner] Filtering ${freeAgents.length} free agents for dates:`, [...includedDates]);
+
     for (const player of freeAgents) {
       // Skip injured players
-      if (player.status === 'O' || player.status === 'IR') continue;
+      if (player.status === 'O' || player.status === 'IR') {
+        console.log(`[StreamingPlanner] ${player.name} EXCLUDED: injured (${player.status})`);
+        continue;
+      }
       
       // Check if player plays on excluded dates
       let playsOnExcluded = false;
@@ -70,17 +76,24 @@ export const StreamingPlanner = ({
           break;
         }
       }
-      if (playsOnExcluded) continue;
+      if (playsOnExcluded) {
+        console.log(`[StreamingPlanner] ${player.name} EXCLUDED: plays on excluded date`);
+        continue;
+      }
 
       // Count games on included dates
       const playingDates: string[] = [];
       for (const dateStr of includedDates) {
-        if (isTeamPlayingOnDate(player.nbaTeam, dateStr)) {
+        const plays = isTeamPlayingOnDate(player.nbaTeam, dateStr);
+        if (plays) {
           playingDates.push(dateStr);
         }
       }
 
-      if (playingDates.length === 0) continue;
+      if (playingDates.length === 0) {
+        console.log(`[StreamingPlanner] ${player.name} (${player.nbaTeam}) EXCLUDED: no games on selected dates`, [...includedDates]);
+        continue;
+      }
 
       // Calculate score: games × CRI/wCRI value
       const criValue = useCris ? player.cri : player.wCri;
@@ -102,6 +115,7 @@ export const StreamingPlanner = ({
     // Sort by score (games × CRI)
     suggestions.sort((a, b) => b.score - a.score);
 
+    console.log(`[StreamingPlanner] ${suggestions.length} suggestions found`);
     return suggestions.slice(0, 10);
   }, [freeAgents, includedDates, excludedDates, scheduleDates, isTeamPlayingOnDate, useCris]);
 
