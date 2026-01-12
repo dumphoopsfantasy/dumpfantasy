@@ -253,6 +253,21 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
   // 4) Extract player info block (slot -> name/team/positions/opponent/status)
   const slotPattern = /^(PG|SG|SF|PF|C|G|F\/C|UTIL|Bench|IR)$/i;
   const statusPattern = /^(O|OUT|DTD|GTD|Q|SUSP|P|IR)$/i;
+  
+  // Tokens that should NEVER be parsed as player names
+  const isTimeToken = (s: string) => /^\d{1,2}:\d{2}\s*(AM|PM)?$/i.test(s);
+  const isNonPlayerToken = (s: string) => {
+    const upper = s.toUpperCase().trim();
+    return (
+      isTimeToken(s) ||
+      /^(STARTERS?|STATS?|SLOT|Player|opp|STATUS|MOVE|MIN|FGM|FGA|FG%|FTM|FTA|FT%|3PM|REB|AST|STL|BLK|TO|PTS|PR15|%ROST|\+\/-|Research|Trade|Acquisition|Limits|ESPN\.com|Copyright|Fantasy|Chat|Bench|IR|Empty|Action|ACQUIRE|DROP|WATCH)$/i.test(s) ||
+      /^(ADD|REMOVE|SET|EDIT|VIEW|NEWS|INJURY|INJURED|SCHEDULE|ROSTER|TEAM|LEAGUE|MATCHUP|PROJECTIONS?)$/i.test(upper) ||
+      // Pure numbers (stats)
+      /^[-+]?\d+(?:\.\d+)?$/.test(s) ||
+      // Fraction patterns (stats like "15/30")
+      /^\d+\/\d+$/.test(s)
+    );
+  };
 
   const playerInfo: Array<{
     name: string;
@@ -295,6 +310,11 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
       if (next === "Empty") {
         isEmptySlot = true;
         break;
+      }
+      
+      // CRITICAL: Skip time tokens and non-player tokens immediately
+      if (isTimeToken(next)) {
+        continue;
       }
 
       if (!status && statusPattern.test(next)) {
@@ -342,17 +362,25 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
 
       // Name: handle doubled ESPN copy like "LaMelo BallLaMelo Ball"
       if (!name) {
+        // Skip non-player tokens
+        if (isNonPlayerToken(next)) {
+          continue;
+        }
+        
         const doubled = next.match(/^([A-Z][a-zA-Z'.-]+(?:\s+[A-Za-z'.-]+)*)\1$/);
         if (doubled) {
           name = doubled[1].trim();
           continue;
         }
 
-        // Fallback heuristic: avoid obvious headers
+        // Fallback heuristic: avoid obvious headers, must look like a name
+        // A valid name should have at least one letter and be reasonably long
         if (
-          next.length > 3 &&
+          next.length > 2 &&
           /[A-Za-z]/.test(next) &&
-          !/^(STARTERS|STATS|SLOT|Player|opp|STATUS)$/i.test(next)
+          !isNonPlayerToken(next) &&
+          // Must not be just digits and punctuation
+          /[A-Za-z]{2,}/.test(next)
         ) {
           name = next;
         }
@@ -360,6 +388,12 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
     }
 
     if (isEmptySlot || !name) continue;
+    
+    // Final sanity check: reject time tokens that slipped through as names
+    if (isTimeToken(name)) {
+      devWarn(`[parseEspnRosterSlots] Rejected time token as player name: ${name}`);
+      continue;
+    }
 
     // Second pass: if no team found, search more aggressively in the first 10 tokens after slot
     if (!team) {

@@ -241,4 +241,295 @@ describe("parseEspnRosterSlotsFromTeamPage", () => {
     // ×40 = 184 which is reasonable for a team
     expect(teamBlk * 40).toBeLessThan(300);
   });
+
+  it("never parses time tokens like '7:30 PM' as player names", () => {
+    // This simulates ESPN data where times appear as standalone lines
+    const input = [
+      "PG",
+      "Devin BookerDevin Booker",
+      "Phx",
+      "PG, SG",
+      "@Chi",
+      "7:30 PM",
+      "STATS",
+      "MIN",
+      "FGM/FGA",
+      "FG%",
+      "FTM/FTA",
+      "FT%",
+      "3PM",
+      "REB",
+      "AST",
+      "STL",
+      "BLK",
+      "TO",
+      "PTS",
+      "PR15",
+      "%ROST",
+      "+/-",
+      "35.0",
+      "8.5/18.0",
+      ".472",
+      "5.0/5.5",
+      ".909",
+      "2.5",
+      "4.5",
+      "6.5",
+      "1.1",
+      "0.3",
+      "2.8",
+      "24.5",
+      "8.50",
+      "99.0",
+      "+0.5",
+    ].join("\n");
+
+    const roster = parseEspnRosterSlotsFromTeamPage(input);
+    
+    // Should only have Devin Booker, not a player named "7:30 PM"
+    expect(roster.length).toBe(1);
+    expect(roster[0].player.name).toBe("Devin Booker");
+    expect(roster.every(r => !/^\d{1,2}:\d{2}/.test(r.player.name))).toBe(true);
+  });
+
+  it("parses single-position players correctly (Champagnie SA SF)", () => {
+    const input = [
+      "SF",
+      "Julian ChampagnieJulian Champagnie",
+      "SA",
+      "SF",
+      "@Min",
+      "8:00 PM",
+      "STATS",
+      "MIN",
+      "FGM/FGA",
+      "FG%",
+      "FTM/FTA",
+      "FT%",
+      "3PM",
+      "REB",
+      "AST",
+      "STL",
+      "BLK",
+      "TO",
+      "PTS",
+      "PR15",
+      "%ROST",
+      "+/-",
+      "28.0",
+      "4.5/10.0",
+      ".450",
+      "1.5/2.0",
+      ".750",
+      "2.0",
+      "5.0",
+      "2.0",
+      "0.8",
+      "0.5",
+      "1.2",
+      "12.5",
+      "5.00",
+      "45.0",
+      "+0.2",
+    ].join("\n");
+
+    const roster = parseEspnRosterSlotsFromTeamPage(input);
+    expect(roster.length).toBe(1);
+    
+    const p = roster[0].player;
+    expect(p.name).toBe("Julian Champagnie");
+    expect(p.nbaTeam).toBe("SAS"); // SA normalizes to SAS
+    expect(p.positions).toContain("SF");
+  });
+
+  it("parses Embiid (Phi C) and Garland (Cle PG) correctly", () => {
+    const input = [
+      "C",
+      "Joel EmbiidJoel Embiid",
+      "Phi",
+      "C",
+      "vs LAL",
+      "7:00 PM",
+      "DTD",
+      "PG",
+      "Darius GarlandDarius Garland",
+      "Cle",
+      "PG",
+      "@Bos",
+      "7:30 PM",
+      "STATS",
+      "MIN",
+      "FGM/FGA",
+      "FG%",
+      "FTM/FTA",
+      "FT%",
+      "3PM",
+      "REB",
+      "AST",
+      "STL",
+      "BLK",
+      "TO",
+      "PTS",
+      "PR15",
+      "%ROST",
+      "+/-",
+      // Embiid stats
+      "34.0",
+      "10.0/20.0",
+      ".500",
+      "8.0/9.0",
+      ".889",
+      "1.0",
+      "11.0",
+      "3.5",
+      "1.0",
+      "1.8",
+      "3.5",
+      "29.0",
+      "10.00",
+      "99.5",
+      "+1.0",
+      // Garland stats
+      "32.0",
+      "7.5/17.0",
+      ".441",
+      "3.5/4.0",
+      ".875",
+      "2.5",
+      "3.0",
+      "7.5",
+      "1.3",
+      "0.2",
+      "2.5",
+      "21.0",
+      "8.50",
+      "98.0",
+      "+0.8",
+    ].join("\n");
+
+    const roster = parseEspnRosterSlotsFromTeamPage(input);
+    expect(roster.length).toBe(2);
+    
+    const embiid = roster.find(r => r.player.name === "Joel Embiid");
+    expect(embiid).toBeDefined();
+    expect(embiid!.player.nbaTeam).toBe("PHI");
+    expect(embiid!.player.positions).toContain("C");
+    expect(embiid!.player.status).toBe("DTD");
+    
+    const garland = roster.find(r => r.player.name === "Darius Garland");
+    expect(garland).toBeDefined();
+    expect(garland!.player.nbaTeam).toBe("CLE");
+    expect(garland!.player.positions).toContain("PG");
+  });
+
+  it("parses Gafford (Dal C) with correct team normalization", () => {
+    const input = [
+      "C",
+      "Daniel GaffordDaniel Gafford",
+      "Dal",
+      "C",
+      "@Hou",
+      "8:00 PM",
+      "STATS",
+      "MIN",
+      "FGM/FGA",
+      "FG%",
+      "FTM/FTA",
+      "FT%",
+      "3PM",
+      "REB",
+      "AST",
+      "STL",
+      "BLK",
+      "TO",
+      "PTS",
+      "PR15",
+      "%ROST",
+      "+/-",
+      "22.0",
+      "3.5/5.0",
+      ".700",
+      "1.0/2.0",
+      ".500",
+      "0.0",
+      "6.5",
+      "1.0",
+      "0.5",
+      "2.0",
+      "0.8",
+      "8.0",
+      "5.50",
+      "70.0",
+      "+0.3",
+    ].join("\n");
+
+    const roster = parseEspnRosterSlotsFromTeamPage(input);
+    expect(roster.length).toBe(1);
+    
+    const p = roster[0].player;
+    expect(p.name).toBe("Daniel Gafford");
+    expect(p.nbaTeam).toBe("DAL");
+    expect(p.positions).toContain("C");
+    expect(p.blocks).toBeCloseTo(2.0, 1);
+  });
+
+  it("rejects header tokens as player names", () => {
+    const input = [
+      "PG",
+      "STARTERS", // Should not become a player name
+      "7:30 PM",  // Should not become a player name
+      "STATS",    // Should not become a player name
+      "LaMelo BallLaMelo Ball",
+      "Cha",
+      "PG",
+      "@Chi",
+      "8:00 PM",
+      "STATS",
+      "MIN",
+      "FGM/FGA",
+      "FG%",
+      "FTM/FTA",
+      "FT%",
+      "3PM",
+      "REB",
+      "AST",
+      "STL",
+      "BLK",
+      "TO",
+      "PTS",
+      "PR15",
+      "%ROST",
+      "+/-",
+      "26.6",
+      "6.7/15.7",
+      ".427",
+      "2.3/2.7",
+      ".842",
+      "4.4",
+      "3.3",
+      "6.9",
+      "1.4",
+      "0.4",
+      "3.7",
+      "20.1",
+      "8.08",
+      "98.4",
+      "+0.1",
+    ].join("\n");
+
+    const roster = parseEspnRosterSlotsFromTeamPage(input);
+    
+    // Should only have LaMelo Ball
+    expect(roster.length).toBe(1);
+    expect(roster[0].player.name).toBe("LaMelo Ball");
+    
+    // Ensure none of the rejected tokens appear as player names
+    const badNames = ["STARTERS", "7:30 PM", "STATS", "8:00 PM"];
+    roster.forEach(r => {
+      badNames.forEach(bad => {
+        expect(r.player.name).not.toBe(bad);
+        expect(r.player.name).not.toContain(bad);
+      });
+    });
+  });
 });
