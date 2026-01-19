@@ -3,6 +3,7 @@ import { RosterSlot, Player } from "@/types/fantasy";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
 import { PlayerCompareModal } from "@/components/roster/PlayerCompareModal";
+import { PositionBreakdown } from "@/components/roster/PositionBreakdown";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import { formatPct, CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { sampleRoster } from "@/data/sampleData";
 import { cn } from "@/lib/utils";
 import { GitCompare, X } from "lucide-react";
+import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
+import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 
 type SlotFilter = "all" | "starter" | "bench" | "ir";
 
@@ -22,6 +25,10 @@ export const YourTeam = () => {
   const [sortColumn, setSortColumn] = useState<string>(useCris ? "cri" : "wCri");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [compareSelection, setCompareSelection] = useState<Player[]>([]);
+
+  // Fetch NBA schedule for position breakdown
+  const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(7);
+  const matchupDates = useMemo(() => getMatchupWeekDates(), []);
 
   // Calculate CRI/wCRI using exact logic from user spec
   const { enhancedRoster, categoryRanks, activePlayerCount } = useMemo(() => {
@@ -417,6 +424,14 @@ export const YourTeam = () => {
           </div>
         </div>
       </Card>
+
+      {/* Position Breakdown Module */}
+      <PositionBreakdown
+        roster={roster}
+        gamesByDate={gamesByDate}
+        matchupDates={matchupDates}
+        isLoading={scheduleLoading}
+      />
 
       {/* Roster Header with Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
