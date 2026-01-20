@@ -646,14 +646,6 @@ const Index = () => {
 
                 <TeamAverages players={players} leagueTeams={leagueTeams} />
                 
-                {/* Position Breakdown Module */}
-                <PositionBreakdown
-                  roster={rosterWithCRI}
-                  gamesByDate={gamesByDate}
-                  matchupDates={matchupDates}
-                  isLoading={scheduleLoading}
-                />
-                
                 <PlayerRankings players={players} onPlayerClick={handlePlayerClick} leagueTeams={leagueTeams} />
 
                 {/* Roster Controls */}
@@ -745,6 +737,14 @@ const Index = () => {
                   onPlayerClick={handlePlayerClick}
                   categoryRanks={categoryRanks}
                   activePlayerCount={activePlayerCount}
+                />
+                
+                {/* Position Breakdown - compact summary below table */}
+                <PositionBreakdown
+                  roster={rosterWithCRI}
+                  gamesByDate={gamesByDate}
+                  matchupDates={matchupDates}
+                  isLoading={scheduleLoading}
                 />
 
                 {/* Free Agent Suggestions */}
