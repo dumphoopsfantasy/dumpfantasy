@@ -13,6 +13,8 @@ import { Gameplan } from "@/pages/Gameplan";
 import { DraftStrategy } from "@/pages/DraftStrategy";
 import { TradeAnalyzer } from "@/pages/TradeAnalyzer";
 import { RosterTable } from "@/components/roster/RosterTable";
+import { PositionBreakdown } from "@/components/roster/PositionBreakdown";
+import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 import { RosterFreeAgentSuggestions } from "@/components/roster/RosterFreeAgentSuggestions";
 import { NBAScoresSidebar } from "@/components/NBAScoresSidebar";
 import { PlayerDetailSheet } from "@/components/roster/PlayerDetailSheet";
@@ -151,7 +153,10 @@ const Index = () => {
   const dynamicWeights = useDynamicWeights(globalWeights);
   
   // NBA Schedule for Start/Sit Advisor
-  const { gamesByDate } = useNBAUpcomingSchedule(7);
+  const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(7);
+  
+  // Matchup week dates for Position Breakdown
+  const matchupDates = useMemo(() => getMatchupWeekDates(), []);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -640,6 +645,15 @@ const Index = () => {
 
 
                 <TeamAverages players={players} leagueTeams={leagueTeams} />
+                
+                {/* Position Breakdown Module */}
+                <PositionBreakdown
+                  roster={rosterWithCRI}
+                  gamesByDate={gamesByDate}
+                  matchupDates={matchupDates}
+                  isLoading={scheduleLoading}
+                />
+                
                 <PlayerRankings players={players} onPlayerClick={handlePlayerClick} leagueTeams={leagueTeams} />
 
                 {/* Roster Controls */}
