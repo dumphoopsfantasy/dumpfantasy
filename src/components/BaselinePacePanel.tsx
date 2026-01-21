@@ -251,76 +251,100 @@ export const BaselinePacePanel = ({
     );
   };
 
-  // Desktop table component
+  // Desktop table component - now collapsible, collapsed by default
+  const [isDesktopOpen, setIsDesktopOpen] = useState(false);
+  
   const DesktopTable = () => (
     <div className="hidden lg:block">
-      <Card className="gradient-card border-border p-3">
-        <div className="mb-3">
-          <h3 className="font-display font-semibold text-sm">Baseline (×40) + Pace</h3>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-1 px-1 font-medium text-muted-foreground">Cat</th>
-                <th className="text-right py-1 px-1 font-medium text-stat-positive/70">Base</th>
-                <th className="text-right py-1 px-1 font-medium text-stat-positive/70">Curr</th>
-                <th className="text-center py-1 px-1 font-medium text-stat-positive/70">Pace</th>
-                <th className="text-right py-1 px-1 font-medium text-stat-negative/70">Base</th>
-                <th className="text-right py-1 px-1 font-medium text-stat-negative/70">Curr</th>
-                <th className="text-center py-1 px-1 font-medium text-stat-negative/70">Pace</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CATEGORIES.map((cat) => {
-                const myBaseline = getBaseline(myBaselineStats, cat.key);
-                const myCurrent = getCurrent(myCurrentStats, cat.key);
-                const myPace = getPaceStatus(myCurrent, myBaseline, cat.isPercentage, cat.lowerBetter);
-                
-                const oppBaseline = getBaseline(oppBaselineStats, cat.key);
-                const oppCurrent = getCurrent(oppCurrentStats, cat.key);
-                const oppPace = getPaceStatus(oppCurrent, oppBaseline, cat.isPercentage, cat.lowerBetter);
-
-                return (
-                  <tr key={cat.key} className="border-b border-border/50 last:border-0">
-                    <td className="py-1.5 px-1 font-medium">
-                      {cat.label}
-                      {cat.lowerBetter && <span className="text-[8px] text-muted-foreground ml-0.5">↓</span>}
-                    </td>
-                    <td className="text-right py-1.5 px-1 text-muted-foreground">
-                      {formatValue(myBaseline, cat.isPercentage)}
-                    </td>
-                    <td className="text-right py-1.5 px-1 font-medium">
-                      {myCurrent !== null ? formatValue(myCurrent, cat.isPercentage) : "—"}
-                    </td>
-                    <td className="text-center py-1.5 px-1">
-                      {renderPaceIndicator(myPace)}
-                    </td>
-                    <td className="text-right py-1.5 px-1 text-muted-foreground">
-                      {formatValue(oppBaseline, cat.isPercentage)}
-                    </td>
-                    <td className="text-right py-1.5 px-1 font-medium">
-                      {oppCurrent !== null ? formatValue(oppCurrent, cat.isPercentage) : "—"}
-                    </td>
-                    <td className="text-center py-1.5 px-1">
-                      {renderPaceIndicator(oppPace)}
-                    </td>
+      <Collapsible open={isDesktopOpen} onOpenChange={setIsDesktopOpen}>
+        <CollapsibleTrigger asChild>
+          <Card className="p-3 bg-muted/30 border-border cursor-pointer hover:bg-muted/50 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Minus className="w-4 h-4 text-muted-foreground" />
+                <span className="font-display font-semibold text-sm">Baseline (×40) + Pace</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px]">
+                  You: {myOnPaceCount}/7 on pace
+                </Badge>
+                <Badge variant="outline" className="text-[10px]">
+                  Opp: {oppOnPaceCount}/7 on pace
+                </Badge>
+                <ChevronDown className={cn(
+                  "w-4 h-4 text-muted-foreground transition-transform",
+                  isDesktopOpen && "rotate-180"
+                )} />
+              </div>
+            </div>
+          </Card>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          <Card className="gradient-card border-border p-3">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-1 px-1 font-medium text-muted-foreground">Cat</th>
+                    <th className="text-right py-1 px-1 font-medium text-stat-positive/70">Base</th>
+                    <th className="text-right py-1 px-1 font-medium text-stat-positive/70">Curr</th>
+                    <th className="text-center py-1 px-1 font-medium text-stat-positive/70">Pace</th>
+                    <th className="text-right py-1 px-1 font-medium text-stat-negative/70">Base</th>
+                    <th className="text-right py-1 px-1 font-medium text-stat-negative/70">Curr</th>
+                    <th className="text-center py-1 px-1 font-medium text-stat-negative/70">Pace</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {CATEGORIES.map((cat) => {
+                    const myBaseline = getBaseline(myBaselineStats, cat.key);
+                    const myCurrent = getCurrent(myCurrentStats, cat.key);
+                    const myPace = getPaceStatus(myCurrent, myBaseline, cat.isPercentage, cat.lowerBetter);
+                    
+                    const oppBaseline = getBaseline(oppBaselineStats, cat.key);
+                    const oppCurrent = getCurrent(oppCurrentStats, cat.key);
+                    const oppPace = getPaceStatus(oppCurrent, oppBaseline, cat.isPercentage, cat.lowerBetter);
 
-        <div className="mt-2 pt-2 border-t border-border text-[10px] text-muted-foreground text-center space-y-0.5">
-          <div className="flex items-center justify-center gap-1">
-            <Clock className="w-3 h-3" />
-            <span>Day {dayNumber}/7 · {asOfLabel}</span>
-          </div>
-          <div>Pace factor: {daysCompleted}/7 ({(paceFactor * 100).toFixed(0)}%)</div>
-        </div>
-      </Card>
+                    return (
+                      <tr key={cat.key} className="border-b border-border/50 last:border-0">
+                        <td className="py-1.5 px-1 font-medium">
+                          {cat.label}
+                          {cat.lowerBetter && <span className="text-[8px] text-muted-foreground ml-0.5">↓</span>}
+                        </td>
+                        <td className="text-right py-1.5 px-1 text-muted-foreground">
+                          {formatValue(myBaseline, cat.isPercentage)}
+                        </td>
+                        <td className="text-right py-1.5 px-1 font-medium">
+                          {myCurrent !== null ? formatValue(myCurrent, cat.isPercentage) : "—"}
+                        </td>
+                        <td className="text-center py-1.5 px-1">
+                          {renderPaceIndicator(myPace)}
+                        </td>
+                        <td className="text-right py-1.5 px-1 text-muted-foreground">
+                          {formatValue(oppBaseline, cat.isPercentage)}
+                        </td>
+                        <td className="text-right py-1.5 px-1 font-medium">
+                          {oppCurrent !== null ? formatValue(oppCurrent, cat.isPercentage) : "—"}
+                        </td>
+                        <td className="text-center py-1.5 px-1">
+                          {renderPaceIndicator(oppPace)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-2 pt-2 border-t border-border text-[10px] text-muted-foreground text-center space-y-0.5">
+              <div className="flex items-center justify-center gap-1">
+                <Clock className="w-3 h-3" />
+                <span>Day {dayNumber}/7 · {asOfLabel}</span>
+              </div>
+              <div>Pace factor: {daysCompleted}/7 ({(paceFactor * 100).toFixed(0)}%)</div>
+            </div>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 

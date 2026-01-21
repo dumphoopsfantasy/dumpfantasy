@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { BaselinePacePanel } from "@/components/BaselinePacePanel";
 import { devLog, devWarn, devError } from "@/lib/devLog";
 import { ProjectionModeToggle, ProjectionMode } from "@/components/ProjectionModeToggle";
-import { ScheduleAwareProjection } from "@/components/ScheduleAwareProjection";
+import { ScheduleAwareSummary } from "@/components/ScheduleAwareSummary";
 import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
 import { useSlateAwareProjection } from "@/hooks/useSlateAwareProjection";
 import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
@@ -290,7 +290,7 @@ export const MatchupProjection = ({
   const [statWindowMismatch, setStatWindowMismatch] = useState<{ myWindow: string | null; oppWindow: string | null } | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTip, setDismissedTip] = useState(false);
-  const [showBreakdown, setShowBreakdown] = useState(true); // Dynamic projection expanded by default
+  const [showBreakdown, setShowBreakdown] = useState(false); // Dynamic projection collapsed by default
   const [projectionMode, setProjectionMode] = useState<ProjectionMode>('schedule'); // Default to schedule-aware
 
   const dayInfo = getMatchupDayInfo();
@@ -1935,42 +1935,25 @@ Navigate to their team page and copy the whole page.`}
         )}
       </Card>
 
-      {/* Schedule-Aware Projection (when in schedule mode) */}
-      {projectionMode === 'schedule' && (
-        <Card className="p-4 gradient-card border-primary/20">
-          <div className="flex items-center gap-2 mb-3">
-            <Calendar className="w-4 h-4 text-primary" />
-            <h3 className="font-display font-semibold text-sm">Week Outcome (Schedule-Aware)</h3>
-          </div>
-
-          {oppRosterParseFailed && (
-            <Alert className="mb-3 border-amber-500/50 bg-amber-500/10">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
-              <AlertDescription className="text-sm">
-                <strong>Opponent roster paste didn’t include a parsable STATS table.</strong>{" "}
-                Paste the opponent team page blob from <em>Opposing Teams → Stats → Last 15 Totals</em>, including the STATS header row (MIN, FGM/FGA, ...).
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <ScheduleAwareProjection
-            myProjection={scheduleMyProjection}
-            myError={scheduleMyError}
-            oppProjection={scheduleOppProjection}
-            oppError={scheduleOppError}
-            myTeamName={persistedMatchup.myTeam.name}
-            oppTeamName={persistedMatchup.opponent.name}
-            remainingDays={remainingDates.length}
-            isLoading={scheduleLoading}
-            onSyncOpponentRoster={() => {
-              // Scroll to opponent paste field and focus it
-              toast({
-                title: "Sync Opponent Roster",
-                description: "Paste the opponent's ESPN team page in the Opponent field above and click Compare.",
-              });
-            }}
-          />
-        </Card>
+      {/* Schedule-Aware Summary (when in schedule mode) - compact with collapsible details */}
+      {projectionMode === 'schedule' && scheduleMyProjection && (
+        <ScheduleAwareSummary
+          myProjection={scheduleMyProjection}
+          myError={scheduleMyError}
+          oppProjection={scheduleOppProjection}
+          oppError={scheduleOppError}
+          myTeamName={persistedMatchup.myTeam.name}
+          oppTeamName={persistedMatchup.opponent.name}
+          remainingDays={remainingDates.length}
+          isLoading={scheduleLoading}
+          oppRosterParseFailed={oppRosterParseFailed}
+          onSyncOpponentRoster={() => {
+            toast({
+              title: "Sync Opponent Roster",
+              description: "Paste the opponent's ESPN team page in the Opponent field above and click Compare.",
+            });
+          }}
+        />
       )}
 
       {/* Strength (Per-40) Projection - Baseline Week */}
@@ -2169,8 +2152,8 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </Card>
 
-      {/* Dynamic Projection (Current + Remaining Games) - expanded by default */}
-      <Collapsible open={showBreakdown} onOpenChange={setShowBreakdown} defaultOpen={true}>
+      {/* Dynamic Projection (Current + Remaining Games) - collapsed by default */}
+      <Collapsible open={showBreakdown} onOpenChange={setShowBreakdown}>
         <CollapsibleTrigger asChild>
           <Card className="p-3 bg-primary/5 border-primary/20 cursor-pointer hover:bg-primary/10 transition-colors">
             <div className="flex items-center justify-between">
