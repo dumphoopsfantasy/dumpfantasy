@@ -11,11 +11,8 @@ import { formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE } from "@/lib/parseUtils";
 import { RosterSlot, Player } from "@/types/fantasy";
 import { useToast } from "@/hooks/use-toast";
-import { BaselinePacePanel } from "@/components/BaselinePacePanel";
 import { devLog, devWarn, devError } from "@/lib/devLog";
 import { ProjectionModeToggle, ProjectionMode } from "@/components/ProjectionModeToggle";
-import { ScheduleAwareSummary } from "@/components/ScheduleAwareSummary";
-import { useScheduleAwareProjection } from "@/hooks/useScheduleAwareProjection";
 import { useSlateAwareProjection } from "@/hooks/useSlateAwareProjection";
 import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
 import { parseEspnMatchupTotalsFromText } from "@/lib/espnMatchupTotals";
@@ -24,6 +21,11 @@ import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@
 import { safeNum, fmtInt, fmtPct as fmtPctSafe, fmtDec, formatStatValue, determineProjectionMode, ProjectionDataMode, formatAsOfTime } from "@/lib/projectionFormatters";
 import { SlateStatusBadge } from "@/components/SlateStatusBadge";
 import { getProjectionExplanation } from "@/lib/slateAwareProjection";
+import { BaselineCard, ScheduleAwareCard, TodayImpactCard, PaceVsBaselineCard } from "@/components/matchup";
+import { StartSitAdvisor } from "@/components/StartSitAdvisor";
+import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
+import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
+import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -1935,26 +1937,52 @@ Navigate to their team page and copy the whole page.`}
         )}
       </Card>
 
-      {/* Schedule-Aware Summary (when in schedule mode) - compact with collapsible details */}
-      {projectionMode === 'schedule' && scheduleMyProjection && (
-        <ScheduleAwareSummary
-          myProjection={scheduleMyProjection}
-          myError={scheduleMyError}
-          oppProjection={scheduleOppProjection}
-          oppError={scheduleOppError}
+      {/* 4 OUTCOME CARDS - New simplified layout */}
+      <div className="space-y-4">
+        {/* Card 1: Baseline (X40) */}
+        <BaselineCard
           myTeamName={persistedMatchup.myTeam.name}
-          oppTeamName={persistedMatchup.opponent.name}
-          remainingDays={remainingDates.length}
-          isLoading={scheduleLoading}
-          oppRosterParseFailed={oppRosterParseFailed}
-          onSyncOpponentRoster={() => {
-            toast({
-              title: "Sync Opponent Roster",
-              description: "Paste the opponent's ESPN team page in the Opponent field above and click Compare.",
-            });
-          }}
+          opponentName={persistedMatchup.opponent.name}
+          myBaselineStats={persistedMatchup.myTeam.stats}
+          oppBaselineStats={persistedMatchup.opponent.stats}
         />
-      )}
+
+        {/* Card 2: Schedule-Aware (Current → Final) */}
+        <ScheduleAwareCard
+          myTeamName={persistedMatchup.myTeam.name}
+          opponentName={persistedMatchup.opponent.name}
+          myCurrentTotals={myCurrentTotalsWithPct}
+          oppCurrentTotals={oppCurrentTotalsWithPct}
+          myRemainingTotals={myRemainingTotalsWithPct}
+          oppRemainingTotals={oppRemainingTotalsWithPct}
+          myFinalTotals={myFinalTotalsWithPct}
+          oppFinalTotals={oppFinalTotalsWithPct}
+          remainingDays={remainingDates.length}
+        />
+
+        {/* Card 3: Today Impact */}
+        <TodayImpactCard
+          myTeamName={persistedMatchup.myTeam.name}
+          opponentName={persistedMatchup.opponent.name}
+          myCurrentTotals={myCurrentTotalsWithPct}
+          oppCurrentTotals={oppCurrentTotalsWithPct}
+          myTodayStats={myTodayStats ?? null}
+          oppTodayStats={oppTodayStats ?? null}
+          myFinalTotals={myFinalTotalsWithPct}
+          oppFinalTotals={oppFinalTotalsWithPct}
+        />
+
+        {/* Card 4: Pace vs Baseline */}
+        <PaceVsBaselineCard
+          myTeamName={persistedMatchup.myTeam.name}
+          opponentName={persistedMatchup.opponent.name}
+          myBaselineStats={persistedMatchup.myTeam.stats}
+          oppBaselineStats={persistedMatchup.opponent.stats}
+          myCurrentStats={myWeeklyData?.myTeam.stats ?? null}
+          oppCurrentStats={myWeeklyData?.opponent.stats ?? null}
+          daysCompleted={dayInfo.dayOfWeek === 0 ? 7 : dayInfo.dayOfWeek}
+        />
+      </div>
 
       {/* Strength (Per-40) Projection - Baseline Week */}
       {projectionMode === 'strength' && (
@@ -2332,16 +2360,7 @@ Navigate to their team page and copy the whole page.`}
         ))}
         </div>
 
-        {/* Baseline Pace Panel - Right side on desktop, below on mobile */}
-        <BaselinePacePanel
-          myTeamName={persistedMatchup.myTeam.name}
-          opponentName={persistedMatchup.opponent.name}
-          myBaselineStats={persistedMatchup.myTeam.stats}
-          oppBaselineStats={persistedMatchup.opponent.stats}
-          myCurrentStats={myWeeklyData?.myTeam.stats ?? null}
-          oppCurrentStats={myWeeklyData?.opponent.stats ?? null}
-          dayOfWeek={dayInfo.dayOfWeek}
-        />
+        {/* Removed old BaselinePacePanel - now using 4-card layout above */}
       </div>
     </div>
   );
