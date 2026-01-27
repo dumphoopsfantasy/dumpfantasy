@@ -2,6 +2,8 @@
 // Uses Lovable Cloud edge function for live data from ESPN
 
 import { normalizeNbaTeamCode } from './scheduleAwareProjection';
+import { devError } from './devLog';
+
 export interface NBAGame {
   gameId: string;
   homeTeam: string;
@@ -65,14 +67,14 @@ export const fetchNBAGamesFromAPI = async (): Promise<{
     );
     
     if (!response.ok) {
-      console.error('NBA games API error:', response.status);
+      devError('NBA games API error:', response.status);
       return null;
     }
     
     const data = await response.json();
     return data;
   } catch (error) {
-    console.error('Error fetching NBA games:', error);
+    devError('Error fetching NBA games:', error);
     return null;
   }
 };
@@ -91,14 +93,14 @@ export const fetchNBAGamesForDate = async (dateStr: string): Promise<NBAGame[]> 
     );
     
     if (!response.ok) {
-      console.error('NBA games API error for date:', dateStr, response.status);
+      devError('NBA games API error for date:', dateStr, response.status);
       return [];
     }
     
     const data = await response.json();
     return data.games || [];
   } catch (error) {
-    console.error('Error fetching NBA games for date:', dateStr, error);
+    devError('Error fetching NBA games for date:', dateStr, error);
     return [];
   }
 };
