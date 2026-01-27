@@ -73,10 +73,10 @@ describe("ESPN Roster Parsing", () => {
 
 describe("Today Detection (Critical Fix A)", () => {
   const mockTodayGames: NBAGame[] = [
-    { homeTeam: "CLE", awayTeam: "ORL", gameTime: "2025-01-24T19:00:00", status: "scheduled" },
-    { homeTeam: "MIN", awayTeam: "GSW", gameTime: "2025-01-24T17:30:00", status: "scheduled" },
-    { homeTeam: "UTA", awayTeam: "MIA", gameTime: "2025-01-24T21:30:00", status: "scheduled" },
-    { homeTeam: "CHI", awayTeam: "BOS", gameTime: "2025-01-24T20:00:00", status: "scheduled" },
+    { gameId: "g1", homeTeam: "CLE", awayTeam: "ORL", gameTime: "2025-01-24T19:00:00", status: "scheduled", homeScore: 0, awayScore: 0 },
+    { gameId: "g2", homeTeam: "MIN", awayTeam: "GSW", gameTime: "2025-01-24T17:30:00", status: "scheduled", homeScore: 0, awayScore: 0 },
+    { gameId: "g3", homeTeam: "UTA", awayTeam: "MIA", gameTime: "2025-01-24T21:30:00", status: "scheduled", homeScore: 0, awayScore: 0 },
+    { gameId: "g4", homeTeam: "CHI", awayTeam: "BOS", gameTime: "2025-01-24T20:00:00", status: "scheduled", homeScore: 0, awayScore: 0 },
   ];
 
   it("player with opp='--' should NOT have game today", () => {
@@ -162,10 +162,10 @@ describe("Baseline Calculation (Critical Fix C)", () => {
 
 describe("Opponent Today Starts (Acceptance Check)", () => {
   const mockTodayGames: NBAGame[] = [
-    { homeTeam: "NYK", awayTeam: "PHI", gameTime: "2025-01-24T15:00:00", status: "scheduled" },
-    { homeTeam: "UTA", awayTeam: "MIA", gameTime: "2025-01-24T21:30:00", status: "scheduled" },
-    { homeTeam: "CLE", awayTeam: "ORL", gameTime: "2025-01-24T19:00:00", status: "scheduled" },
-    { homeTeam: "DAL", awayTeam: "LAL", gameTime: "2025-01-24T20:30:00", status: "scheduled" },
+    { gameId: "g1", homeTeam: "NYK", awayTeam: "PHI", gameTime: "2025-01-24T15:00:00", status: "scheduled", homeScore: 0, awayScore: 0 },
+    { gameId: "g2", homeTeam: "UTA", awayTeam: "MIA", gameTime: "2025-01-24T21:30:00", status: "scheduled", homeScore: 0, awayScore: 0 },
+    { gameId: "g3", homeTeam: "CLE", awayTeam: "ORL", gameTime: "2025-01-24T19:00:00", status: "scheduled", homeScore: 0, awayScore: 0 },
+    { gameId: "g4", homeTeam: "DAL", awayTeam: "LAL", gameTime: "2025-01-24T20:30:00", status: "scheduled", homeScore: 0, awayScore: 0 },
   ];
 
   it("opponent today starts excludes IR even if they have games", () => {
