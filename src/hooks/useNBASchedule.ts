@@ -5,6 +5,7 @@ import {
   getSampleYesterdayScores, 
   getSampleTodayGames 
 } from "@/lib/nbaApi";
+import { devError } from "@/lib/devLog";
 
 interface RosterPlayer {
   name: string;
@@ -146,7 +147,7 @@ export function useNBASchedule(rosterPlayers: RosterPlayer[] = []) {
           };
         }
       } catch (error) {
-        console.error("Error fetching NBA schedule:", error);
+        devError("Error fetching NBA schedule:", error);
         globalState = {
           ...globalState,
           isLoading: false,

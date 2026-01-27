@@ -4,6 +4,8 @@
 
 import { CRIS_WEIGHTS, CATEGORIES } from './crisUtils';
 import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from './espnTokenUtils';
+import { devWarn } from './devLog';
+
 // Data schemas
 export interface PlayerStats {
   name: string;
@@ -176,7 +178,7 @@ export function parseESPNTeamPage(data: string): PlayerStats[] {
   const actualCols = 17; // Standard ESPN columns after split
   const remainder = statTokens.length % actualCols;
   if (remainder !== 0) {
-    console.warn(`[parseESPNTeamPage] Token count ${statTokens.length} not divisible by ${actualCols} (remainder ${remainder}). Truncating.`);
+    devWarn(`[parseESPNTeamPage] Token count ${statTokens.length} not divisible by ${actualCols} (remainder ${remainder}). Truncating.`);
     statTokens.length = Math.floor(statTokens.length / actualCols) * actualCols;
   }
   

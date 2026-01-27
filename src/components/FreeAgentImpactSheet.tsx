@@ -18,6 +18,7 @@ import { useMemo, useState, useEffect } from "react";
 import { fetchPlayerNews, PlayerNews, fetchNBAGamesForDates, getUpcomingDates, NBAGame } from "@/lib/nbaApi";
 import { RosterSwapSimulator } from "@/components/RosterSwapSimulator";
 import { format } from "date-fns";
+import { devError } from "@/lib/devLog";
 
 interface FreeAgentImpactSheetProps {
   player: Player | null;
@@ -57,7 +58,7 @@ export const FreeAgentImpactSheet = ({
       const playerNews = await fetchPlayerNews(playerName);
       setNews(playerNews);
     } catch (error) {
-      console.error("Error fetching player news:", error);
+      devError("Error fetching player news:", error);
       setNews([]);
     } finally {
       setIsLoadingNews(false);
@@ -115,7 +116,7 @@ export const FreeAgentImpactSheet = ({
       
       setSchedule(teamSchedule);
     } catch (error) {
-      console.error("Error fetching player schedule:", error);
+      devError("Error fetching player schedule:", error);
       setSchedule([]);
     } finally {
       setIsLoadingSchedule(false);
