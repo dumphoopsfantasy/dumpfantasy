@@ -140,10 +140,12 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
 
     const token = normalizeMissingToken(lines[i]);
 
+    // Handle missing fraction tokens (--/-- or just --)
     if (isMissingFractionToken(token) || isMissingToken(token)) {
       return { made: 0, attempted: 0, advance: 1 };
     }
 
+    // Handle proper fraction format (e.g., "5.3/10.6")
     if (/^\d+(?:\.\d+)?\/\d+(?:\.\d+)?$/.test(token)) {
       const [a, b] = token.split("/");
       return {
@@ -153,7 +155,24 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
       };
     }
 
-    // Missing fraction - skip
+    // Handle single number that could be start of split fraction (FGM on one line, FGA on next)
+    // This handles ESPN sometimes outputting "5.3" then "10.6" on separate lines
+    if (/^\d+(?:\.\d+)?$/.test(token)) {
+      const made = parseFloat(token) || 0;
+      // Check if next token is also a number (the attempted value)
+      if (i + 1 < lines.length) {
+        const nextToken = normalizeMissingToken(lines[i + 1]);
+        if (/^\d+(?:\.\d+)?$/.test(nextToken)) {
+          const attempted = parseFloat(nextToken) || 0;
+          // Only treat as split fraction if attempted > made (typical for FGM/FGA)
+          if (attempted >= made) {
+            return { made, attempted, advance: 2 };
+          }
+        }
+      }
+    }
+
+    // Fallback: Missing fraction - don't advance (will cause row skip)
     return { made: 0, attempted: 0, advance: 0 };
   };
 

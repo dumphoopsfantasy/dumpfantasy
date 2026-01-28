@@ -532,4 +532,131 @@ describe("parseEspnRosterSlotsFromTeamPage", () => {
       });
     });
   });
+
+  it("parses IR players with stats correctly (Malik Monk scenario)", () => {
+    // This tests the scenario where IR players have actual stats (not just --)
+    // Malik Monk: 24.4 MIN, 5.3/10.6 FGM/FGA, .500 FG%, 1.9/1.9 FTM/FTA, 1.000 FT%, 
+    //            2.7 3PM, 2.0 REB, 3.1 AST, 0.3 STL, 0.6 BLK, 1.7 TO, 15.1 PTS
+    const input = [
+      "STARTERS",
+      "PG",
+      "Reed SheppardReed Sheppard",
+      "Hou",
+      "SG, PG",
+      "MOVE",
+      "SA",
+      "9:30 PM",
+      "IR",
+      "Dejounte MurrayDejounte Murray",
+      "O",
+      "NO",
+      "SG, PG",
+      "--",
+      "IR",
+      "Malik MonkMalik Monk",
+      "DTD",
+      "Sac",
+      "SG, PG, SF",
+      "--",
+      "STATS",
+      "MIN",
+      "FGM/FGA",
+      "FG%",
+      "FTM/FTA",
+      "FT%",
+      "3PM",
+      "REB",
+      "AST",
+      "STL",
+      "BLK",
+      "TO",
+      "PTS",
+      "PR15",
+      "%ROST",
+      "+/-",
+      // Reed Sheppard's stats
+      "21.3",
+      "4.5/11.6",
+      ".387",
+      "0.8/1.0",
+      ".750",
+      "2.4",
+      "1.6",
+      "2.0",
+      "1.0",
+      "0.3",
+      "1.1",
+      "12.1",
+      "1.30",
+      "56.9",
+      "-0.5",
+      // Dejounte Murray's stats (all --)
+      "--",
+      "--/--",
+      "--",
+      "--/--",
+      "--",
+      "--",
+      "--",
+      "--",
+      "--",
+      "--",
+      "--",
+      "--",
+      "--",
+      "15.8",
+      "-0.1",
+      // Malik Monk's stats (actual values)
+      "24.4",
+      "5.3/10.6",
+      ".500",
+      "1.9/1.9",
+      "1.000",
+      "2.7",
+      "2.0",
+      "3.1",
+      "0.3",
+      "0.6",
+      "1.7",
+      "15.1",
+      "7.47",
+      "51.3",
+      "-1.5",
+    ].join("\n");
+
+    const roster = parseEspnRosterSlotsFromTeamPage(input);
+    
+    // Should have 3 players: Reed Sheppard, Dejounte Murray, Malik Monk
+    expect(roster.length).toBe(3);
+    
+    // Find Malik Monk
+    const monk = roster.find(r => r.player.name === "Malik Monk");
+    expect(monk).toBeDefined();
+    expect(monk!.slotType).toBe("ir");
+    expect(monk!.player.nbaTeam).toBe("SAC");
+    expect(monk!.player.status).toBe("DTD");
+    expect(monk!.player.positions).toContain("SG");
+    
+    // Verify Malik Monk's stats are correctly parsed
+    expect(monk!.player.minutes).toBeCloseTo(24.4, 1);
+    expect(monk!.player.fgm).toBeCloseTo(5.3, 1);
+    expect(monk!.player.fga).toBeCloseTo(10.6, 1);
+    expect(monk!.player.fgPct).toBeCloseTo(0.5, 2);
+    expect(monk!.player.ftm).toBeCloseTo(1.9, 1);
+    expect(monk!.player.fta).toBeCloseTo(1.9, 1);
+    expect(monk!.player.ftPct).toBeCloseTo(1.0, 2);
+    expect(monk!.player.threepm).toBeCloseTo(2.7, 1);
+    expect(monk!.player.rebounds).toBeCloseTo(2.0, 1);
+    expect(monk!.player.assists).toBeCloseTo(3.1, 1);
+    expect(monk!.player.steals).toBeCloseTo(0.3, 1);
+    expect(monk!.player.blocks).toBeCloseTo(0.6, 1);
+    expect(monk!.player.turnovers).toBeCloseTo(1.7, 1);
+    expect(monk!.player.points).toBeCloseTo(15.1, 1);
+    
+    // Verify Dejounte Murray has zero stats (all --)
+    const dejounte = roster.find(r => r.player.name === "Dejounte Murray");
+    expect(dejounte).toBeDefined();
+    expect(dejounte!.player.minutes).toBe(0);
+    expect(dejounte!.player.points).toBe(0);
+  });
 });
