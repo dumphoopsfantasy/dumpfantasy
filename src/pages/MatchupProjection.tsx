@@ -21,7 +21,7 @@ import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@
 import { safeNum, fmtInt, fmtPct as fmtPctSafe, fmtDec, formatStatValue, determineProjectionMode, ProjectionDataMode, formatAsOfTime } from "@/lib/projectionFormatters";
 import { SlateStatusBadge } from "@/components/SlateStatusBadge";
 import { getProjectionExplanation } from "@/lib/slateAwareProjection";
-import { ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
+import { BaselineCard, ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
 import { StartSitAdvisor } from "@/components/StartSitAdvisor";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
@@ -1724,215 +1724,17 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </div>
 
-      {/* Projected Final (Current + Remaining) */}
-      <Card className="gradient-card border-primary/20 p-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex-1">
-            <h3 className="font-display font-semibold text-sm">{projectionModeState.label}</h3>
-            <p className="text-xs text-muted-foreground">
-              {projectionModeState.mode === 'FINAL' 
-                ? 'Uses makes/attempts for FG% and FT% (never averages percentages).'
-                : projectionModeState.description}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Slate Status Badge */}
-            {slateStatus && (
-              <SlateStatusBadge slateStatus={slateStatus} />
-            )}
-            {projectionModeState.mode !== 'FINAL' && (
-              <Badge variant="secondary" className="text-[10px]">
-                {projectionModeState.mode === 'REMAINING_ONLY' ? 'Partial data' : 'Baseline only'}
-              </Badge>
-            )}
-          </div>
-        </div>
-
-        {/* Slate explanation line */}
-        {slateStatus && slateExplanation && (
-          <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {slateExplanation}
-          </p>
-        )}
-
-        {/* Mode-specific banners */}
-        {projectionModeState.mode === 'REMAINING_ONLY' && (
-          <Alert className="mt-3 border-amber-500/50 bg-amber-500/10">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <AlertDescription className="text-sm">
-              <p className="font-medium">Current totals missing — showing Remaining-only projection.</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Import this week's scoreboard in the <span className="font-medium text-foreground">Weekly</span> tab to enable Projected Final.
-              </p>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {projectionModeState.mode === 'BASELINE_ONLY' && (
-          <Alert className="mt-3 border-amber-500/50 bg-amber-500/10">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <AlertDescription className="text-sm">
-              <p className="font-medium">Current + schedule data missing — showing Baseline strength only.</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Import this week's scoreboard in <span className="font-medium text-foreground">Weekly</span> and opponent roster for full projection.
-              </p>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Success banner when using Weekly data */}
-        {currentTotalsSource === 'weekly' && projectionModeState.mode === 'FINAL' && (
-          <Alert className="mt-3 border-green-500/50 bg-green-500/10">
-            <Calendar className="h-4 w-4 text-green-500" />
-            <AlertDescription className="text-sm">
-              <p className="font-medium text-green-600 dark:text-green-400">Using live scoreboard from Weekly tab</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Current totals are pulled automatically from this week's matchup scoreboard.
-              </p>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {!hasProjectedFinal && projectionModeState.mode === 'FINAL' && (
-          <Alert className="mt-3 border-amber-500/50 bg-amber-500/10">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <AlertDescription className="text-sm">
-              <div className="space-y-2">
-                <p className="font-medium">Missing data for Projected Final.</p>
-                <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
-                  {!myCurrentTotalsWithPct && <li>Your Team current totals: Import Weekly scoreboard or paste manually below.</li>}
-                  {!oppCurrentTotalsWithPct && <li>Opponent current totals: Import Weekly scoreboard or paste manually below.</li>}
-                  {scheduleOppError?.code === 'OPP_ROSTER_MISSING' && <li>Opponent roster missing — schedule-aware remaining cannot run.</li>}
-                </ul>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Current totals paste area - only show if Weekly data not available */}
-        {!currentTotalsSource && !hasProjectedFinal && (
-          <Collapsible defaultOpen={projectionModeState.mode !== 'BASELINE_ONLY'} className="mt-3">
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" size="sm" className="w-full justify-between text-xs">
-                <span>Or paste current matchup totals manually</span>
-                <ChevronDown className="w-3 h-3" />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-2">
-              <p className="text-xs text-muted-foreground mb-2">
-                Tip: Import this week's scoreboard in the Weekly tab instead—it's easier and auto-updates.
-              </p>
-              <div className="grid md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Your Team current matchup totals</p>
-                  <Textarea
-                    value={myTotalsData}
-                    onChange={(e) => setMyTotalsData(e.target.value)}
-                    placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
-                    className="min-h-[100px] font-mono text-xs bg-muted/30"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Opponent current matchup totals</p>
-                  <Textarea
-                    value={oppTotalsData}
-                    onChange={(e) => setOppTotalsData(e.target.value)}
-                    placeholder="Paste totals section containing: FGM/FGA, FTM/FTA, 3PM, REB, AST, STL, BLK, TO, PTS"
-                    className="min-h-[100px] font-mono text-xs bg-muted/30"
-                  />
-                </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
-        {/* Projection table - shown whenever we have effective projections */}
-        {hasEffectiveProjection && (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-muted-foreground">
-                  <th className="text-left py-2">Cat</th>
-                  {projectionModeState.mode === 'FINAL' && (
-                    <>
-                      <th className="text-right py-2">{persistedMatchup.myTeam.name} (Cur)</th>
-                      <th className="text-right py-2">Rem</th>
-                    </>
-                  )}
-                  <th className="text-right py-2">{persistedMatchup.myTeam.name} {projectionModeState.mode === 'FINAL' ? 'Final' : ''}</th>
-                  {projectionModeState.mode === 'FINAL' && (
-                    <>
-                      <th className="text-right py-2">{persistedMatchup.opponent.name} (Cur)</th>
-                      <th className="text-right py-2">Rem</th>
-                    </>
-                  )}
-                  <th className="text-right py-2">{persistedMatchup.opponent.name} {projectionModeState.mode === 'FINAL' ? 'Final' : ''}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {CATEGORIES.map((cat) => {
-                  const k = cat.key as keyof TeamStats;
-                  const isPct = cat.format === 'pct';
-
-                  const fmt = (v: unknown) => formatStatValue(v, isPct);
-
-                  // Determine winner for highlighting
-                  const myVal = safeNum(effectiveMyTotals ? (effectiveMyTotals as any)[k] : null);
-                  const oppVal = safeNum(effectiveOppTotals ? (effectiveOppTotals as any)[k] : null);
-                  let winClass = '';
-                  if (myVal !== null && oppVal !== null) {
-                    const lowerIsBetter = cat.key === 'turnovers';
-                    const myWins = lowerIsBetter ? myVal < oppVal : myVal > oppVal;
-                    const oppWins = lowerIsBetter ? oppVal < myVal : oppVal > myVal;
-                    if (myWins) winClass = 'my';
-                    else if (oppWins) winClass = 'opp';
-                  }
-
-                  return (
-                    <tr key={cat.key}>
-                      <td className="py-2 text-muted-foreground">{cat.label}</td>
-                      {projectionModeState.mode === 'FINAL' && (
-                        <>
-                          <td className="py-2 text-right font-medium">{fmt(myCurrentTotalsWithPct ? (myCurrentTotalsWithPct as any)[k] : null)}</td>
-                          <td className="py-2 text-right text-muted-foreground">{fmt(myRemainingTotalsWithPct ? (myRemainingTotalsWithPct as any)[k] : null)}</td>
-                        </>
-                      )}
-                      <td className={cn("py-2 text-right font-semibold", winClass === 'my' && "text-stat-positive")}>
-                        {fmt(effectiveMyTotals ? (effectiveMyTotals as any)[k] : null)}
-                      </td>
-                      {projectionModeState.mode === 'FINAL' && (
-                        <>
-                          <td className="py-2 text-right font-medium">{fmt(oppCurrentTotalsWithPct ? (oppCurrentTotalsWithPct as any)[k] : null)}</td>
-                          <td className="py-2 text-right text-muted-foreground">{fmt(oppRemainingTotalsWithPct ? (oppRemainingTotalsWithPct as any)[k] : null)}</td>
-                        </>
-                      )}
-                      <td className={cn("py-2 text-right font-semibold", winClass === 'opp' && "text-stat-negative")}>
-                        {fmt(effectiveOppTotals ? (effectiveOppTotals as any)[k] : null)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              {projectionModeState.mode === 'FINAL' ? 'Final' : 'Projected'} outcome: <span className="font-display font-semibold text-foreground">{persistedMatchup.myTeam.name} </span>
-              <span className="text-stat-positive font-display font-semibold">{wins}</span>–
-              <span className="text-stat-negative font-display font-semibold">{losses}</span>–
-              <span className="font-display font-semibold">{ties}</span>
-              <span className="font-display font-semibold text-foreground"> {persistedMatchup.opponent.name}</span>
-              {projectionModeState.mode !== 'FINAL' && (
-                <span className="text-amber-500 ml-2">(estimated)</span>
-              )}
-            </p>
-          </div>
-        )}
-      </Card>
-
-      {/* 2 OUTCOME CARDS - Simplified layout */}
+      {/* 3 OUTCOME CARDS */}
       <div className="space-y-4">
-        {/* Card 1: Schedule-Aware (Current → Final) */}
+        {/* Card 1: Baseline Strength (X40) */}
+        <BaselineCard
+          myTeamName={persistedMatchup.myTeam.name}
+          opponentName={persistedMatchup.opponent.name}
+          myBaselineStats={persistedMatchup.myTeam.stats}
+          oppBaselineStats={persistedMatchup.opponent.stats}
+        />
+
+        {/* Card 2: Schedule-Aware (Current → Final) */}
         <ScheduleAwareCard
           myTeamName={persistedMatchup.myTeam.name}
           opponentName={persistedMatchup.opponent.name}
@@ -1945,7 +1747,7 @@ Navigate to their team page and copy the whole page.`}
           remainingDays={remainingDates.length}
         />
 
-        {/* Card 2: Today Impact (Current → After Today) */}
+        {/* Card 3: Today Impact (Current → After Today) */}
         <TodayImpactCard
           myTeamName={persistedMatchup.myTeam.name}
           opponentName={persistedMatchup.opponent.name}
