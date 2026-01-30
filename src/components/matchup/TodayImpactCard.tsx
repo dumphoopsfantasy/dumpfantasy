@@ -1,18 +1,22 @@
 /**
- * Card 3: Today Impact (Current → After Today → Final)
+ * Card: Today Impact (Current → After Today)
  * 
- * Shows two projections:
- * A) Projected after today finishes: current_totals + today_projection
- * B) Projected final: projected_end_of_today + projection_for_days_after_today
+ * Shows the matchup state after today's games complete:
+ * - Current: Existing scoreboard totals
+ * - +Today: Stats projected from today's games (not started yet)
+ * - After Today: Current + Today's projection
+ * 
+ * This is distinct from ScheduleAwareCard which shows the full week projection.
  */
 
+import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatPct } from "@/lib/crisUtils";
 import { Trophy, Target, Minus, AlertTriangle, Zap, Clock } from "lucide-react";
 import { ProjectedStats } from "@/lib/scheduleAwareProjection";
-import { TeamTotalsWithPct } from "@/lib/teamTotals";
+import { TeamTotalsWithPct, addTotals, withDerivedPct, totalsFromProjectedStats } from "@/lib/teamTotals";
 
 interface TodayImpactCardProps {
   myTeamName: string;
@@ -21,8 +25,6 @@ interface TodayImpactCardProps {
   oppCurrentTotals: TeamTotalsWithPct | null;
   myTodayStats: ProjectedStats | null;
   oppTodayStats: ProjectedStats | null;
-  myFinalTotals: TeamTotalsWithPct | null;
-  oppFinalTotals: TeamTotalsWithPct | null;
   myTodayStarts?: number;
   oppTodayStarts?: number;
   slateStatus?: {
@@ -52,15 +54,29 @@ export const TodayImpactCard = ({
   oppCurrentTotals,
   myTodayStats,
   oppTodayStats,
-  myFinalTotals,
-  oppFinalTotals,
   myTodayStarts = 0,
   oppTodayStarts = 0,
   slateStatus,
 }: TodayImpactCardProps) => {
   const hasData = !!(myTodayStats || oppTodayStats);
   const hasCurrent = !!(myCurrentTotals && oppCurrentTotals);
-  const hasFinal = !!(myFinalTotals && oppFinalTotals);
+
+  // Calculate "After Today" totals = Current + Today's projection
+  const myAfterTodayTotals = useMemo(() => {
+    if (!myCurrentTotals) return null;
+    if (!myTodayStats) return myCurrentTotals; // No today games = current stays the same
+    const todayTotals = totalsFromProjectedStats(myTodayStats);
+    return withDerivedPct(addTotals(myCurrentTotals, todayTotals));
+  }, [myCurrentTotals, myTodayStats]);
+
+  const oppAfterTodayTotals = useMemo(() => {
+    if (!oppCurrentTotals) return null;
+    if (!oppTodayStats) return oppCurrentTotals;
+    const todayTotals = totalsFromProjectedStats(oppTodayStats);
+    return withDerivedPct(addTotals(oppCurrentTotals, todayTotals));
+  }, [oppCurrentTotals, oppTodayStats]);
+
+  const hasAfterToday = !!(myAfterTodayTotals && oppAfterTodayTotals);
 
   const formatValue = (value: number | null | undefined, isPercentage: boolean): string => {
     if (value === null || value === undefined || !Number.isFinite(value)) return "—";
@@ -95,27 +111,10 @@ export const TodayImpactCard = ({
     return (totals as any)[key] ?? null;
   };
 
-  // Calculate after-today totals
-  const getAfterTodayValue = (current: TeamTotalsWithPct | null, today: ProjectedStats | null, key: StatKey, isPercentage: boolean): number | null => {
-    if (!current) return null;
-    const currentVal = getValue(current, key);
-    if (currentVal === null) return null;
-    
-    if (isPercentage) {
-      // For percentages, we'd need makes/attempts - just show current for now
-      return currentVal;
-    }
-    
-    const todayVal = getTodayValue(today, key);
-    if (todayVal === null) return currentVal;
-    
-    return currentVal + todayVal;
-  };
-
-  // Calculate W/L/T from final totals
-  const results = hasFinal ? CATEGORIES.map(cat => {
-    const myVal = getValue(myFinalTotals, cat.key);
-    const oppVal = getValue(oppFinalTotals, cat.key);
+  // Calculate W/L/T from AFTER TODAY totals (not full week final)
+  const results = hasAfterToday ? CATEGORIES.map(cat => {
+    const myVal = getValue(myAfterTodayTotals, cat.key);
+    const oppVal = getValue(oppAfterTodayTotals, cat.key);
     
     if (myVal === null || oppVal === null) {
       return { ...cat, myVal, oppVal, winner: 'tie' as const };
@@ -140,16 +139,16 @@ export const TodayImpactCard = ({
   const oppWins = results.filter(r => r.winner === 'opp').length;
   const ties = results.filter(r => r.winner === 'tie').length;
 
-  if (!hasData) {
+  if (!hasData && !hasCurrent) {
     return (
       <Card className="gradient-card border-border p-4">
         <div className="flex items-center gap-2 mb-2">
           <Zap className="w-4 h-4 text-primary" />
-          <h3 className="font-display font-semibold text-sm">Today Impact: Current → After Today → Final</h3>
+          <h3 className="font-display font-semibold text-sm">Today Impact</h3>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <AlertTriangle className="w-4 h-4 text-amber-400" />
-          <span>Schedule data needed to project today's impact.</span>
+          <span>Import roster and Weekly scoreboard to see today's impact.</span>
         </div>
       </Card>
     );
@@ -183,21 +182,21 @@ export const TodayImpactCard = ({
               <th className="text-left py-1 px-0.5 font-medium text-muted-foreground">Cat</th>
               <th className="text-right py-1 px-0.5 font-medium text-stat-positive/70">Curr</th>
               <th className="text-right py-1 px-0.5 font-medium text-primary">+Today</th>
-              <th className="text-right py-1 px-0.5 font-medium text-stat-positive/70">Final</th>
+              <th className="text-right py-1 px-0.5 font-medium text-stat-positive/70">After</th>
               <th className="text-right py-1 px-0.5 font-medium text-stat-negative/70">Curr</th>
               <th className="text-right py-1 px-0.5 font-medium text-primary">+Today</th>
-              <th className="text-right py-1 px-0.5 font-medium text-stat-negative/70">Final</th>
+              <th className="text-right py-1 px-0.5 font-medium text-stat-negative/70">After</th>
             </tr>
           </thead>
           <tbody>
             {CATEGORIES.map((cat) => {
               const myCurrent = getValue(myCurrentTotals, cat.key);
               const myToday = getTodayValue(myTodayStats, cat.key);
-              const myFinal = getValue(myFinalTotals, cat.key);
+              const myAfter = getValue(myAfterTodayTotals, cat.key);
               
               const oppCurrent = getValue(oppCurrentTotals, cat.key);
               const oppToday = getTodayValue(oppTodayStats, cat.key);
-              const oppFinal = getValue(oppFinalTotals, cat.key);
+              const oppAfter = getValue(oppAfterTodayTotals, cat.key);
 
               const result = results.find(r => r.key === cat.key);
               const winner = result?.winner ?? 'tie';
@@ -218,7 +217,7 @@ export const TodayImpactCard = ({
                     "text-right py-1 px-0.5 font-bold",
                     winner === 'my' && "text-stat-positive"
                   )}>
-                    {formatValue(myFinal, cat.isPercentage)}
+                    {formatValue(myAfter, cat.isPercentage)}
                   </td>
                   <td className="text-right py-1 px-0.5 text-muted-foreground">
                     {formatValue(oppCurrent, cat.isPercentage)}
@@ -230,7 +229,7 @@ export const TodayImpactCard = ({
                     "text-right py-1 px-0.5 font-bold",
                     winner === 'opp' && "text-stat-negative"
                   )}>
-                    {formatValue(oppFinal, cat.isPercentage)}
+                    {formatValue(oppAfter, cat.isPercentage)}
                   </td>
                 </tr>
               );
@@ -239,23 +238,23 @@ export const TodayImpactCard = ({
         </table>
       </div>
 
-      {/* Verdict */}
-      {hasFinal && (
+      {/* Verdict - After Today */}
+      {hasAfterToday && (
         <div className="mt-3 pt-2 border-t border-border text-center">
           {myWins > oppWins ? (
             <div className="flex items-center justify-center gap-1.5 text-stat-positive text-xs font-medium">
               <Trophy className="w-3 h-3" />
-              Final: WIN {myWins}-{oppWins}-{ties}
+              After Today: WIN {myWins}-{oppWins}-{ties}
             </div>
           ) : myWins < oppWins ? (
             <div className="flex items-center justify-center gap-1.5 text-stat-negative text-xs font-medium">
               <Target className="w-3 h-3" />
-              Final: LOSS {myWins}-{oppWins}-{ties}
+              After Today: LOSS {myWins}-{oppWins}-{ties}
             </div>
           ) : (
             <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-xs font-medium">
               <Minus className="w-3 h-3" />
-              Final: TIE {myWins}-{oppWins}-{ties}
+              After Today: TIE {myWins}-{oppWins}-{ties}
             </div>
           )}
         </div>

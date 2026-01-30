@@ -12,7 +12,7 @@ import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE }
 import { RosterSlot, Player } from "@/types/fantasy";
 import { useToast } from "@/hooks/use-toast";
 import { devLog, devWarn, devError } from "@/lib/devLog";
-import { ProjectionModeToggle, ProjectionMode } from "@/components/ProjectionModeToggle";
+// ProjectionModeToggle removed - schedule-aware is now the only mode
 import { useSlateAwareProjection } from "@/hooks/useSlateAwareProjection";
 import { parseEspnRosterSlotsFromTeamPage } from "@/lib/espnRosterSlots";
 import { parseEspnMatchupTotalsFromText } from "@/lib/espnMatchupTotals";
@@ -21,7 +21,7 @@ import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@
 import { safeNum, fmtInt, fmtPct as fmtPctSafe, fmtDec, formatStatValue, determineProjectionMode, ProjectionDataMode, formatAsOfTime } from "@/lib/projectionFormatters";
 import { SlateStatusBadge } from "@/components/SlateStatusBadge";
 import { getProjectionExplanation } from "@/lib/slateAwareProjection";
-import { BaselineCard, ScheduleAwareCard, TodayImpactCard, PaceVsBaselineCard } from "@/components/matchup";
+import { ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
 import { StartSitAdvisor } from "@/components/StartSitAdvisor";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
@@ -293,7 +293,7 @@ export const MatchupProjection = ({
   const [isParsing, setIsParsing] = useState(false);
   const [dismissedTip, setDismissedTip] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false); // Dynamic projection collapsed by default
-  const [projectionMode, setProjectionMode] = useState<ProjectionMode>('schedule'); // Default to schedule-aware
+  // projectionMode removed - schedule-aware is now the only mode
 
   const dayInfo = getMatchupDayInfo();
   
@@ -1693,11 +1693,9 @@ Navigate to their team page and copy the whole page.`}
               <Calendar className="w-3 h-3" />
               {dayInfo.dayLabel}
             </Badge>
-            {projectionMode === 'schedule' && (
-              <Badge variant="secondary" className="text-[10px]">
-                {remainingDates.length} days remaining
-              </Badge>
-            )}
+            <Badge variant="secondary" className="text-[10px]">
+              {remainingDates.length} days remaining
+            </Badge>
           </div>
           {((persistedMatchup.myParseInfo?.alignmentOffset ?? 0) !== 0 || (persistedMatchup.oppParseInfo?.alignmentOffset ?? 0) !== 0) && (
             <p className="mt-1 text-[11px] text-muted-foreground">
@@ -1719,11 +1717,6 @@ Navigate to their team page and copy the whole page.`}
           )}
         </div>
         <div className="flex items-center gap-2">
-          <ProjectionModeToggle 
-            mode={projectionMode} 
-            onModeChange={setProjectionMode}
-            disabled={scheduleLoading}
-          />
           <Button variant="outline" size="sm" onClick={handleReset}>
             <RefreshCw className="w-4 h-4 mr-2" />
             New Matchup
@@ -1744,7 +1737,7 @@ Navigate to their team page and copy the whole page.`}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Slate Status Badge */}
-            {slateStatus && projectionMode === 'schedule' && (
+            {slateStatus && (
               <SlateStatusBadge slateStatus={slateStatus} />
             )}
             {projectionModeState.mode !== 'FINAL' && (
@@ -1756,7 +1749,7 @@ Navigate to their team page and copy the whole page.`}
         </div>
 
         {/* Slate explanation line */}
-        {slateStatus && slateExplanation && projectionMode === 'schedule' && (
+        {slateStatus && slateExplanation && (
           <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
             <Clock className="w-3 h-3" />
             {slateExplanation}
@@ -1937,17 +1930,9 @@ Navigate to their team page and copy the whole page.`}
         )}
       </Card>
 
-      {/* 4 OUTCOME CARDS - New simplified layout */}
+      {/* 2 OUTCOME CARDS - Simplified layout */}
       <div className="space-y-4">
-        {/* Card 1: Baseline (X40) */}
-        <BaselineCard
-          myTeamName={persistedMatchup.myTeam.name}
-          opponentName={persistedMatchup.opponent.name}
-          myBaselineStats={persistedMatchup.myTeam.stats}
-          oppBaselineStats={persistedMatchup.opponent.stats}
-        />
-
-        {/* Card 2: Schedule-Aware (Current → Final) */}
+        {/* Card 1: Schedule-Aware (Current → Final) */}
         <ScheduleAwareCard
           myTeamName={persistedMatchup.myTeam.name}
           opponentName={persistedMatchup.opponent.name}
@@ -1960,7 +1945,7 @@ Navigate to their team page and copy the whole page.`}
           remainingDays={remainingDates.length}
         />
 
-        {/* Card 3: Today Impact */}
+        {/* Card 2: Today Impact (Current → After Today) */}
         <TodayImpactCard
           myTeamName={persistedMatchup.myTeam.name}
           opponentName={persistedMatchup.opponent.name}
@@ -1968,144 +1953,8 @@ Navigate to their team page and copy the whole page.`}
           oppCurrentTotals={oppCurrentTotalsWithPct}
           myTodayStats={myTodayStats ?? null}
           oppTodayStats={oppTodayStats ?? null}
-          myFinalTotals={myFinalTotalsWithPct}
-          oppFinalTotals={oppFinalTotalsWithPct}
-        />
-
-        {/* Card 4: Pace vs Baseline */}
-        <PaceVsBaselineCard
-          myTeamName={persistedMatchup.myTeam.name}
-          opponentName={persistedMatchup.opponent.name}
-          myBaselineStats={persistedMatchup.myTeam.stats}
-          oppBaselineStats={persistedMatchup.opponent.stats}
-          myCurrentStats={myWeeklyData?.myTeam.stats ?? null}
-          oppCurrentStats={myWeeklyData?.opponent.stats ?? null}
-          daysCompleted={dayInfo.dayOfWeek === 0 ? 7 : dayInfo.dayOfWeek}
         />
       </div>
-
-      {/* Strength (Per-40) Projection - Baseline Week */}
-      {projectionMode === 'strength' && (
-        <Collapsible defaultOpen={true}>
-        <CollapsibleTrigger asChild>
-          <Card className="p-3 bg-muted/30 border-border cursor-pointer hover:bg-muted/50 transition-colors">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-muted-foreground" />
-                <span className="font-display font-semibold text-sm">Baseline Week Projection (Team Composite × 40)</span>
-              </div>
-              <ChevronDown className="w-4 h-4 text-muted-foreground" />
-            </div>
-          </Card>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-3">
-          {(() => {
-            // Baseline category comparison logic
-            const baselineCategories = [
-              { key: 'fgPct', label: 'FG%', lowerIsBetter: false, isPct: true },
-              { key: 'ftPct', label: 'FT%', lowerIsBetter: false, isPct: true },
-              { key: 'threepm', label: '3PM', lowerIsBetter: false, isPct: false },
-              { key: 'rebounds', label: 'REB', lowerIsBetter: false, isPct: false },
-              { key: 'assists', label: 'AST', lowerIsBetter: false, isPct: false },
-              { key: 'steals', label: 'STL', lowerIsBetter: false, isPct: false },
-              { key: 'blocks', label: 'BLK', lowerIsBetter: false, isPct: false },
-              { key: 'turnovers', label: 'TO', lowerIsBetter: true, isPct: false },
-              { key: 'points', label: 'PTS', lowerIsBetter: false, isPct: false },
-            ] as const;
-
-            type StatKey = typeof baselineCategories[number]['key'];
-
-            const getBaselineValue = (stats: TeamStats, key: StatKey, isPct: boolean): number | null => {
-              const val = safeNum(stats[key as keyof TeamStats]);
-              if (val === null) return null;
-              return isPct ? val : val * 40;
-            };
-
-            const determineBaselineWinner = (myVal: number | null, oppVal: number | null, lowerIsBetter: boolean, isPct: boolean): 'my' | 'opp' | 'tie' | 'missing' => {
-              if (myVal === null || oppVal === null) return 'missing';
-              const epsilon = isPct ? 0.0005 : 0.5;
-              const diff = Math.abs(myVal - oppVal);
-              if (diff < epsilon) return 'tie';
-              if (lowerIsBetter) {
-                return myVal < oppVal ? 'my' : 'opp';
-              } else {
-                return myVal > oppVal ? 'my' : 'opp';
-              }
-            };
-
-            const results = baselineCategories.map(cat => {
-              const myVal = getBaselineValue(persistedMatchup.myTeam.stats, cat.key, cat.isPct);
-              const oppVal = getBaselineValue(persistedMatchup.opponent.stats, cat.key, cat.isPct);
-              const winner = determineBaselineWinner(myVal, oppVal, cat.lowerIsBetter, cat.isPct);
-              return { ...cat, myVal, oppVal, winner };
-            });
-
-            const myWins = results.filter(r => r.winner === 'my').length;
-            const oppWins = results.filter(r => r.winner === 'opp').length;
-            const ties = results.filter(r => r.winner === 'tie').length;
-
-            const getCellBg = (winner: 'my' | 'opp' | 'tie' | 'missing', forTeam: 'my' | 'opp'): string => {
-              if (winner === 'missing') return '';
-              if (winner === 'tie') return 'bg-muted/50';
-              if (winner === forTeam) return 'bg-stat-positive/15';
-              return 'bg-stat-negative/15';
-            };
-
-            return (
-              <div className="space-y-3">
-                <div className="grid md:grid-cols-2 gap-3">
-                  {/* My Team Baseline */}
-                  <Card className="gradient-card border-border p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-display font-semibold text-sm text-stat-positive">{persistedMatchup.myTeam.name}</h3>
-                      <span className="text-[10px] text-muted-foreground">Avg × 40</span>
-                    </div>
-                    <div className="grid grid-cols-9 gap-1 text-center">
-                      {results.map(cat => (
-                        <div key={cat.key} className={cn("rounded px-0.5 py-1", getCellBg(cat.winner, 'my'))}>
-                          <p className="text-[9px] text-muted-foreground">{cat.label}</p>
-                          <p className="font-display font-bold text-xs">
-                            {cat.isPct ? formatStatValue(cat.myVal, true) : fmtInt(cat.myVal)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-
-                  {/* Opponent Baseline */}
-                  <Card className="gradient-card border-border p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-display font-semibold text-sm text-stat-negative">{persistedMatchup.opponent.name}</h3>
-                      <span className="text-[10px] text-muted-foreground">Avg × 40</span>
-                    </div>
-                    <div className="grid grid-cols-9 gap-1 text-center">
-                      {results.map(cat => (
-                        <div key={cat.key} className={cn("rounded px-0.5 py-1", getCellBg(cat.winner, 'opp'))}>
-                          <p className="text-[9px] text-muted-foreground">{cat.label}</p>
-                          <p className="font-display font-bold text-xs">
-                            {cat.isPct ? formatStatValue(cat.oppVal, true) : fmtInt(cat.oppVal)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                </div>
-
-                {/* Projected Baseline Outcome */}
-                <p className="text-center text-xs text-muted-foreground">
-                  Projected baseline outcome:{' '}
-                  <span className="font-display font-semibold text-foreground">
-                    {persistedMatchup.myTeam.name}{' '}
-                    <span className="text-stat-positive">{myWins}</span>–<span className="text-stat-negative">{oppWins}</span>–<span className="text-muted-foreground">{ties}</span>{' '}
-                    {persistedMatchup.opponent.name}
-                  </span>
-                </p>
-              </div>
-            );
-          })()}
-        </CollapsibleContent>
-      </Collapsible>
-      )}
 
       {/* Removed misleading "players playing today" count */}
 
