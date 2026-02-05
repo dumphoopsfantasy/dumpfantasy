@@ -4,7 +4,6 @@
  */
 
 import { memo, useMemo } from "react";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { buildCategoryTags } from "@/lib/playerSpecialistTags";
 
@@ -47,19 +46,18 @@ export const CategorySpecialistTags = memo(function CategorySpecialistTags({
   if (tags.length === 0) return null;
 
   return (
-    <div className={cn("flex gap-0.5 flex-wrap", className)}>
+    <span className={cn("inline-flex gap-0.5", className)}>
       {tags.map((tag) => (
-        <Badge
+        <span
           key={tag}
-          variant="outline"
           className={cn(
-            "text-[8px] px-1 py-0 font-medium",
+            "text-[8px] px-1 py-0 rounded font-medium border",
             TAG_COLORS[tag] || "bg-muted/30 text-muted-foreground border-muted-foreground/30"
           )}
         >
           {tag}
-        </Badge>
+        </span>
       ))}
-    </div>
+    </span>
   );
 });

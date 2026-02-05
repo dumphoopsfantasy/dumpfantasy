@@ -278,7 +278,7 @@ export const RosterTable = ({
                           </Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <div className="flex items-center gap-1 flex-wrap text-[10px] text-muted-foreground">
                         <span>{player.positions.join("/")}</span>
                         {player.opponent && player.opponent !== "MOVE" && (
                           <span className="text-primary">{player.opponent}</span>
@@ -291,24 +291,23 @@ export const RosterTable = ({
                             compact
                           />
                         )}
+                        {hasStats && (
+                          <CategorySpecialistTags 
+                            stats={{
+                              points: player.points,
+                              threepm: player.threepm,
+                              rebounds: player.rebounds,
+                              assists: player.assists,
+                              steals: player.steals,
+                              blocks: player.blocks,
+                              turnovers: player.turnovers,
+                              fgPct: player.fgPct,
+                              ftPct: player.ftPct,
+                              positions: player.positions,
+                            }}
+                          />
+                        )}
                       </div>
-                      {hasStats && (
-                        <CategorySpecialistTags 
-                          stats={{
-                            points: player.points,
-                            threepm: player.threepm,
-                            rebounds: player.rebounds,
-                            assists: player.assists,
-                            steals: player.steals,
-                            blocks: player.blocks,
-                            turnovers: player.turnovers,
-                            fgPct: player.fgPct,
-                            ftPct: player.ftPct,
-                            positions: player.positions,
-                          }}
-                          className="mt-0.5"
-                        />
-                      )}
                     </div>
                   </div>
                 </TableCell>

@@ -50,23 +50,20 @@ export function getPlayerRemainingGamesBadge(
   }
 
   const count = gameDates.length;
-  const dayLabels = gameDates.slice(0, 3).map(g => g.dayLabel);
+  const dayLabels = gameDates.slice(0, 4).map(g => g.dayLabel); // Show up to 4 days
   const isToday = gameDates.length > 0 && gameDates[0].dateStr === today;
 
-  // Build display text
+  // Build display text - prefer simple count or day list
   let text = "—";
   if (count === 0) {
-    text = "No games left";
+    text = "0g";
   } else if (isToday && count === 1) {
     text = "Today";
-  } else if (isToday) {
-    text = `Today +${count - 1}`;
-  } else if (count === 1) {
-    text = dayLabels[0];
-  } else if (count <= 3) {
+  } else if (count <= 4) {
+    // Show day labels for up to 4 games
     text = dayLabels.join("/");
   } else {
-    text = `${count}g left`;
+    text = `${count}g`;
   }
 
   return { count, dayLabels, isToday, text };
