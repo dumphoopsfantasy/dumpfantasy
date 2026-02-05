@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatPct } from "@/lib/crisUtils";
 import { Trophy, Target, Minus, BarChart3 } from "lucide-react";
+import { MetricTooltip } from "@/components/MetricTooltip";
 
 interface TeamStats {
   fgPct: number;
@@ -100,7 +101,9 @@ export const BaselineCard = ({
         <div>
           <div className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-primary" />
-            <h3 className="font-display font-semibold text-sm">Baseline Strength (×40)</h3>
+            <MetricTooltip metricKey="baseline-x40">
+              <h3 className="font-display font-semibold text-sm">Baseline Strength (×40)</h3>
+            </MetricTooltip>
           </div>
           <p className="text-[10px] text-muted-foreground">Roster average × 40 games (schedule-independent)</p>
         </div>

@@ -17,6 +17,7 @@ import { formatPct } from "@/lib/crisUtils";
 import { Trophy, Target, Minus, AlertTriangle, Zap, Clock } from "lucide-react";
 import { ProjectedStats } from "@/lib/scheduleAwareProjection";
 import { TeamTotalsWithPct, addTotals, withDerivedPct, totalsFromProjectedStats } from "@/lib/teamTotals";
+import { MetricTooltip } from "@/components/MetricTooltip";
 
 interface TodayImpactCardProps {
   myTeamName: string;
@@ -160,7 +161,9 @@ export const TodayImpactCard = ({
         <div>
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-primary" />
-            <h3 className="font-display font-semibold text-sm">Today Impact</h3>
+            <MetricTooltip metricKey="today-impact">
+              <h3 className="font-display font-semibold text-sm">Today Impact</h3>
+            </MetricTooltip>
           </div>
           <p className="text-[10px] text-muted-foreground">
             Today: {myTodayStarts} vs {oppTodayStarts} usable starts
