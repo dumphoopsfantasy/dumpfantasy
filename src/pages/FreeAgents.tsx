@@ -29,6 +29,9 @@ import { validateParseInput, parseWithTimeout, createLoopGuard, MAX_INPUT_SIZE }
 import { devLog, devWarn, devError } from "@/lib/devLog";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { useStreamingSchedule } from "@/hooks/useStreamingSchedule";
+import { GamesRemainingBadge } from "@/components/GamesRemainingBadge";
+import { CategorySpecialistTags } from "@/components/CategorySpecialistTags";
+import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 
 // Extended Free Agent interface with bonus stats and ranks
 interface FreeAgent extends Player {
@@ -125,7 +128,11 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     isTeamPlayingOnDate,
     refresh: refreshSchedule,
     lastUpdated: scheduleLastUpdated,
+    gamesByDate,
   } = useNBAUpcomingSchedule(7);
+  
+  // Get matchup week dates for badges
+  const matchupWeekDates = useMemo(() => getMatchupWeekDates(), []);
   
   // Enhanced streaming schedule hook
   const {
@@ -2495,20 +2502,42 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     <div className="flex items-center gap-2">
                       <PlayerPhoto name={player.name} size="sm" />
                       <NBATeamLogo teamCode={player.nbaTeam} size="sm" />
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <div className="font-semibold">
                           {player.name}
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {player.nbaTeam} • {player.positions.join("/")}
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
+                          <span>{player.nbaTeam} • {player.positions.join("/")}</span>
                           {player.status && player.status !== 'healthy' && (
-                            <Badge variant="destructive" className="text-xs ml-1">{player.status}</Badge>
+                            <Badge variant="destructive" className="text-xs">{player.status}</Badge>
                           )}
-                          {/* Show "No stats" badge if stats are missing */}
                           {((player as any)._hasStats === false || (player.minutes === 0 && player.points === 0 && player.rebounds === 0 && player.assists === 0)) && (
-                            <Badge variant="outline" className="text-xs ml-1 border-orange-500 text-orange-500">No stats</Badge>
+                            <Badge variant="outline" className="text-xs border-warning text-warning">No stats</Badge>
                           )}
+                          <GamesRemainingBadge 
+                            teamCode={player.nbaTeam} 
+                            weekDates={matchupWeekDates} 
+                            gamesByDate={gamesByDate}
+                            compact
+                          />
                         </div>
+                        {player.minutes > 0 && (
+                          <CategorySpecialistTags 
+                            stats={{
+                              points: player.points,
+                              threepm: player.threepm,
+                              rebounds: player.rebounds,
+                              assists: player.assists,
+                              steals: player.steals,
+                              blocks: player.blocks,
+                              turnovers: player.turnovers,
+                              fgPct: player.fgPct,
+                              ftPct: player.ftPct,
+                              positions: player.positions,
+                            }}
+                            className="mt-0.5"
+                          />
+                        )}
                       </div>
                     </div>
                   </td>

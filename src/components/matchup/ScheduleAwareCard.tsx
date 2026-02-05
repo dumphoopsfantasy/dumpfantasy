@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { formatPct } from "@/lib/crisUtils";
 import { Trophy, Target, Minus, AlertTriangle, Calendar } from "lucide-react";
 import { TeamTotalsWithPct } from "@/lib/teamTotals";
+import { MetricTooltip } from "@/components/MetricTooltip";
 
 interface ScheduleAwareCardProps {
   myTeamName: string;
@@ -119,9 +120,13 @@ export const ScheduleAwareCard = ({
     <Card className="gradient-card border-primary/20 p-4">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="font-display font-semibold text-sm">Schedule-Aware: Current → Final</h3>
+          <MetricTooltip metricKey="schedule-aware">
+            <h3 className="font-display font-semibold text-sm">Schedule-Aware: Current → Final</h3>
+          </MetricTooltip>
           <p className="text-[10px] text-muted-foreground">
-            {remainingDays} days remaining · {myRemainingStarts} vs {oppRemainingStarts} starts
+            <MetricTooltip metricKey="remaining-starts" inline>
+              <span>{remainingDays} days remaining · {myRemainingStarts} vs {oppRemainingStarts} starts</span>
+            </MetricTooltip>
           </p>
         </div>
         <Badge variant="outline" className="text-xs">

@@ -737,6 +737,8 @@ const Index = () => {
                   onPlayerClick={handlePlayerClick}
                   categoryRanks={categoryRanks}
                   activePlayerCount={activePlayerCount}
+                  weekDates={matchupDates}
+                  gamesByDate={gamesByDate}
                 />
                 
                 {/* Position Breakdown - compact summary below table */}

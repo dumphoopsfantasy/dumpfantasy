@@ -10,6 +10,9 @@ import { getStatusColor } from "@/lib/playerUtils";
 import { formatPct } from "@/lib/crisUtils";
 import { cn } from "@/lib/utils";
 import { ArrowUpDown, ArrowUp, ArrowDown, Lock, GitCompare } from "lucide-react";
+import { GamesRemainingBadge } from "@/components/GamesRemainingBadge";
+import { CategorySpecialistTags } from "@/components/CategorySpecialistTags";
+import { NBAGame } from "@/lib/nbaApi";
 
 interface PlayerWithCRI extends Player {
   cri?: number;
@@ -29,6 +32,9 @@ interface RosterTableProps {
   activePlayerCount: number;
   compareSelection?: Player[];
   onCompareToggle?: (player: Player) => void;
+  // Games remaining badge props
+  weekDates?: string[];
+  gamesByDate?: Map<string, NBAGame[]>;
 }
 
 // Map column keys to category rank keys
@@ -55,6 +61,8 @@ export const RosterTable = ({
   activePlayerCount,
   compareSelection = [],
   onCompareToggle,
+  weekDates = [],
+  gamesByDate = new Map(),
 }: RosterTableProps) => {
   const isPlayerSelected = (playerId: string) => 
     compareSelection.some((p) => p.id === playerId);
@@ -259,7 +267,7 @@ export const RosterTable = ({
                   <div className="flex items-center gap-2">
                     <PlayerPhoto name={player.name} size="xs" />
                     <NBATeamLogo teamCode={player.nbaTeam} size="xs" />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1">
                         <span className="font-display font-medium text-sm truncate max-w-[120px]">
                           {player.name}
@@ -270,12 +278,37 @@ export const RosterTable = ({
                           </Badge>
                         )}
                       </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {player.positions.join("/")}
+                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span>{player.positions.join("/")}</span>
                         {player.opponent && player.opponent !== "MOVE" && (
-                          <span className="ml-1 text-primary">{player.opponent}</span>
+                          <span className="text-primary">{player.opponent}</span>
+                        )}
+                        {weekDates.length > 0 && (
+                          <GamesRemainingBadge 
+                            teamCode={player.nbaTeam} 
+                            weekDates={weekDates} 
+                            gamesByDate={gamesByDate}
+                            compact
+                          />
                         )}
                       </div>
+                      {hasStats && (
+                        <CategorySpecialistTags 
+                          stats={{
+                            points: player.points,
+                            threepm: player.threepm,
+                            rebounds: player.rebounds,
+                            assists: player.assists,
+                            steals: player.steals,
+                            blocks: player.blocks,
+                            turnovers: player.turnovers,
+                            fgPct: player.fgPct,
+                            ftPct: player.ftPct,
+                            positions: player.positions,
+                          }}
+                          className="mt-0.5"
+                        />
+                      )}
                     </div>
                   </div>
                 </TableCell>
