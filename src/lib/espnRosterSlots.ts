@@ -324,12 +324,26 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
       loopGuard.check();
 
       const next = lines[j];
-      if (slotPattern.test(next)) break;
+      
+      // SMART SLOT BREAK: Single-position tokens (PG, SG, SF, PF, C) can appear
+      // as both slot labels AND position values. Only break if we've already
+      // found positions for the current player (meaning this must be a new slot).
+      if (slotPattern.test(next)) {
+        const isPositionLike = /^(PG|SG|SF|PF|C)$/i.test(next);
+        if (isPositionLike && !foundPositions && positions.length === 0) {
+          // Don't break - let the position check below handle it
+        } else {
+          break;
+        }
+      }
 
       if (next === "Empty") {
         isEmptySlot = true;
         break;
       }
+      
+      // Skip third copy of player name (ESPN often pastes name 3 times)
+      if (name && next === name) continue;
       
       // CRITICAL: Skip time tokens and non-player tokens immediately
       if (isTimeToken(next)) {
@@ -351,32 +365,38 @@ export function parseEspnRosterSlotsFromTeamPage(data: string): RosterSlot[] {
         continue;
       }
 
-      // Team codes appear like "Cha", "Mia", "GS", "Utah" (case varies)
-      // IMPORTANT: If we've already found positions AND team, subsequent 2-4 letter codes
-      // are likely fantasy owner abbreviations (e.g., "SAS" appearing after "SA" + "PG,SG")
+      // Team codes and opponent detection
       if (/^[A-Za-z]{2,4}$/.test(next)) {
         const normalized = normalizeNbaTeamCode(next);
         if (normalized) {
-          // Only set team if we haven't found one yet
-          // OR if we found it but it was before positions (early in block = likely team)
+          // First team code found → set as player's NBA team
           if (!team) {
             team = normalized;
             continue;
           }
-          // If we already have team AND positions, this is likely fantasy owner - skip
-          if (team && foundPositions) {
-            continue;
+          // Already have team → check if this is an OPPONENT (NBA code followed by game time)
+          if (!opponent) {
+            const timeMaybe = lines[j + 1];
+            if (timeMaybe && /^\d{1,2}:\d{2}\s*(AM|PM)?$/i.test(timeMaybe)) {
+              opponent = `${next} ${timeMaybe}`;
+              continue;
+            }
           }
+          // Not followed by time → skip (likely fantasy owner abbreviation)
+          continue;
         }
       }
 
-      // Opponent line often like "@Chi" or "Min" followed by time
-      if (!opponent && /^@?[A-Za-z]{2,4}$/.test(next)) {
+      // Opponent with @ prefix (e.g., "@Chi", "@Det") followed by time
+      if (!opponent && /^@[A-Za-z]{2,4}$/.test(next)) {
         const timeMaybe = lines[j + 1];
         if (timeMaybe && /^\d{1,2}:\d{2}\s*(AM|PM)?$/i.test(timeMaybe)) {
           opponent = `${next} ${timeMaybe}`;
           continue;
         }
+        // "@Team" without time is still likely an opponent
+        opponent = next;
+        continue;
       }
 
       // Name: handle doubled ESPN copy like "LaMelo BallLaMelo Ball"
