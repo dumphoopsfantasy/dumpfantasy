@@ -219,7 +219,8 @@ export const ScheduleForecast = ({
     if (!schedule) return;
     if (currentWeekCutoff !== 0) return;
     const suggested = getSuggestedCurrentWeek(schedule);
-    if (suggested) setCurrentWeekCutoff(suggested);
+    // Cutoff = last COMPLETED week, so current week is included in forecast (week > cutoff)
+    if (suggested) setCurrentWeekCutoff(suggested - 1);
   }, [schedule, currentWeekCutoff, setCurrentWeekCutoff]);
 
   const scheduleWeekOptions = useMemo(() => {
