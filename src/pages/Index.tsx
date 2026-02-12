@@ -153,7 +153,7 @@ const Index = () => {
   const dynamicWeights = useDynamicWeights(globalWeights);
   
   // NBA Schedule for Start/Sit Advisor
-  const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(7);
+  const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(21);
   
   // Matchup week dates for Position Breakdown
   const matchupDates = useMemo(() => getMatchupWeekDates(), []);

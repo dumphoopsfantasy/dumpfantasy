@@ -12,9 +12,9 @@ import {
   WeekProjectionResult,
   ProjectionError,
   ProjectedStats,
-  getRemainingMatchupDates,
   validateProjectionInput,
 } from '@/lib/scheduleAwareProjection';
+import { getRemainingMatchupDatesFromSchedule } from '@/lib/matchupWeekDates';
 import {
   projectSlateAware,
   SlateStatus,
@@ -59,8 +59,8 @@ export function useSlateAwareProjection({
   roster,
   opponentRoster,
 }: UseSlateAwareProjectionProps): SlateAwareProjectionResult {
-  const { gamesByDate, isLoading, error } = useNBAUpcomingSchedule(7);
-  const remainingDates = useMemo(() => getRemainingMatchupDates(), []);
+  const { gamesByDate, isLoading, error } = useNBAUpcomingSchedule(21); // 21 days to cover extended weeks (All-Star break)
+  const remainingDates = useMemo(() => getRemainingMatchupDatesFromSchedule(), []);
   
   // Get today's date
   const todayDate = useMemo(() => {

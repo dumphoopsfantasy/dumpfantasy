@@ -129,7 +129,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     refresh: refreshSchedule,
     lastUpdated: scheduleLastUpdated,
     gamesByDate,
-  } = useNBAUpcomingSchedule(7);
+  } = useNBAUpcomingSchedule(21);
   
   // Get matchup week dates for badges
   const matchupWeekDates = useMemo(() => getMatchupWeekDates(), []);

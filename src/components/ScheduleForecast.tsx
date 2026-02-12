@@ -72,43 +72,8 @@ type ResolvedScheduleResult = {
   totalMatchups: number;
 };
 
-function parseDateRangeText(dateRangeText: string, seasonYear: number): { start?: Date; end?: Date } {
-  // Ex: "Dec 15 - 21" or "Oct 21 - 26" or "Dec 30 - Jan 5"
-  const m = dateRangeText.match(/^(\w{3})\s+(\d{1,2})\s*-\s*(?:(\w{3})\s+)?(\d{1,2})/);
-  if (!m) return {};
-
-  const monthToIndex: Record<string, number> = {
-    jan: 0,
-    feb: 1,
-    mar: 2,
-    apr: 3,
-    may: 4,
-    jun: 5,
-    jul: 6,
-    aug: 7,
-    sep: 8,
-    oct: 9,
-    nov: 10,
-    dec: 11,
-  };
-
-  const startMonth = monthToIndex[m[1].toLowerCase()];
-  const startDay = parseInt(m[2]);
-  const endMonth = m[3] ? monthToIndex[m[3].toLowerCase()] : startMonth;
-  const endDay = parseInt(m[4]);
-
-  if (startMonth === undefined || endMonth === undefined) return {};
-
-  // NBA fantasy seasons usually span year boundary; if date is Oct-Dec, use seasonYear-1 for "2026" season label.
-  // Heuristic: treat Oct/Nov/Dec as previous calendar year.
-  const startYear = startMonth >= 9 ? seasonYear - 1 : seasonYear;
-  const endYear = endMonth >= 9 ? seasonYear - 1 : seasonYear;
-
-  const start = new Date(startYear, startMonth, startDay);
-  const end = new Date(endYear, endMonth, endDay);
-
-  return { start, end };
-}
+// Re-use shared parseDateRangeText utility
+import { parseDateRangeText } from "@/lib/matchupWeekDates";
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
   const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
