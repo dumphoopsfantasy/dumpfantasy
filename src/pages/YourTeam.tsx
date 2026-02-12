@@ -27,7 +27,7 @@ export const YourTeam = () => {
   const [compareSelection, setCompareSelection] = useState<Player[]>([]);
 
   // Fetch NBA schedule for position breakdown
-  const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(7);
+  const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(21);
   const matchupDates = useMemo(() => getMatchupWeekDates(), []);
 
   // Calculate CRI/wCRI using exact logic from user spec

@@ -788,46 +788,14 @@ export function projectWeekSafe(input: ProjectWeekInput): ProjectWeekResult {
 // ============================================================================
 
 /**
- * Get dates for the current fantasy matchup week (Mon-Sun)
+ * Get dates for the current fantasy matchup week.
+ * Uses imported league schedule when available (supports extended weeks like All-Star break).
+ * Falls back to Mon-Sun when no schedule is imported.
  */
-export function getMatchupWeekDates(): string[] {
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  
-  // Find Monday of current week
-  const monday = new Date(now);
-  if (dayOfWeek === 0) {
-    // Sunday: go back 6 days
-    monday.setDate(now.getDate() - 6);
-  } else {
-    // Other days: go back to Monday
-    monday.setDate(now.getDate() - (dayOfWeek - 1));
-  }
-  
-  // Generate Mon-Sun dates
-  const dates: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + i);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    dates.push(`${year}-${month}-${day}`);
-  }
-  
-  return dates;
-}
+export { getMatchupWeekDatesFromSchedule as getMatchupWeekDates } from '@/lib/matchupWeekDates';
 
 /**
- * Get remaining dates in the matchup week (from today onward)
+ * Get remaining dates in the matchup week (from today onward).
+ * Uses imported league schedule when available.
  */
-export function getRemainingMatchupDates(): string[] {
-  const allDates = getMatchupWeekDates();
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  const todayStr = `${year}-${month}-${day}`;
-  
-  return allDates.filter(d => d >= todayStr);
-}
+export { getRemainingMatchupDatesFromSchedule as getRemainingMatchupDates } from '@/lib/matchupWeekDates';
