@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Player, RosterSlot } from "@/types/fantasy";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
@@ -14,6 +15,12 @@ import {
 import { cn } from "@/lib/utils";
 import { getImportTimestamps, formatTimestampAge, ImportTimestamps } from "@/lib/importTimestamps";
 import { getMatchupWeekDatesFromSchedule, getRemainingMatchupDatesFromSchedule, getCurrentMatchupWeekFromSchedule } from "@/lib/matchupWeekDates";
+import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
+import { computeBaselineStats, projectFromStarts, addToTotals } from "@/hooks/useMatchupModel";
+import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
+import { STANDARD_LINEUP_SLOTS } from "@/lib/scheduleAwareProjection";
+import { NBAGame } from "@/lib/nbaApi";
+import { TeamTotalsWithPct } from "@/lib/teamTotals";
 
 // ── Types ──
 
@@ -35,14 +42,14 @@ interface ParsedTeam {
 
 interface WeeklyMatchup { teamA: ParsedTeam; teamB: ParsedTeam; }
 
-interface GamesByDate { [date: string]: Array<{ homeTeam: string; awayTeam: string; [k: string]: any }> };
+interface GamesByDateObj { [date: string]: Array<{ homeTeam: string; awayTeam: string; [k: string]: any }> };
 
 interface ThisWeekSummaryProps {
   roster: (RosterSlot & { player: Player & { cri?: number; wCri?: number; criRank?: number; wCriRank?: number } })[];
   freeAgents: Player[];
   matchupData: MatchupProjectionData | null;
   weeklyMatchups: WeeklyMatchup[];
-  gamesByDate: GamesByDate;
+  gamesByDate: GamesByDateObj;
   scheduleLoading: boolean;
   onNavigateTab: (tab: string, openImport?: boolean) => void;
 }
@@ -78,18 +85,51 @@ function classifyCats(myStats: MatchupStats, oppStats: MatchupStats): CatResult[
   });
 }
 
-function teamHasGame(teamCode: string, games: Array<{ homeTeam: string; awayTeam: string }>): boolean {
-  const tc = teamCode.toUpperCase();
-  return games.some(g => g.homeTeam.toUpperCase() === tc || g.awayTeam.toUpperCase() === tc);
+/** Normalize team code then check schedule */
+function teamHasGameNormalized(teamCode: string, games: Array<{ homeTeam: string; awayTeam: string }>): boolean {
+  const normalized = normalizeNbaTeamCode(teamCode);
+  if (!normalized) return false;
+  return games.some(g => {
+    const h = normalizeNbaTeamCode(g.homeTeam);
+    const a = normalizeNbaTeamCode(g.awayTeam);
+    return h === normalized || a === normalized;
+  });
 }
 
 function getOpponentForTeam(teamCode: string, games: Array<{ homeTeam: string; awayTeam: string }>): string | null {
-  const tc = teamCode.toUpperCase();
+  const normalized = normalizeNbaTeamCode(teamCode);
+  if (!normalized) return null;
   for (const g of games) {
-    if (g.homeTeam.toUpperCase() === tc) return `vs ${g.awayTeam}`;
-    if (g.awayTeam.toUpperCase() === tc) return `@ ${g.homeTeam}`;
+    const h = normalizeNbaTeamCode(g.homeTeam);
+    const a = normalizeNbaTeamCode(g.awayTeam);
+    if (h === normalized) return `vs ${g.awayTeam}`;
+    if (a === normalized) return `@ ${g.homeTeam}`;
   }
   return null;
+}
+
+/** Convert plain object gamesByDate to Map for useMatchupModel functions */
+function toGamesByDateMap(obj: GamesByDateObj): Map<string, NBAGame[]> {
+  const map = new Map<string, NBAGame[]>();
+  for (const [date, games] of Object.entries(obj)) {
+    map.set(date, games as NBAGame[]);
+  }
+  return map;
+}
+
+/** Convert projected stats to MatchupStats for classification */
+function totalsToMatchupStats(t: TeamTotalsWithPct): MatchupStats {
+  return {
+    fgPct: t.fgPct ?? 0,
+    ftPct: t.ftPct ?? 0,
+    threepm: t.threepm ?? 0,
+    rebounds: t.rebounds ?? 0,
+    assists: t.assists ?? 0,
+    steals: t.steals ?? 0,
+    blocks: t.blocks ?? 0,
+    turnovers: t.turnovers ?? 0,
+    points: t.points ?? 0,
+  };
 }
 
 // ── Component ──
@@ -97,6 +137,7 @@ function getOpponentForTeam(teamCode: string, games: Array<{ homeTeam: string; a
 export function ThisWeekSummary({
   roster, freeAgents, matchupData, weeklyMatchups, gamesByDate, scheduleLoading, onNavigateTab,
 }: ThisWeekSummaryProps) {
+  const [outlookMode, setOutlookMode] = useState<"current" | "projected">("current");
 
   // Resolve actual stats (prefer weekly if available)
   const myTeamWeekly = useMemo(() => {
@@ -111,17 +152,6 @@ export function ThisWeekSummary({
     return null;
   }, [weeklyMatchups, matchupData]);
 
-  const catResults = useMemo(() => {
-    if (!matchupData) return [];
-    const myStats = myTeamWeekly ? myTeamWeekly.team.stats : matchupData.myTeam.stats;
-    const oppStats = myTeamWeekly ? myTeamWeekly.opp.stats : matchupData.opponent.stats;
-    return classifyCats(myStats, oppStats);
-  }, [matchupData, myTeamWeekly]);
-
-  const wins = catResults.filter(c => c.status === "win");
-  const losses = catResults.filter(c => c.status === "loss");
-  const tossups = catResults.filter(c => c.status === "tossup");
-
   // Current matchup week info
   const currentWeek = useMemo(() => getCurrentMatchupWeekFromSchedule(), []);
   const weekDates = useMemo(() => getMatchupWeekDatesFromSchedule(), []);
@@ -134,114 +164,212 @@ export function ThisWeekSummary({
 
   const todayGames = gamesByDate[todayStr] || [];
 
-  // ── Card 1: Matchup Outlook ──
+  // ── Projected Final computation (same logic as Matchup tab) ──
+  const projectedFinal = useMemo(() => {
+    if (!matchupData) return null;
+    const oppRoster = matchupData.opponentRoster;
+    if (!oppRoster || oppRoster.length === 0) return null;
+
+    const gMap = toGamesByDateMap(gamesByDate);
+    const myBaseline = computeBaselineStats(roster);
+    const oppBaseline = computeBaselineStats(oppRoster);
+    if (!myBaseline || !oppBaseline) return null;
+
+    // Current totals from weekly scoreboard
+    const myCurrentStats = myTeamWeekly ? myTeamWeekly.team.stats : matchupData.myTeam.stats;
+    const oppCurrentStats = myTeamWeekly ? myTeamWeekly.opp.stats : matchupData.opponent.stats;
+
+    // Convert current stats to TeamTotalsWithPct format
+    const myCurrentTotals: TeamTotalsWithPct = {
+      fgm: 0, fga: 0, ftm: 0, fta: 0,
+      fgPct: myCurrentStats.fgPct, ftPct: myCurrentStats.ftPct,
+      threepm: myCurrentStats.threepm, rebounds: myCurrentStats.rebounds,
+      assists: myCurrentStats.assists, steals: myCurrentStats.steals,
+      blocks: myCurrentStats.blocks, turnovers: myCurrentStats.turnovers,
+      points: myCurrentStats.points,
+    };
+    const oppCurrentTotals: TeamTotalsWithPct = {
+      fgm: 0, fga: 0, ftm: 0, fta: 0,
+      fgPct: oppCurrentStats.fgPct, ftPct: oppCurrentStats.ftPct,
+      threepm: oppCurrentStats.threepm, rebounds: oppCurrentStats.rebounds,
+      assists: oppCurrentStats.assists, steals: oppCurrentStats.steals,
+      blocks: oppCurrentStats.blocks, turnovers: oppCurrentStats.turnovers,
+      points: oppCurrentStats.points,
+    };
+
+    // Compute remaining starts
+    const myRestOfWeek = computeRestOfWeekStarts({
+      rosterPlayers: roster,
+      matchupDates: weekDates,
+      gamesByDate: gMap,
+      lineupSlots: STANDARD_LINEUP_SLOTS,
+    });
+    const oppRestOfWeek = computeRestOfWeekStarts({
+      rosterPlayers: oppRoster,
+      matchupDates: weekDates,
+      gamesByDate: gMap,
+      lineupSlots: STANDARD_LINEUP_SLOTS,
+    });
+
+    const myRemainingStarts = myRestOfWeek?.remainingStarts ?? 0;
+    const oppRemainingStarts = oppRestOfWeek?.remainingStarts ?? 0;
+
+    const myRemainingProjection = myRemainingStarts > 0 ? projectFromStarts(myBaseline, myRemainingStarts) : null;
+    const oppRemainingProjection = oppRemainingStarts > 0 ? projectFromStarts(oppBaseline, oppRemainingStarts) : null;
+
+    const myFinal = addToTotals(myCurrentTotals, myRemainingProjection);
+    const oppFinal = addToTotals(oppCurrentTotals, oppRemainingProjection);
+
+    if (!myFinal || !oppFinal) return null;
+
+    return {
+      myFinal: totalsToMatchupStats(myFinal),
+      oppFinal: totalsToMatchupStats(oppFinal),
+      myRemainingStarts,
+      oppRemainingStarts,
+    };
+  }, [matchupData, roster, gamesByDate, weekDates, myTeamWeekly]);
+
+  // Category results based on outlook mode
+  const catResults = useMemo(() => {
+    if (!matchupData) return [];
+    if (outlookMode === "projected" && projectedFinal) {
+      return classifyCats(projectedFinal.myFinal, projectedFinal.oppFinal);
+    }
+    // Current mode
+    const myStats = myTeamWeekly ? myTeamWeekly.team.stats : matchupData.myTeam.stats;
+    const oppStats = myTeamWeekly ? myTeamWeekly.opp.stats : matchupData.opponent.stats;
+    return classifyCats(myStats, oppStats);
+  }, [matchupData, myTeamWeekly, outlookMode, projectedFinal]);
+
+  const wins = catResults.filter(c => c.status === "win");
+  const losses = catResults.filter(c => c.status === "loss");
+  const tossups = catResults.filter(c => c.status === "tossup");
+
+  // Swing cats
   const swingCats = useMemo(() => {
     return [...tossups].sort((a, b) => Math.abs(a.margin) - Math.abs(b.margin)).slice(0, 2);
   }, [tossups]);
 
-  // ── Card 2: Games Remaining ──
+  // ── Games Remaining (with opponent daily bars) ──
   const gamesRemaining = useMemo(() => {
     const activeRoster = roster.filter(r => r.slotType !== "ir");
     const irRoster = roster.filter(r => r.slotType === "ir");
+    const oppRoster = matchupData?.opponentRoster?.filter(r => r.slotType !== "ir") || [];
 
-    const dailyCounts: { date: string; my: number; label: string }[] = [];
+    const dailyCounts: { date: string; my: number; opp: number; label: string }[] = [];
     let myTotal = 0;
+    let oppTotal = 0;
     let irTotal = 0;
 
     for (const date of remainingDates) {
       const games = gamesByDate[date] || [];
       let myCount = 0;
       activeRoster.forEach(r => {
-        if (r.player.nbaTeam && teamHasGame(r.player.nbaTeam, games)) myCount++;
+        if (r.player.nbaTeam && teamHasGameNormalized(r.player.nbaTeam, games)) myCount++;
       });
       myTotal += myCount;
 
-      // IR games
+      let oppCount = 0;
+      oppRoster.forEach(r => {
+        if (r.player.nbaTeam && teamHasGameNormalized(r.player.nbaTeam, games)) oppCount++;
+      });
+      oppTotal += oppCount;
+
       irRoster.forEach(r => {
-        if (r.player.nbaTeam && teamHasGame(r.player.nbaTeam, games)) irTotal++;
+        if (r.player.nbaTeam && teamHasGameNormalized(r.player.nbaTeam, games)) irTotal++;
       });
 
       const d = new Date(date + "T12:00:00");
       const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-      dailyCounts.push({ date, my: myCount, label: dayLabel });
+      dailyCounts.push({ date, my: myCount, opp: oppCount, label: dayLabel });
     }
 
-    // Opponent games if available
-    let oppTotal = 0;
-    const oppRoster = matchupData?.opponentRoster;
-    if (oppRoster && oppRoster.length > 0) {
-      for (const date of remainingDates) {
-        const games = gamesByDate[date] || [];
-        oppRoster.filter(r => r.slotType !== "ir").forEach(r => {
-          if (r.player.nbaTeam && teamHasGame(r.player.nbaTeam, games)) oppTotal++;
-        });
-      }
-    }
-
-    return { myTotal, oppTotal, irTotal, dailyCounts, hasOpp: !!oppRoster && oppRoster.length > 0 };
+    return { myTotal, oppTotal, irTotal, dailyCounts, hasOpp: oppRoster.length > 0 };
   }, [roster, matchupData, gamesByDate, remainingDates]);
 
-  const maxDailyGames = useMemo(() => Math.max(...gamesRemaining.dailyCounts.map(d => d.my), 1), [gamesRemaining]);
+  const maxDailyGames = useMemo(() => {
+    const allVals = gamesRemaining.dailyCounts.flatMap(d => [d.my, d.opp]);
+    return Math.max(...allVals, 1);
+  }, [gamesRemaining]);
 
-  // ── Card 3: Today ──
+  // ── Today players ──
   const todayPlayers = useMemo(() => {
     if (!todayGames.length) return [];
     return roster
-      .filter(r => r.slotType !== "ir" && r.player.nbaTeam && teamHasGame(r.player.nbaTeam, todayGames))
+      .filter(r => r.slotType !== "ir" && r.player.nbaTeam && teamHasGameNormalized(r.player.nbaTeam, todayGames))
       .filter(r => r.player.status !== "O" && r.player.status !== "IR")
       .map(r => ({
         name: r.player.name,
         team: r.player.nbaTeam,
-        opp: getOpponentForTeam(r.player.nbaTeam, todayGames) || "",
+        opp: getOpponentForTeam(r.player.nbaTeam!, todayGames) || "",
         status: r.player.status,
       }));
   }, [roster, todayGames]);
 
-  // ── Card 4: Top 3 Moves ──
+  // ── Top 3 Moves (fixed schedule math) ──
   const topMoves = useMemo(() => {
     const moves: Array<{ title: string; description: string; action?: { label: string; tab: string }; icon: "add" | "stream" | "focus" }> = [];
 
-    // Needed categories
     const neededCats = catResults.filter(c => c.status === "loss" || c.status === "tossup").map(c => c.key);
 
+    // Compute next 3 dates from remaining dates
+    const next3Dates = remainingDates.slice(0, 3);
+
     // Move 1: Best add
-    if (freeAgents.length > 0 && neededCats.length > 0) {
-      // Score free agents by fit for needed cats
-      const next3Dates = remainingDates.slice(0, 3);
+    if (freeAgents.length > 0 && neededCats.length > 0 && next3Dates.length > 0) {
       const scored = freeAgents
         .filter(fa => fa.status !== "O" && fa.status !== "IR" && fa.minutes > 0)
         .map(fa => {
           let gamesNext3 = 0;
-          next3Dates.forEach(date => {
-            const games = gamesByDate[date] || [];
-            if (fa.nbaTeam && teamHasGame(fa.nbaTeam, games)) gamesNext3++;
-          });
+          if (fa.nbaTeam) {
+            next3Dates.forEach(date => {
+              const games = gamesByDate[date] || [];
+              if (teamHasGameNormalized(fa.nbaTeam!, games)) gamesNext3++;
+            });
+          }
 
-          // Need fit: sum of z-score-like boosts for needed cats
           let needFit = 0;
           let bestCat = "";
           let bestCatVal = 0;
           neededCats.forEach(catKey => {
             const val = (fa as any)[catKey] as number || 0;
             const lowerBetter = catKey === "turnovers";
-            // Simple heuristic: rank-like score
             const contribution = lowerBetter ? (val < 2 ? 1 : 0) : val;
             if (contribution > bestCatVal) { bestCatVal = contribution; bestCat = catKey; }
             needFit += contribution;
           });
 
-          const streamScore = Math.max(gamesNext3, 1) * (fa.wCri || fa.cri || needFit);
+          const streamScore = gamesNext3 * (fa.wCri || fa.cri || needFit || 1);
           return { fa, streamScore, gamesNext3, bestCat };
         })
+        // Filter out players with 0 games in next 3 days for near-term streaming
+        .filter(s => s.gamesNext3 > 0)
         .sort((a, b) => b.streamScore - a.streamScore);
 
       const best = scored[0];
       if (best) {
         const catLabel = CATEGORY_LABELS[best.bestCat] || best.bestCat;
+        const dayLabels = next3Dates
+          .filter(date => {
+            const games = gamesByDate[date] || [];
+            return best.fa.nbaTeam ? teamHasGameNormalized(best.fa.nbaTeam, games) : false;
+          })
+          .map(d => {
+            const dt = new Date(d + "T12:00:00");
+            return dt.toLocaleDateString("en-US", { weekday: "short" });
+          });
         moves.push({
           title: `Add ${best.fa.name}`,
-          description: `${best.gamesNext3} games in next 3 days · Boosts ${catLabel}`,
+          description: `${best.gamesNext3}g next 3 days (${dayLabels.join("/")}) · Boosts ${catLabel}`,
           action: { label: "View in Free Agents", tab: "freeagents" },
+          icon: "add",
+        });
+      } else {
+        // All free agents have 0 games — fallback
+        moves.push({
+          title: "No near-term streamers available",
+          description: scheduleLoading ? "Schedule loading…" : "No free agents with games in the next 3 days",
           icon: "add",
         });
       }
@@ -256,25 +384,12 @@ export function ThisWeekSummary({
 
     // Move 2: Best stream window
     if (remainingDates.length > 0 && Object.keys(gamesByDate).length > 0) {
-      // Find the day with most roster games in next 3 days
       const upcoming = remainingDates.slice(0, 3);
-      let bestDay = "";
-      let bestCount = 0;
-      upcoming.forEach(date => {
-        const games = gamesByDate[date] || [];
-        let count = 0;
-        roster.filter(r => r.slotType !== "ir").forEach(r => {
-          if (r.player.nbaTeam && teamHasGame(r.player.nbaTeam, games)) count++;
-        });
-        if (count > bestCount) { bestCount = count; bestDay = date; }
-      });
-
-      // Find thin days (0-1 roster games)
       const thinDays = upcoming.filter(date => {
         const games = gamesByDate[date] || [];
         let count = 0;
         roster.filter(r => r.slotType !== "ir").forEach(r => {
-          if (r.player.nbaTeam && teamHasGame(r.player.nbaTeam, games)) count++;
+          if (r.player.nbaTeam && teamHasGameNormalized(r.player.nbaTeam, games)) count++;
         });
         return count <= 1;
       });
@@ -290,15 +405,27 @@ export function ThisWeekSummary({
           action: { label: "View Free Agents", tab: "freeagents" },
           icon: "stream",
         });
-      } else if (bestDay) {
-        const dt = new Date(bestDay + "T12:00:00");
-        const dayLabel = dt.toLocaleDateString("en-US", { weekday: "long" });
-        moves.push({
-          title: `${bestCount} players active ${dayLabel}`,
-          description: "Good volume day — ensure all starters are set",
-          action: { label: "Check Matchup", tab: "matchup" },
-          icon: "stream",
+      } else {
+        let bestDay = "";
+        let bestCount = 0;
+        upcoming.forEach(date => {
+          const games = gamesByDate[date] || [];
+          let count = 0;
+          roster.filter(r => r.slotType !== "ir").forEach(r => {
+            if (r.player.nbaTeam && teamHasGameNormalized(r.player.nbaTeam, games)) count++;
+          });
+          if (count > bestCount) { bestCount = count; bestDay = date; }
         });
+        if (bestDay) {
+          const dt = new Date(bestDay + "T12:00:00");
+          const dayLabel = dt.toLocaleDateString("en-US", { weekday: "long" });
+          moves.push({
+            title: `${bestCount} players active ${dayLabel}`,
+            description: "Good volume day — ensure all starters are set",
+            action: { label: "Check Matchup", tab: "matchup" },
+            icon: "stream",
+          });
+        }
       }
     }
 
@@ -322,26 +449,28 @@ export function ThisWeekSummary({
     }
 
     return moves.slice(0, 3);
-  }, [catResults, freeAgents, roster, gamesByDate, remainingDates, wins]);
+  }, [catResults, freeAgents, roster, gamesByDate, remainingDates, scheduleLoading, wins]);
 
-  // ── Card 5: Data Freshness ──
+  // ── Data Freshness ──
   const timestamps = useMemo(() => getImportTimestamps(), []);
 
   const hasRoster = roster.length > 0;
   const hasMatchup = !!matchupData;
   const hasFreeAgents = freeAgents.length > 0;
-  const hasStandings = false; // Can't check from here but we'll use timestamps
   const hasWeekly = weeklyMatchups.length > 0;
 
   const dataItems: Array<{ label: string; imported: boolean; tab: string; tsKey: keyof ImportTimestamps }> = [
     { label: "Roster", imported: hasRoster, tab: "roster", tsKey: "roster" },
     { label: "Matchup", imported: hasMatchup, tab: "matchup", tsKey: "matchup" },
     { label: "Free Agents", imported: hasFreeAgents, tab: "freeagents", tsKey: "freeAgents" },
-    { label: "Weekly", imported: hasWeekly, tab: "weekly", tsKey: "weekly" },
+    { label: "Scoreboard", imported: hasWeekly, tab: "weekly", tsKey: "weekly" },
     { label: "Standings", imported: !!timestamps.standings, tab: "league", tsKey: "standings" },
   ];
 
   const importedCount = dataItems.filter(d => d.imported || !!timestamps[d.tsKey]).length;
+
+  // Can we show projected final?
+  const canProjectFinal = !!projectedFinal;
 
   // ── Onboarding state ──
   if (!hasRoster) {
@@ -372,6 +501,38 @@ export function ThisWeekSummary({
                 <Badge variant="outline" className="text-xs ml-auto">
                   vs {matchupData!.opponent.name.split(" ").slice(0, 2).join(" ")}
                 </Badge>
+              </div>
+
+              {/* Current vs Projected Final toggle */}
+              <div className="flex items-center gap-2 mb-3">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-xs font-medium", outlookMode === "current" ? "text-foreground" : "text-muted-foreground")}>
+                        Current
+                      </span>
+                      <Switch
+                        checked={outlookMode === "projected"}
+                        onCheckedChange={(checked) => setOutlookMode(checked ? "projected" : "current")}
+                        disabled={!canProjectFinal}
+                        className="data-[state=checked]:bg-primary"
+                      />
+                      <span className={cn("text-xs font-medium", outlookMode === "projected" ? "text-foreground" : "text-muted-foreground")}>
+                        Projected Final
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs max-w-[220px]">
+                    {canProjectFinal
+                      ? "Toggle between current scoreboard totals and schedule-aware projected final."
+                      : "Import opponent roster and schedule to enable projected outlook."}
+                  </TooltipContent>
+                </Tooltip>
+                {outlookMode === "projected" && projectedFinal && (
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    {projectedFinal.myRemainingStarts} vs {projectedFinal.oppRemainingStarts} starts left
+                  </span>
+                )}
               </div>
 
               {/* Category chips */}
@@ -413,6 +574,11 @@ export function ThisWeekSummary({
                   </span>
                 )}
               </div>
+
+              {/* Mode caption */}
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {outlookMode === "current" ? "Based on current scoreboard totals" : "Based on schedule-aware projected final (same as Matchup tab)"}
+              </p>
             </>
           ) : (
             <div className="text-center py-4">
@@ -458,7 +624,7 @@ export function ThisWeekSummary({
           </div>
         </Card>
 
-        {/* ── Card 2: Games Remaining ── */}
+        {/* ── Card 2: Games Remaining (with opponent bars) ── */}
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-3">
             <Calendar className="w-4 h-4 text-primary" />
@@ -480,13 +646,13 @@ export function ThisWeekSummary({
               {/* Totals */}
               <div className="flex items-center gap-4 mb-3 text-sm">
                 <div>
-                  <span className="text-muted-foreground">My team: </span>
+                  <span className="text-muted-foreground">My: </span>
                   <span className="font-bold text-primary">{gamesRemaining.myTotal}</span>
                 </div>
                 {gamesRemaining.hasOpp && (
                   <div>
                     <span className="text-muted-foreground">Opp: </span>
-                    <span className="font-bold">{gamesRemaining.oppTotal}</span>
+                    <span className="font-bold text-stat-negative">{gamesRemaining.oppTotal}</span>
                   </div>
                 )}
                 {gamesRemaining.irTotal > 0 && (
@@ -496,35 +662,88 @@ export function ThisWeekSummary({
                 )}
               </div>
 
-              {/* Daily bars */}
-              <div className="flex items-end gap-1 h-16">
+              {/* Daily bars - My team */}
+              <div className="mb-1">
+                <div className="text-[9px] text-muted-foreground font-medium mb-0.5">My</div>
+                <div className="flex items-end gap-1 h-12">
+                  {gamesRemaining.dailyCounts.map(d => {
+                    const pct = (d.my / maxDailyGames) * 100;
+                    const isThin = d.my <= 1;
+                    const isToday = d.date === todayStr;
+                    return (
+                      <Tooltip key={d.date}>
+                        <TooltipTrigger asChild>
+                          <div className="flex-1 flex flex-col items-center gap-0.5 cursor-default">
+                            <span className="text-[9px] font-mono text-muted-foreground">{d.my}</span>
+                            <div
+                              className={cn(
+                                "w-full rounded-t transition-all min-h-[4px]",
+                                isThin ? "bg-warning/60" : "bg-primary/60",
+                                isToday && "ring-1 ring-primary",
+                              )}
+                              style={{ height: `${Math.max(pct, 8)}%` }}
+                            />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {d.label} {d.date}: {d.my} active players
+                          {isThin && " — Thin day, consider streaming"}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Daily bars - Opponent */}
+              {gamesRemaining.hasOpp ? (
+                <div className="mb-1">
+                  <div className="text-[9px] text-muted-foreground font-medium mb-0.5">Opp</div>
+                  <div className="flex items-end gap-1 h-12">
+                    {gamesRemaining.dailyCounts.map(d => {
+                      const pct = (d.opp / maxDailyGames) * 100;
+                      const isToday = d.date === todayStr;
+                      const oppHighMyLow = d.opp > d.my + 2;
+                      return (
+                        <Tooltip key={d.date}>
+                          <TooltipTrigger asChild>
+                            <div className="flex-1 flex flex-col items-center gap-0.5 cursor-default">
+                              <span className="text-[9px] font-mono text-muted-foreground">{d.opp}</span>
+                              <div
+                                className={cn(
+                                  "w-full rounded-t transition-all min-h-[4px]",
+                                  oppHighMyLow ? "bg-stat-negative/60" : "bg-muted-foreground/40",
+                                  isToday && "ring-1 ring-muted-foreground",
+                                )}
+                                style={{ height: `${Math.max(pct, 8)}%` }}
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">
+                            {d.label} {d.date}: Opp {d.opp} players
+                            {oppHighMyLow && " — Opponent advantage day"}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[9px] text-muted-foreground mt-1">
+                  Import opponent roster to see opponent volume
+                </p>
+              )}
+
+              {/* Day labels (shared) */}
+              <div className="flex items-end gap-1">
                 {gamesRemaining.dailyCounts.map(d => {
-                  const pct = (d.my / maxDailyGames) * 100;
-                  const isThin = d.my <= 1;
                   const isToday = d.date === todayStr;
                   return (
-                    <Tooltip key={d.date}>
-                      <TooltipTrigger asChild>
-                        <div className="flex-1 flex flex-col items-center gap-0.5 cursor-default">
-                          <span className="text-[9px] font-mono text-muted-foreground">{d.my}</span>
-                          <div
-                            className={cn(
-                              "w-full rounded-t transition-all min-h-[4px]",
-                              isThin ? "bg-warning/60" : "bg-primary/60",
-                              isToday && "ring-1 ring-primary",
-                            )}
-                            style={{ height: `${Math.max(pct, 8)}%` }}
-                          />
-                          <span className={cn("text-[9px]", isToday ? "font-bold text-primary" : "text-muted-foreground")}>
-                            {d.label}
-                          </span>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">
-                        {d.label} {d.date}: {d.my} active players
-                        {isThin && " — Thin day, consider streaming"}
-                      </TooltipContent>
-                    </Tooltip>
+                    <div key={d.date} className="flex-1 text-center">
+                      <span className={cn("text-[9px]", isToday ? "font-bold text-primary" : "text-muted-foreground")}>
+                        {d.label}
+                      </span>
+                    </div>
                   );
                 })}
               </div>
@@ -542,7 +761,7 @@ export function ThisWeekSummary({
             <Zap className="w-4 h-4 text-warning" />
             <span className="font-display font-semibold text-sm">Today</span>
             <Badge variant="outline" className="text-xs ml-auto">
-              {todayPlayers.length} playing
+              {scheduleLoading ? "…" : `${todayPlayers.length} playing`}
             </Badge>
           </div>
 
