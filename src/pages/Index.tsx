@@ -571,7 +571,7 @@ const Index = () => {
             </TabsTrigger>
             <TabsTrigger value="weekly" className="font-display font-semibold text-xs md:text-sm">
               <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
-              Weekly
+              Scoreboard
             </TabsTrigger>
             <TabsTrigger value="gameplan" className="font-display font-semibold text-xs md:text-sm">
               <Clipboard className="w-4 h-4 mr-1 hidden md:inline" />
