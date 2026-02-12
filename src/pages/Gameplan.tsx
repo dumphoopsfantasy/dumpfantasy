@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ThisWeekSummary } from "@/components/ThisWeekSummary";
 import { 
   AlertCircle, TrendingUp, TrendingDown, Minus, UserPlus, UserMinus, 
   Calendar, Target, AlertTriangle, CheckCircle, Clock, Shield, 
@@ -55,6 +56,9 @@ interface GameplanProps {
   leagueTeams: LeagueTeam[];
   matchupData: MatchupProjectionData | null;
   weeklyMatchups: WeeklyMatchup[];
+  gamesByDate: Record<string, Array<{ homeTeam: string; awayTeam: string; [k: string]: any }>>;
+  scheduleLoading: boolean;
+  onNavigateTab: (tab: string, openImport?: boolean) => void;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -120,8 +124,9 @@ function getRiskBadgeSmall(risk: RiskLevel) {
   }
 }
 
-export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyMatchups }: GameplanProps) {
+export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyMatchups, gamesByDate, scheduleLoading, onNavigateTab }: GameplanProps) {
   const [showAllCategories, setShowAllCategories] = useState(false);
+  const [gameplanExpanded, setGameplanExpanded] = useState(false);
 
   // Build roster players for schedule matching
   const rosterPlayers = useMemo(() => 
@@ -132,7 +137,7 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
   // Use shared schedule hook (same as NBA Scores sidebar)
   const { 
     todayGames: scheduleTodayGames, 
-    isLoading: scheduleLoading, 
+    isLoading: nbaScheduleLoading, 
     lastUpdated: scheduleLastUpdated,
     fetchSchedule,
     teamHasGameToday,
@@ -481,32 +486,58 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
   const hasRoster = roster.length > 0;
   const hasFreeAgents = freeAgents.length > 0;
 
-  // Empty state
+  // Empty state - still show ThisWeekSummary even without matchup data
   if (!hasMatchupData && !hasWeeklyData) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-display font-bold">Gameplan</h2>
-          <p className="text-muted-foreground text-sm">Your matchup strategy at a glance</p>
+      <div className="max-w-5xl mx-auto space-y-4">
+        <div className="text-center mb-4">
+          <h2 className="text-2xl font-display font-bold">This Week</h2>
+          <p className="text-muted-foreground text-sm">Your weekly dashboard and strategy planner</p>
         </div>
-        <Card className="p-8">
-          <div className="text-center text-muted-foreground">
-            <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-50" />
-            <p className="font-medium">Missing data</p>
-            <p className="text-sm mt-1">Import Matchup + Weekly to enable matchup-aware strategy.</p>
-          </div>
-        </Card>
+        <ThisWeekSummary
+          roster={roster}
+          freeAgents={freeAgents}
+          matchupData={matchupData}
+          weeklyMatchups={weeklyMatchups}
+          gamesByDate={gamesByDate}
+          scheduleLoading={scheduleLoading}
+          onNavigateTab={onNavigateTab}
+        />
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className="max-w-5xl mx-auto space-y-4">
       {/* Header */}
       <div className="text-center mb-4">
-        <h2 className="text-2xl font-display font-bold">Gameplan</h2>
-        <p className="text-muted-foreground text-sm">Your matchup strategy at a glance</p>
+        <h2 className="text-2xl font-display font-bold">This Week</h2>
+        <p className="text-muted-foreground text-sm">Your weekly dashboard and strategy planner</p>
       </div>
+
+      {/* This Week Summary - top section */}
+      <ThisWeekSummary
+        roster={roster}
+        freeAgents={freeAgents}
+        matchupData={matchupData}
+        weeklyMatchups={weeklyMatchups}
+        gamesByDate={gamesByDate}
+        scheduleLoading={scheduleLoading}
+        onNavigateTab={onNavigateTab}
+      />
+
+      {/* Detailed Gameplan - collapsible */}
+      <Collapsible open={gameplanExpanded} onOpenChange={setGameplanExpanded}>
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" className="w-full justify-between font-display">
+            <span className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-primary" />
+              Detailed Gameplan
+            </span>
+            {gameplanExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
 
       {/* 2-column layout: desktop side-by-side, mobile stacked */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -664,10 +695,10 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
                     variant="ghost" 
                     size="icon"
                     onClick={() => fetchSchedule(true)}
-                    disabled={scheduleLoading}
+                    disabled={nbaScheduleLoading}
                     className="h-6 w-6"
                   >
-                    <RefreshCw className={`w-3 h-3 ${scheduleLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3 h-3 ${nbaScheduleLoading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
               </div>
@@ -729,10 +760,10 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
                   variant="ghost" 
                   size="sm" 
                   onClick={() => fetchSchedule(true)}
-                  disabled={scheduleLoading}
+                  disabled={nbaScheduleLoading}
                   className="h-7 text-xs"
                 >
-                  <RefreshCw className={`w-3 h-3 mr-1 ${scheduleLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3 h-3 mr-1 ${nbaScheduleLoading ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
               </div>
@@ -875,6 +906,8 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
       <div className="text-center text-xs text-muted-foreground pt-2">
         Built from {hasWeeklyData ? "Weekly totals" : "Matchup projections"} + {hasRoster ? "Roster data" : "—"} + {hasFreeAgents ? "Free Agents" : "—"}
       </div>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

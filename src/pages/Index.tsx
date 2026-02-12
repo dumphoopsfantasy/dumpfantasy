@@ -28,6 +28,7 @@ import { DISCLAIMER_CONTENT } from "@/lib/legalContent";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import { CustomWeights } from "@/components/WeightSettings";
 import { usePersistedState, clearPersistedData } from "@/hooks/usePersistedState";
+import { setImportTimestamp } from "@/lib/importTimestamps";
 import { useDraftVisibility, useTradeVisibility } from "@/hooks/useDraftVisibility";
 import { useDynamicWeights } from "@/hooks/useDynamicWeights";
 import { DynamicWeightsIndicator } from "@/components/DynamicWeightsPanel";
@@ -187,6 +188,7 @@ const Index = () => {
 
   const handleDataParsed = (data: PlayerStats[]) => {
     setPlayers(data);
+    setImportTimestamp("roster");
   };
 
   // Reset only MY roster
@@ -233,6 +235,7 @@ const Index = () => {
   // Handle matchup change - also update opponentRoster separately
   const handleMatchupChange = (data: MatchupProjectionData | null) => {
     setMatchupData(data);
+    if (data) setImportTimestamp("matchup");
     if (data?.opponentRoster && data.opponentRoster.length > 0) {
       setOpponentRoster(data.opponentRoster);
     }
@@ -572,7 +575,7 @@ const Index = () => {
             </TabsTrigger>
             <TabsTrigger value="gameplan" className="font-display font-semibold text-xs md:text-sm">
               <Clipboard className="w-4 h-4 mr-1 hidden md:inline" />
-              Gameplan
+              This Week
             </TabsTrigger>
             {showTradeTab && (
               <TabsTrigger value="trade" className="font-display font-semibold text-xs md:text-sm">
@@ -795,7 +798,7 @@ const Index = () => {
           <TabsContent value="freeagents">
             <FreeAgents
               persistedPlayers={freeAgents}
-              onPlayersChange={setFreeAgents}
+              onPlayersChange={(p: Player[]) => { setFreeAgents(p); if (p.length > 0) setImportTimestamp("freeAgents"); }}
               multiPageImportEnabled={multiPageFAImportEnabled}
               currentRoster={rosterWithCRI.map((slot) => slot.player)}
               leagueTeams={leagueTeams}
@@ -810,7 +813,7 @@ const Index = () => {
             <div className="max-w-5xl mx-auto">
               <LeagueStandings 
                 persistedTeams={leagueTeams} 
-                onTeamsChange={setLeagueTeams}
+                onTeamsChange={(t: LeagueTeam[]) => { setLeagueTeams(t); if (t.length > 0) setImportTimestamp("standings"); }}
                 onUpdateStandingsContext={dynamicWeights.updateStandingsContext}
                 dynamicWeights={dynamicWeights.effectiveWeightsResult.isActive ? dynamicWeights.effectiveWeightsResult.weights : undefined}
                 isDynamicWeightsActive={dynamicWeights.effectiveWeightsResult.isActive}
@@ -853,7 +856,7 @@ const Index = () => {
             <WeeklyPerformance
               persistedMatchups={weeklyMatchups}
               persistedTitle={weeklyTitle}
-              onMatchupsChange={setWeeklyMatchups}
+              onMatchupsChange={(m: WeeklyMatchup[]) => { setWeeklyMatchups(m); if (m.length > 0) setImportTimestamp("weekly"); }}
               onTitleChange={setWeeklyTitle}
               leagueTeams={leagueTeams}
               userTeamName={matchupData?.myTeam?.name || ""}
@@ -867,6 +870,9 @@ const Index = () => {
               leagueTeams={leagueTeams}
               matchupData={matchupData}
               weeklyMatchups={weeklyMatchups}
+              gamesByDate={Object.fromEntries(gamesByDate)}
+              scheduleLoading={scheduleLoading}
+              onNavigateTab={handleCompletenessNavigate}
             />
           </TabsContent>
 
