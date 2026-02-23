@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Trophy, Crown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Trophy, Crown, ChevronDown, Info, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import type { LeagueTeam } from "@/types/league";
 import type { ForecastSettings } from "@/lib/forecastEngine";
 import { projectFinalStandings, predictMatchup } from "@/lib/forecastEngine";
-import { CRIS_WEIGHTS } from "@/lib/crisUtils";
 import type { LeagueSchedule } from "@/lib/scheduleParser";
 import { makeScheduleTeamKey, normalizeName, fuzzyNameMatch } from "@/lib/nameNormalization";
 import { parseDateRangeText } from "@/lib/matchupWeekDates";
@@ -57,9 +56,9 @@ function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
 
 export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracketProps) => {
   const [playoffTeamCount, setPlayoffTeamCount] = useState("6");
+  const [viewMode, setViewMode] = useState<"bracket" | "table">("bracket");
   const numPlayoffTeams = parseInt(playoffTeamCount);
 
-  // Read persisted schedule (same keys as ScheduleForecast)
   const [schedule] = usePersistedState<LeagueSchedule | null>("dumphoops-schedule.v2", null);
   const [aliases] = usePersistedState<TeamAliasMap>("dumphoops-schedule-aliases.v2", {});
   const [currentWeekCutoff] = usePersistedState<number>("dumphoops-schedule-currentWeekCutoff.v2", 0);
@@ -70,7 +69,6 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     return 0;
   }, [currentWeekCutoff, schedule]);
 
-  // Resolve schedule teams to standings teams (same logic as ScheduleForecast)
   const resolvedSchedule = useMemo(() => {
     if (!schedule) return null;
     const standingsByName = new Map<string, LeagueTeam>();
@@ -130,11 +128,9 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     }));
   }, [projectedStandings, numPlayoffTeams]);
 
-  // Identify playoff weeks from schedule
   const playoffWeeks = useMemo(() => {
     if (!resolvedSchedule) return [];
     const allWeeks = Array.from(new Set(resolvedSchedule.matchups.map(m => m.week))).sort((a, b) => a - b);
-    // Playoff weeks are typically the last 3 weeks of the season
     const numPlayoffWeeks = numPlayoffTeams === 6 ? 3 : 2;
     return allWeeks.slice(-numPlayoffWeeks);
   }, [resolvedSchedule, numPlayoffTeams]);
@@ -176,11 +172,9 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       const r1m1 = simulateMatchup(3, playoffSeeds[2].teamName, 6, playoffSeeds[5].teamName, "Round 1");
       const r1m2 = simulateMatchup(4, playoffSeeds[3].teamName, 5, playoffSeeds[4].teamName, "Round 1");
       rounds.push([r1m1, r1m2]);
-
       const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, r1m1.winnerSeed || 3, r1m1.winner || playoffSeeds[2].teamName, "Semifinal");
       const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, r1m2.winnerSeed || 4, r1m2.winner || playoffSeeds[3].teamName, "Semifinal");
       rounds.push([sf1, sf2]);
-
       const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
       rounds.push([finals]);
       return { rounds, champion: finals.winner || null };
@@ -201,31 +195,165 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
 
   const isInPlayoffs = playoffSeeds.some(s => isUserTeam(s.teamName));
 
+  // Find user's seed and projected first opponent
+  const userSeed = playoffSeeds.find(s => isUserTeam(s.teamName));
+  const userFirstOpponent = useMemo(() => {
+    for (const round of bracket.rounds) {
+      for (const m of round) {
+        if (isUserTeam(m.teamA)) return { opponent: m.teamB, seed: m.seedB, outcome: m.outcome, wins: m.winner === m.teamA };
+        if (isUserTeam(m.teamB)) return { opponent: m.teamA, seed: m.seedA, outcome: m.outcome, wins: m.winner === m.teamB };
+      }
+      break; // only check first round user appears in
+    }
+    return null;
+  }, [bracket.rounds]);
+
+  // Compute a rough playoff odds % based on standing buffer
+  const playoffOdds = useMemo(() => {
+    if (!userSeed || projectedStandings.length === 0) return null;
+    const userStanding = projectedStandings.find(s => isUserTeam(s.teamName));
+    if (!userStanding) return null;
+    const cutoffTeam = projectedStandings[numPlayoffTeams - 1];
+    const bubbleTeam = projectedStandings[numPlayoffTeams];
+    if (!cutoffTeam || !bubbleTeam) return 95;
+    const winBuffer = userStanding.totalWins - bubbleTeam.totalWins;
+    if (winBuffer >= 4) return 98;
+    if (winBuffer >= 2) return 88;
+    if (winBuffer >= 1) return 72;
+    if (winBuffer === 0) return 50;
+    return Math.max(15, 50 + winBuffer * 15);
+  }, [userSeed, projectedStandings, numPlayoffTeams]);
+
   if (projectedStandings.length === 0) {
     return (
-      <Card className="gradient-card shadow-card p-6 border-border text-center">
-        <Trophy className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-        <p className="text-muted-foreground">Import standings and league schedule (in Schedule Forecast tab) to see projected playoff bracket.</p>
-      </Card>
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+          <Trophy className="w-6 h-6 text-muted-foreground" />
+        </div>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          Import standings and league schedule in the Forecast tab to see projected playoff bracket.
+        </p>
+      </div>
     );
   }
 
+  const roundLabels: Record<string, string> = {
+    "Round 1": "First Round",
+    "Semifinal": "Semifinals",
+    "Finals": "Championship",
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Trophy className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h3 className="font-display font-bold text-lg">Projected Playoff Bracket</h3>
-            <p className="text-xs text-muted-foreground">Based on schedule forecast projected standings</p>
-          </div>
+    <div className="space-y-10 animate-fade-in">
+      {/* ============================================================ */}
+      {/* SECTION 1 – HERO SUMMARY                                     */}
+      {/* ============================================================ */}
+      <div className="rounded-xl bg-gradient-to-br from-muted/60 to-muted/20 p-6 md:p-8">
+        <div className="flex flex-col md:flex-row md:items-center gap-6 md:gap-10">
+          {/* Champion projection */}
+          {bracket.champion && (
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                <Crown className="w-5 h-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">Projected Champion</div>
+                <div className={cn(
+                  "font-display font-bold text-xl md:text-2xl truncate",
+                  isUserTeam(bracket.champion) && "text-primary"
+                )}>
+                  {bracket.champion}
+                  {isUserTeam(bracket.champion) && (
+                    <span className="ml-2 text-xs font-normal bg-primary/15 text-primary px-2 py-0.5 rounded-full align-middle">You</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* User stats - horizontal pills */}
+          {userSeed && (
+            <div className="flex flex-wrap items-center gap-3 md:gap-5">
+              <div className="text-center">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wider">Seed</div>
+                <div className="font-display font-bold text-2xl text-primary">#{userSeed.seed}</div>
+              </div>
+              <div className="w-px h-8 bg-border/50 hidden md:block" />
+              <div className="text-center">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wider">Record</div>
+                <div className="font-display font-bold text-lg">{userSeed.record}</div>
+              </div>
+              {playoffOdds !== null && (
+                <>
+                  <div className="w-px h-8 bg-border/50 hidden md:block" />
+                  <div className="text-center">
+                    <div className="text-[11px] text-muted-foreground uppercase tracking-wider">Playoff Odds</div>
+                    <div className={cn(
+                      "font-display font-bold text-lg",
+                      playoffOdds >= 75 ? "text-stat-positive" : playoffOdds >= 50 ? "text-foreground" : "text-stat-negative"
+                    )}>
+                      {playoffOdds}%
+                    </div>
+                  </div>
+                </>
+              )}
+              {userFirstOpponent && (
+                <>
+                  <div className="w-px h-8 bg-border/50 hidden md:block" />
+                  <div className="text-center">
+                    <div className="text-[11px] text-muted-foreground uppercase tracking-wider">First Matchup</div>
+                    <div className="text-sm font-medium">
+                      vs <span className="font-semibold">{userFirstOpponent.opponent}</span>
+                      <span className={cn(
+                        "ml-1.5 text-xs",
+                        userFirstOpponent.wins ? "text-stat-positive" : "text-stat-negative"
+                      )}>
+                        {userFirstOpponent.wins ? "W" : "L"} {userFirstOpponent.outcome}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {!isInPlayoffs && (
+            <div className="flex items-center gap-2 text-stat-negative text-sm">
+              <Info className="w-4 h-4 flex-shrink-0" />
+              <span>Currently projected outside the playoffs</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* CONTROLS BAR                                                  */}
+      {/* ============================================================ */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setViewMode("bracket")}
+            className={cn(
+              "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              viewMode === "bracket" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Bracket
+          </button>
+          <button
+            onClick={() => setViewMode("table")}
+            className={cn(
+              "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              viewMode === "table" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Table
+          </button>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Playoff teams:</span>
+          <span className="text-xs text-muted-foreground">Teams:</span>
           <Select value={playoffTeamCount} onValueChange={setPlayoffTeamCount}>
-            <SelectTrigger className="w-[70px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[60px] h-8 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="4">4</SelectItem>
               <SelectItem value="6">6</SelectItem>
@@ -234,129 +362,240 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
         </div>
       </div>
 
-      {/* Playoff seeding */}
-      <Card className="gradient-card border-border p-4">
-        <h4 className="font-display font-semibold text-sm mb-3">Projected Playoff Seeds</h4>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-          {playoffSeeds.map(s => (
-            <div key={s.seed} className={cn("p-2 rounded-lg border text-center", isUserTeam(s.teamName) ? "bg-primary/10 border-primary/30" : "bg-muted/30 border-border/50")}>
-              <div className="text-xs text-muted-foreground">#{s.seed} Seed</div>
-              <div className={cn("font-semibold text-sm truncate", isUserTeam(s.teamName) && "text-primary")}>{s.teamName}</div>
-              <div className="text-xs text-muted-foreground">{s.record}</div>
+      {/* ============================================================ */}
+      {/* SECTION 2 – BRACKET VIEW                                     */}
+      {/* ============================================================ */}
+      {viewMode === "bracket" && (
+        <div className="space-y-8">
+          {bracket.rounds.map((round, rIdx) => (
+            <div key={rIdx}>
+              <div className="flex items-center gap-3 mb-4">
+                <h3 className="font-display font-semibold text-base text-foreground">
+                  {roundLabels[round[0]?.round] || round[0]?.round || `Round ${rIdx + 1}`}
+                </h3>
+                {rIdx === 0 && numPlayoffTeams === 6 && (
+                  <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
+                    #1 & #2 have byes
+                  </span>
+                )}
+                <div className="flex-1 h-px bg-border/40" />
+              </div>
+              <div className={cn(
+                "grid gap-3",
+                round.length > 1 ? "grid-cols-1 md:grid-cols-2" : "max-w-md"
+              )}>
+                {round.map((matchup, mIdx) => (
+                  <MatchupCard key={mIdx} matchup={matchup} isUserTeam={isUserTeam} isFinals={matchup.round === "Finals"} />
+                ))}
+              </div>
             </div>
           ))}
         </div>
-        {!isInPlayoffs && (
-          <div className="mt-3 p-2 rounded bg-stat-negative/10 border border-stat-negative/20 text-sm text-stat-negative">
-            ⚠️ Your team is currently projected outside the playoffs.
-          </div>
-        )}
-      </Card>
-
-      {/* Bracket */}
-      <div className="space-y-4">
-        {bracket.rounds.map((round, rIdx) => (
-          <div key={rIdx}>
-            <h4 className="font-display font-semibold text-sm mb-2 text-muted-foreground">
-              {round[0]?.round || `Round ${rIdx + 1}`}
-              {rIdx === 0 && numPlayoffTeams === 6 && <span className="ml-2 text-xs font-normal">(Seeds #1 & #2 have byes)</span>}
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {round.map((matchup, mIdx) => (
-                <Card key={mIdx} className="gradient-card border-border overflow-hidden">
-                  <div className="flex items-stretch">
-                    <div className={cn("flex-1 p-3 border-r border-border", matchup.winner === matchup.teamA && "bg-stat-positive/5", isUserTeam(matchup.teamA) && "bg-primary/5")}>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground font-mono">#{matchup.seedA}</span>
-                        <span className={cn("font-semibold text-sm truncate", isUserTeam(matchup.teamA) && "text-primary", matchup.winner === matchup.teamA && "text-stat-positive")}>{matchup.teamA}</span>
-                        {matchup.winner === matchup.teamA && <Crown className="w-3.5 h-3.5 text-stat-positive flex-shrink-0" />}
-                      </div>
-                    </div>
-                    <div className="flex items-center px-3 bg-muted/20">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger><span className="font-mono text-sm font-bold">{matchup.outcome || "—"}</span></TooltipTrigger>
-                          <TooltipContent><p className="text-xs">Projected 9-cat outcome based on season averages</p></TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <div className={cn("flex-1 p-3 text-right border-l border-border", matchup.winner === matchup.teamB && "bg-stat-positive/5", isUserTeam(matchup.teamB) && "bg-primary/5")}>
-                      <div className="flex items-center justify-end gap-1.5">
-                        {matchup.winner === matchup.teamB && <Crown className="w-3.5 h-3.5 text-stat-positive flex-shrink-0" />}
-                        <span className={cn("font-semibold text-sm truncate", isUserTeam(matchup.teamB) && "text-primary", matchup.winner === matchup.teamB && "text-stat-positive")}>{matchup.teamB}</span>
-                        <span className="text-xs text-muted-foreground font-mono">#{matchup.seedB}</span>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Champion */}
-      {bracket.champion && (
-        <Card className="gradient-card border-primary/30 p-4 text-center bg-primary/5">
-          <Crown className="w-6 h-6 text-primary mx-auto mb-2" />
-          <div className="text-xs text-muted-foreground mb-1">Projected Champion</div>
-          <div className={cn("font-display font-bold text-xl", isUserTeam(bracket.champion) && "text-primary")}>{bracket.champion}</div>
-          {isUserTeam(bracket.champion) && <Badge className="mt-2 bg-primary/20 text-primary border-primary/30">🏆 That's you!</Badge>}
-        </Card>
       )}
 
-      {/* Playoff Schedule */}
-      {playoffScheduleMatchups.length > 0 && (
-        <Card className="gradient-card border-border p-4">
-          <h4 className="font-display font-semibold text-sm mb-3">Projected Playoff Schedule</h4>
-          <div className="space-y-4">
-            {playoffScheduleMatchups.map(({ week, dateRange, matchups: wkMatchups }) => (
-              <div key={week}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Badge variant="outline" className="text-xs">Week {week}</Badge>
-                  {dateRange && <span className="text-xs text-muted-foreground">{dateRange}</span>}
-                </div>
-                <div className="space-y-1.5">
-                  {wkMatchups.map((m, i) => {
-                    const awayInPlayoffs = playoffSeeds.some(s => s.teamName.toLowerCase() === m.awayTeam.toLowerCase());
-                    const homeInPlayoffs = playoffSeeds.some(s => s.teamName.toLowerCase() === m.homeTeam.toLowerCase());
-                    const isPlayoffMatchup = awayInPlayoffs && homeInPlayoffs;
-                    return (
-                      <div key={i} className={cn(
-                        "flex items-center justify-between p-2 rounded-lg text-sm",
-                        isPlayoffMatchup ? "bg-primary/5 border border-primary/20" : "bg-muted/20",
-                        (isUserTeam(m.awayTeam) || isUserTeam(m.homeTeam)) && "ring-1 ring-primary/30"
-                      )}>
-                        <span className={cn("font-semibold truncate flex-1", isUserTeam(m.awayTeam) && "text-primary")}>{m.awayTeam}</span>
-                        <span className="text-xs text-muted-foreground mx-2">vs</span>
-                        <span className={cn("font-semibold truncate flex-1 text-right", isUserTeam(m.homeTeam) && "text-primary")}>{m.homeTeam}</span>
+      {/* ============================================================ */}
+      {/* SECTION 2B – TABLE VIEW                                      */}
+      {/* ============================================================ */}
+      {viewMode === "table" && (
+        <div className="rounded-lg border border-border/50 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/50 bg-muted/20">
+                <th className="text-left p-3 font-display text-xs uppercase tracking-wider text-muted-foreground w-12">Seed</th>
+                <th className="text-left p-3 font-display text-xs uppercase tracking-wider text-muted-foreground">Team</th>
+                <th className="text-center p-3 font-display text-xs uppercase tracking-wider text-muted-foreground w-24">Record</th>
+                <th className="text-center p-3 font-display text-xs uppercase tracking-wider text-muted-foreground w-16">Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {playoffSeeds.map((s, i) => {
+                const isUser = isUserTeam(s.teamName);
+                const standing = projectedStandings.find(ps => ps.teamName === s.teamName);
+                const currentTeam = leagueTeams.find(t => t.name === s.teamName);
+                let currentRank = 0;
+                if (currentTeam) {
+                  const sorted = [...leagueTeams].sort((a, b) => {
+                    const aW = parseInt(a.record?.split('-')[0] || '0');
+                    const bW = parseInt(b.record?.split('-')[0] || '0');
+                    return bW - aW;
+                  });
+                  currentRank = sorted.findIndex(t => t.name === s.teamName) + 1;
+                }
+                const trend = currentRank > 0 ? currentRank - s.seed : 0;
+
+                return (
+                  <tr key={s.seed} className={cn(
+                    "border-b border-border/30 transition-colors",
+                    isUser ? "bg-primary/[0.04]" : "hover:bg-muted/20"
+                  )}>
+                    <td className="p-3">
+                      <span className={cn("font-display font-bold text-base", isUser ? "text-primary" : "text-foreground")}>
+                        {s.seed}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <span className={cn("font-semibold", isUser && "text-primary")}>{s.teamName}</span>
+                      {isUser && <span className="ml-1.5 text-[10px] text-primary/70">You</span>}
+                    </td>
+                    <td className="p-3 text-center font-mono font-semibold">{s.record}</td>
+                    <td className="p-3 text-center">
+                      {trend > 0 && <ArrowUp className="w-3.5 h-3.5 text-stat-positive inline" />}
+                      {trend < 0 && <ArrowDown className="w-3.5 h-3.5 text-stat-negative inline" />}
+                      {trend === 0 && <Minus className="w-3.5 h-3.5 text-muted-foreground inline" />}
+                    </td>
+                  </tr>
+                );
+              })}
+              {/* Bubble separator */}
+              {projectedStandings.length > numPlayoffTeams && (
+                <>
+                  <tr>
+                    <td colSpan={4} className="px-3 py-1.5">
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider">
+                        <div className="flex-1 h-px bg-border/40" />
+                        <span>Bubble</span>
+                        <div className="flex-1 h-px bg-border/40" />
                       </div>
+                    </td>
+                  </tr>
+                  {projectedStandings.slice(numPlayoffTeams, numPlayoffTeams + 2).map(s => {
+                    const isUser = isUserTeam(s.teamName);
+                    return (
+                      <tr key={s.teamName} className={cn("border-b border-border/30", isUser && "bg-primary/[0.04]")}>
+                        <td className="p-3 text-muted-foreground font-mono text-sm">{s.projectedRank}</td>
+                        <td className="p-3">
+                          <span className={cn("font-medium text-muted-foreground", isUser && "text-primary")}>{s.teamName}</span>
+                        </td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{s.totalWins}-{s.totalLosses}-{s.totalTies}</td>
+                        <td className="p-3" />
+                      </tr>
                     );
                   })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
 
-      {/* Bubble teams */}
-      {projectedStandings.length > numPlayoffTeams && (
-        <Card className="gradient-card border-border p-4">
-          <h4 className="font-display font-semibold text-sm mb-2">On the Bubble</h4>
-          <div className="space-y-1.5">
-            {projectedStandings.slice(numPlayoffTeams, numPlayoffTeams + 2).map(s => (
-              <div key={s.teamName} className={cn("flex items-center justify-between p-2 rounded-lg", isUserTeam(s.teamName) ? "bg-primary/10" : "bg-muted/20")}>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground font-mono">#{s.projectedRank}</span>
-                  <span className={cn("text-sm font-semibold", isUserTeam(s.teamName) && "text-primary")}>{s.teamName}</span>
+      {/* ============================================================ */}
+      {/* SECTION 4 – PLAYOFF SCHEDULE (Collapsible)                   */}
+      {/* ============================================================ */}
+      {playoffScheduleMatchups.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="font-display font-semibold text-base text-foreground mb-3">Playoff Schedule</h3>
+          {playoffScheduleMatchups.map(({ week, dateRange, matchups: wkMatchups }, idx) => (
+            <Collapsible key={week} defaultOpen={idx === 0}>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-3 rounded-lg hover:bg-muted/30 transition-colors group text-left">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold">Week {week}</span>
+                  {dateRange && <span className="text-xs text-muted-foreground">{dateRange}</span>}
+                  <span className="text-[11px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">
+                    {wkMatchups.length} game{wkMatchups.length !== 1 ? 's' : ''}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground">{s.totalWins}-{s.totalLosses}-{s.totalTies}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
+                <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="space-y-1 pl-3 pr-3 pb-2">
+                  {wkMatchups.map((m, i) => (
+                    <div key={i} className={cn(
+                      "flex items-center gap-3 py-2 text-sm",
+                      i < wkMatchups.length - 1 && "border-b border-border/20"
+                    )}>
+                      <span className={cn("font-medium flex-1 truncate", isUserTeam(m.awayTeam) && "text-primary font-semibold")}>
+                        {m.awayTeam}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground/60 flex-shrink-0">vs</span>
+                      <span className={cn("font-medium flex-1 truncate text-right", isUserTeam(m.homeTeam) && "text-primary font-semibold")}>
+                        {m.homeTeam}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          ))}
+        </div>
       )}
+
+      {/* Legend */}
+      <div className="flex items-start gap-2 text-[11px] text-muted-foreground/60 pt-2">
+        <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+        <span>Projections based on 9-cat season averages simulated through remaining schedule. Playoff seeding uses projected final records.</span>
+      </div>
     </div>
   );
 };
+
+/* ================================================================== */
+/* Bracket matchup card – clean, minimal                               */
+/* ================================================================== */
+function MatchupCard({ matchup, isUserTeam, isFinals }: { matchup: BracketMatchup; isUserTeam: (n: string) => boolean; isFinals: boolean }) {
+  return (
+    <div className={cn(
+      "rounded-lg overflow-hidden border transition-colors",
+      isFinals ? "border-primary/20 bg-primary/[0.03]" : "border-border/40 bg-muted/10"
+    )}>
+      {/* Team A */}
+      <div className={cn(
+        "flex items-center justify-between px-4 py-3",
+        matchup.winner === matchup.teamA && "bg-stat-positive/[0.04]",
+        isUserTeam(matchup.teamA) && "bg-primary/[0.04]"
+      )}>
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span className="text-xs text-muted-foreground/70 font-mono w-5 flex-shrink-0">{matchup.seedA}</span>
+          <span className={cn(
+            "font-medium truncate",
+            isUserTeam(matchup.teamA) && "text-primary",
+            matchup.winner === matchup.teamA && "font-semibold"
+          )}>
+            {matchup.teamA}
+          </span>
+        </div>
+        {matchup.winner === matchup.teamA && (
+          <span className="text-[10px] text-stat-positive font-semibold uppercase tracking-wider flex-shrink-0">Win</span>
+        )}
+      </div>
+
+      {/* Divider with score */}
+      <div className="flex items-center border-y border-border/30">
+        <div className="flex-1 h-px bg-border/20" />
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>
+              <span className="px-3 py-1 text-xs font-mono font-bold text-muted-foreground">
+                {matchup.outcome || "—"}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p className="text-xs">Projected 9-cat outcome</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <div className="flex-1 h-px bg-border/20" />
+      </div>
+
+      {/* Team B */}
+      <div className={cn(
+        "flex items-center justify-between px-4 py-3",
+        matchup.winner === matchup.teamB && "bg-stat-positive/[0.04]",
+        isUserTeam(matchup.teamB) && "bg-primary/[0.04]"
+      )}>
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span className="text-xs text-muted-foreground/70 font-mono w-5 flex-shrink-0">{matchup.seedB}</span>
+          <span className={cn(
+            "font-medium truncate",
+            isUserTeam(matchup.teamB) && "text-primary",
+            matchup.winner === matchup.teamB && "font-semibold"
+          )}>
+            {matchup.teamB}
+          </span>
+        </div>
+        {matchup.winner === matchup.teamB && (
+          <span className="text-[10px] text-stat-positive font-semibold uppercase tracking-wider flex-shrink-0">Win</span>
+        )}
+      </div>
+    </div>
+  );
+}
