@@ -439,6 +439,31 @@ export const WeeklyPerformance = ({
     return rows;
   }, [matchups]);
 
+  const handleDay1Parse = async () => {
+    if (!rawData.trim()) return;
+    setIsParsing(true);
+    try {
+      const { matchups: parsed, weekLabel } = await parseWithTimeout(() => parseWeeklyScoreboard(rawData));
+      if (parsed.length === 0) {
+        toast({ title: "No matchups found", description: "Could not find team pairings. Paste the full ESPN Scoreboard page.", variant: "destructive" });
+        return;
+      }
+      // Zero out all stats for day 1
+      const zeroStats: TeamStats = { fgPct: 0, ftPct: 0, threepm: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0, points: 0 };
+      const zeroed = parsed.map(m => ({
+        teamA: { ...m.teamA, stats: { ...zeroStats }, currentMatchup: "0-0-0" },
+        teamB: { ...m.teamB, stats: { ...zeroStats }, currentMatchup: "0-0-0" },
+      }));
+      setMatchups(zeroed);
+      setWeekTitle(weekLabel);
+      toast({ title: "Day 1 loaded!", description: `${zeroed.length} matchups ready with zeroed stats.` });
+    } catch (error) {
+      toast({ title: "Parse error", description: error instanceof Error ? error.message : "Could not parse.", variant: "destructive" });
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
   const handleParse = async () => {
     if (!rawData.trim()) {
       toast({
@@ -549,10 +574,20 @@ The page should include all 5 matchups with team names, records, and stats.`}
         />
 
 
-        <Button onClick={handleParse} disabled={isParsing} className="w-full gradient-primary font-display font-bold">
-          <Upload className="w-4 h-4 mr-2" />
-          {isParsing ? "Parsing..." : "Load Weekly Data"}
-        </Button>
+        <div className="flex gap-3">
+          <Button onClick={handleParse} disabled={isParsing} className="flex-1 gradient-primary font-display font-bold">
+            <Upload className="w-4 h-4 mr-2" />
+            {isParsing ? "Parsing..." : "Load Weekly Data"}
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleDay1Parse} 
+            disabled={isParsing || !rawData.trim()}
+            className="font-display font-bold"
+          >
+            Day 1 (No Stats)
+          </Button>
+        </div>
         
       </Card>
     );
