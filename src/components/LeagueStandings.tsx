@@ -12,6 +12,7 @@ import { CrisExplanation } from "@/components/CrisExplanation";
 import { DynamicWeightsIndicator } from "@/components/DynamicWeightsPanel";
 import { calculateCRISForAll, formatPct, CATEGORIES } from "@/lib/crisUtils";
 import { ScheduleForecast } from "@/components/ScheduleForecast";
+import { PlayoffBracket } from "@/components/PlayoffBracket";
 import { STANDINGS_RESET_KEYS } from "@/lib/standingsResetUtils";
 // Playoff Contenders Profile Component
 const PlayoffContendersProfile = ({ teams }: { teams: TeamWithCris[] }) => {
@@ -750,7 +751,11 @@ The page should include the "Season Stats" section with team names, managers, an
             </TabsTrigger>
             <TabsTrigger value="forecast" className="gap-2">
               <Calendar className="w-4 h-4" />
-              Schedule Forecast
+              Forecast
+            </TabsTrigger>
+            <TabsTrigger value="playoffs" className="gap-2">
+              <Target className="w-4 h-4" />
+              Playoffs
             </TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-2">
@@ -851,6 +856,13 @@ The page should include the "Season Stats" section with team names, managers, an
       <TabsContent value="forecast">
         <ScheduleForecast 
           leagueTeams={rawTeams} 
+          userTeamName={rawTeams.find(t => t.name.toLowerCase().includes('bane'))?.name}
+        />
+      </TabsContent>
+
+      <TabsContent value="playoffs">
+        <PlayoffBracket 
+          leagueTeams={rawTeams}
           userTeamName={rawTeams.find(t => t.name.toLowerCase().includes('bane'))?.name}
         />
       </TabsContent>
