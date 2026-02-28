@@ -277,7 +277,7 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
   const [useCris, setUseCris] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('originalRank');
   const [sortAsc, setSortAsc] = useState(true);
-  const [isResetting, setIsResetting] = useState(false);
+  // isResetting removed - reset is now synchronous
   const [hasResetTriggered, setHasResetTriggered] = useState(false); // Prevents re-sync after reset
   const [activeTab, setActiveTab] = useState("standings"); // MUST be before any early returns
   const { toast } = useToast();
@@ -506,31 +506,22 @@ export const LeagueStandings = ({ persistedTeams = [], onTeamsChange, onUpdateSt
   };
 
   const handleReset = useCallback(() => {
-    setIsResetting(true);
     setHasResetTriggered(true); // Prevent useEffect from re-syncing persisted data
     
-    // Use requestAnimationFrame to yield to UI thread and prevent freeze
-    requestAnimationFrame(() => {
-      // Clear localStorage keys
-      STANDINGS_RESET_KEYS.forEach(key => {
-        try {
-          localStorage.removeItem(key);
-        } catch (e) {
-          console.warn(`Failed to remove key "${key}":`, e);
-        }
-      });
-      
-      // Clear state in next frame to allow UI to update
-      requestAnimationFrame(() => {
-        setRawTeams([]);
-        setRawData("");
-        if (onTeamsChange) onTeamsChange([]);
-        setIsResetting(false);
-        // Reset flag so future persistence works after new data is added
-        setHasResetTriggered(false);
-        toast({ title: "Reset complete", description: "Standings data cleared successfully" });
-      });
+    // Clear localStorage keys
+    STANDINGS_RESET_KEYS.forEach(key => {
+      try {
+        localStorage.removeItem(key);
+      } catch (e) {
+        console.warn(`Failed to remove key "${key}":`, e);
+      }
     });
+    
+    // Clear state synchronously
+    setRawTeams([]);
+    setRawData("");
+    if (onTeamsChange) onTeamsChange([]);
+    toast({ title: "Reset complete", description: "Standings data cleared successfully" });
   }, [onTeamsChange, toast]);
   // Calculate CRIS for all teams (use dynamic weights if available)
   const teams = useMemo((): TeamWithCris[] => {
@@ -767,14 +758,9 @@ The page should include the "Season Stats" section with team names, managers, an
               variant="outline" 
               size="sm" 
               onClick={handleReset}
-              disabled={isResetting}
             >
-              {isResetting ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              {isResetting ? "Resetting..." : "New Import"}
+              <RefreshCw className="w-4 h-4 mr-2" />
+              New Import
             </Button>
           )}
         </div>
