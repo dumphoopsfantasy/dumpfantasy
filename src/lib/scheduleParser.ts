@@ -319,12 +319,20 @@ export function parseScheduleData(
     }
   }
 
+  const inferredLastRegularWeek =
+    detectedLastRegularWeek ??
+    (() => {
+      const playoffWeeks = matchups.filter((m) => m.isPlayoff).map((m) => m.week);
+      if (playoffWeeks.length === 0) return undefined;
+      return Math.min(...playoffWeeks) - 1;
+    })();
+
   return {
     schedule: {
       season,
       teams: Array.from(teamsSet.values()),
       matchups,
-      lastRegularSeasonWeek: detectedLastRegularWeek,
+      lastRegularSeasonWeek: inferredLastRegularWeek,
     },
     warnings,
     debugInfo,

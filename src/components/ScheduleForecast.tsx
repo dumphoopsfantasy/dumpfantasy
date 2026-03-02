@@ -193,6 +193,14 @@ export const ScheduleForecast = ({
     return Array.from(new Set(schedule.matchups.map((m) => m.week))).sort((a, b) => a - b);
   }, [schedule]);
 
+  const inferredLastRegularSeasonWeek = useMemo(() => {
+    if (!schedule) return null;
+    if (schedule.lastRegularSeasonWeek != null) return schedule.lastRegularSeasonWeek;
+    const playoffWeeks = schedule.matchups.filter((m) => m.isPlayoff).map((m) => m.week);
+    if (playoffWeeks.length === 0) return null;
+    return Math.min(...playoffWeeks) - 1;
+  }, [schedule]);
+
   // Core: resolve schedule teams to standings teams
   const resolution = useMemo(() => {
     if (!schedule) {
@@ -317,9 +325,9 @@ export const ScheduleForecast = ({
       startFromCurrentRecords,
       completedWeeks: [],
       currentWeekCutoff,
-      lastRegularSeasonWeek: lastRegularSeasonWeek ?? undefined,
+      lastRegularSeasonWeek: (lastRegularSeasonWeek ?? inferredLastRegularSeasonWeek) ?? undefined,
     }),
-    [useCri, weightsForForecast, simulationScale, includeCompletedWeeks, startFromCurrentRecords, currentWeekCutoff, lastRegularSeasonWeek]
+    [useCri, weightsForForecast, simulationScale, includeCompletedWeeks, startFromCurrentRecords, currentWeekCutoff, lastRegularSeasonWeek, inferredLastRegularSeasonWeek]
   );
 
   const futureMatchups = useMemo(() => {
@@ -827,7 +835,7 @@ export const ScheduleForecast = ({
                 onValueChange={(v) => {
                   if (v === "auto") {
                     // Re-detect from schedule
-                    setLastRegularSeasonWeek(schedule?.lastRegularSeasonWeek ?? null);
+                    setLastRegularSeasonWeek(inferredLastRegularSeasonWeek);
                   } else {
                     setLastRegularSeasonWeek(parseInt(v));
                   }
@@ -837,7 +845,7 @@ export const ScheduleForecast = ({
                   <SelectValue placeholder="Auto-detect" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">Auto-detect{schedule?.lastRegularSeasonWeek ? ` (${schedule.lastRegularSeasonWeek})` : ""}</SelectItem>
+                  <SelectItem value="auto">Auto-detect{inferredLastRegularSeasonWeek ? ` (${inferredLastRegularSeasonWeek})` : ""}</SelectItem>
                   {scheduleWeekOptions.filter(w => !schedule?.matchups.some(m => m.week === w && m.isPlayoff)).map((w) => (
                     <SelectItem key={w} value={String(w)}>
                       Week {w}
