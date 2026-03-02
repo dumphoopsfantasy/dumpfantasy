@@ -11,8 +11,8 @@ import {
   Calendar, Target, AlertTriangle, CheckCircle, Clock, Shield, 
   ChevronDown, ChevronUp, Zap, Eye, EyeOff, RefreshCw, AlertOctagon
 } from "lucide-react";
+import { getCurrentMatchupWeekFromSchedule, getCurrentWeekMatchupForTeam } from "@/lib/matchupWeekDates";
 import { useNBASchedule } from "@/hooks/useNBASchedule";
-
 interface MatchupStats {
   fgPct: number;
   ftPct: number;
@@ -169,9 +169,20 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
     return null;
   }, [weeklyMatchups, matchupData]);
 
+  const currentWeek = useMemo(() => getCurrentMatchupWeekFromSchedule(), []);
+  const currentScheduledMatchup = useMemo(() => {
+    const myTeamName = matchupData?.myTeam?.name;
+    if (!myTeamName) return null;
+    return getCurrentWeekMatchupForTeam(myTeamName);
+  }, [matchupData?.myTeam?.name]);
+  const isByeWeek = useMemo(() => {
+    if (!currentWeek || !matchupData?.myTeam?.name) return false;
+    return !currentScheduledMatchup;
+  }, [currentWeek, currentScheduledMatchup, matchupData?.myTeam?.name]);
+
   // Parse current matchup record (W-L-T format)
   const matchupRecord = useMemo(() => {
-    if (!myTeamWeekly?.team?.currentMatchup) return null;
+    if (!myTeamWeekly?.team?.currentMatchup || isByeWeek) return null;
     const match = myTeamWeekly.team.currentMatchup.match(/(\d+)-(\d+)(?:-(\d+))?/);
     if (!match) return null;
     return {
@@ -179,7 +190,7 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
       losses: parseInt(match[2], 10),
       ties: match[3] ? parseInt(match[3], 10) : 0,
     };
-  }, [myTeamWeekly]);
+  }, [myTeamWeekly, isByeWeek]);
 
   // PROTECTED PLAYERS (top 6 CRI or wCRI - never drop)
   const protectedPlayers = useMemo(() => {
@@ -201,7 +212,7 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
 
   // CATEGORY ANALYSIS with buckets: Protect / Attack / Ignore
   const categoryAnalysis = useMemo((): CategoryAnalysis[] => {
-    if (!matchupData) return [];
+    if (!matchupData || isByeWeek) return [];
 
     const categories = Object.keys(CATEGORY_LABELS) as (keyof MatchupStats)[];
     const results: CategoryAnalysis[] = [];
@@ -247,7 +258,7 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
     });
 
     return results;
-  }, [matchupData, myTeamWeekly]);
+  }, [matchupData, myTeamWeekly, isByeWeek]);
 
   // Group categories by bucket
   const protectCats = categoryAnalysis.filter(c => c.bucket === "protect");
@@ -560,7 +571,7 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
               </div>
               
               <div className="text-center px-3">
-                <div className="text-lg font-bold text-primary">vs</div>
+                <div className="text-lg font-bold text-primary">{isByeWeek ? "BYE" : "vs"}</div>
                 {matchupRecord && (
                   <div className="text-xs font-mono font-semibold">
                     {matchupRecord.wins}–{matchupRecord.losses}–{matchupRecord.ties}
@@ -570,18 +581,20 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
               
               <div className="flex-1 text-center">
                 <div className="text-xs text-muted-foreground uppercase">Opponent</div>
-                <div className="font-semibold truncate">{matchupData?.opponent?.name?.split(' ').slice(0, 2).join(' ') || "—"}</div>
-                <div className="text-xs text-muted-foreground">{matchupData?.opponent?.record || "—"}</div>
+                <div className="font-semibold truncate">
+                  {isByeWeek ? "No opponent" : (matchupData?.opponent?.name?.split(' ').slice(0, 2).join(' ') || "—")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {isByeWeek ? (currentWeek?.dateRangeText || "This week") : (matchupData?.opponent?.record || "—")}
+                </div>
               </div>
             </div>
             
-            {matchupSummary && (
-              <div className="mt-3 text-center">
-                <Badge variant="outline" className="text-xs">
-                  {matchupSummary}
-                </Badge>
-              </div>
-            )}
+            <div className="mt-3 text-center">
+              <Badge variant="outline" className="text-xs">
+                {isByeWeek ? "Bye week — no head-to-head matchup" : (matchupSummary || "Matchup scoreboard not available")}
+              </Badge>
+            </div>
           </Card>
 
           {/* Category Priorities (core of Gameplan) */}
