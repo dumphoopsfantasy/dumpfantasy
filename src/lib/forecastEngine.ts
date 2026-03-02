@@ -89,6 +89,8 @@ export interface ForecastSettings {
   completedWeeks: number[];
   /** Only simulate weeks strictly greater than this cutoff (unless includeCompletedWeeks=true) */
   currentWeekCutoff?: number;
+  /** Last regular season week — standings projection stops here; playoff weeks are excluded from standings sim */
+  lastRegularSeasonWeek?: number;
 }
 
 export interface ForecastMatchup {
@@ -411,6 +413,7 @@ export function projectFinalStandings(
   });
   
   const cutoff = settings.currentWeekCutoff ?? 0;
+  const lastRegWeek = settings.lastRegularSeasonWeek;
   
   // Get unique weeks from schedule
   const weekSet = new Set(schedule.matchups.map(m => m.week));
@@ -418,8 +421,13 @@ export function projectFinalStandings(
     ? Array.from(weekSet)
     : Array.from(weekSet).filter(w => w >= cutoff && !settings.completedWeeks.includes(w));
   
-  // Simulate each remaining matchup
-  relevantWeeks.forEach(week => {
+  // For standings projection, exclude playoff weeks (> lastRegularSeasonWeek)
+  const standingsWeeks = lastRegWeek
+    ? relevantWeeks.filter(w => w <= lastRegWeek)
+    : relevantWeeks;
+  
+  // Simulate each remaining matchup (regular season only for standings)
+  standingsWeeks.forEach(week => {
     const weekMatchups = schedule.matchups.filter(m => m.week === week);
     
     weekMatchups.forEach(matchup => {

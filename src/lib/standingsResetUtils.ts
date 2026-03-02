@@ -8,6 +8,7 @@ export const STANDINGS_RESET_KEYS = [
   'dumphoops-schedule.v2',
   'dumphoops-schedule-aliases.v2',
   'dumphoops-schedule-currentWeekCutoff.v2',
+  'dumphoops-schedule-lastRegularWeek.v2',
 ] as const;
 
 /**

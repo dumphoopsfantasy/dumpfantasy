@@ -142,6 +142,7 @@ export const ScheduleForecast = ({
   const [schedule, setSchedule] = usePersistedState<LeagueSchedule | null>("dumphoops-schedule.v2", null);
   const [aliases, setAliases] = usePersistedState<TeamAliasMap>("dumphoops-schedule-aliases.v2", {});
   const [currentWeekCutoff, setCurrentWeekCutoff] = usePersistedState<number>("dumphoops-schedule-currentWeekCutoff.v2", 0);
+  const [lastRegularSeasonWeek, setLastRegularSeasonWeek] = usePersistedState<number | null>("dumphoops-schedule-lastRegularWeek.v2", null);
 
   // Local state
   const [rawScheduleData, setRawScheduleData] = useState("");
@@ -316,8 +317,9 @@ export const ScheduleForecast = ({
       startFromCurrentRecords,
       completedWeeks: [],
       currentWeekCutoff,
+      lastRegularSeasonWeek: lastRegularSeasonWeek ?? undefined,
     }),
-    [useCri, weightsForForecast, simulationScale, includeCompletedWeeks, startFromCurrentRecords, currentWeekCutoff]
+    [useCri, weightsForForecast, simulationScale, includeCompletedWeeks, startFromCurrentRecords, currentWeekCutoff, lastRegularSeasonWeek]
   );
 
   const futureMatchups = useMemo(() => {
@@ -396,6 +398,11 @@ export const ScheduleForecast = ({
       setParseWarnings(result.warnings);
       setDebugInfo(result.debugInfo || null);
 
+      // Auto-detect and persist lastRegularSeasonWeek from parser
+      if (result.schedule.lastRegularSeasonWeek != null) {
+        setLastRegularSeasonWeek(result.schedule.lastRegularSeasonWeek);
+      }
+
       // With the whitelist approach, teams should already match standings directly
       // Auto-populate aliases for any parsed teams
       const autoAliases: TeamAliasMap = {};
@@ -434,6 +441,7 @@ export const ScheduleForecast = ({
     setSelectedMatchup(null);
     setDebugInfo(null);
     setShowDebugPanel(false);
+    setLastRegularSeasonWeek(null);
   };
 
   const outcomeColor = (wins: number, losses: number) => {
@@ -810,6 +818,34 @@ export const ScheduleForecast = ({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">Only weeks after this will be simulated (unless you include completed).</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm">Last regular season week</Label>
+              <Select
+                value={lastRegularSeasonWeek != null ? String(lastRegularSeasonWeek) : "auto"}
+                onValueChange={(v) => {
+                  if (v === "auto") {
+                    // Re-detect from schedule
+                    setLastRegularSeasonWeek(schedule?.lastRegularSeasonWeek ?? null);
+                  } else {
+                    setLastRegularSeasonWeek(parseInt(v));
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Auto-detect" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-detect{schedule?.lastRegularSeasonWeek ? ` (${schedule.lastRegularSeasonWeek})` : ""}</SelectItem>
+                  {scheduleWeekOptions.filter(w => !schedule?.matchups.some(m => m.week === w && m.isPlayoff)).map((w) => (
+                    <SelectItem key={w} value={String(w)}>
+                      Week {w}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Standings projection stops here. Weeks after are treated as playoffs.</p>
             </div>
 
             <div className="flex items-center justify-between">
