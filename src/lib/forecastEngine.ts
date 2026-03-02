@@ -275,7 +275,7 @@ export function forecastTeamMatchups(
 
   const relevantMatchups = settings.includeCompletedWeeks
     ? focusTeamMatchups
-    : focusTeamMatchups.filter((m) => m.week >= cutoff && !settings.completedWeeks.includes(m.week));
+    : focusTeamMatchups.filter((m) => m.week > cutoff && !settings.completedWeeks.includes(m.week));
 
   const teamStatsMap = new Map<string, TeamStats>();
   allTeams.forEach((t) => {
@@ -419,7 +419,7 @@ export function projectFinalStandings(
   const weekSet = new Set(schedule.matchups.map(m => m.week));
   const relevantWeeks = settings.includeCompletedWeeks
     ? Array.from(weekSet)
-    : Array.from(weekSet).filter(w => w >= cutoff && !settings.completedWeeks.includes(w));
+    : Array.from(weekSet).filter(w => w > cutoff && !settings.completedWeeks.includes(w));
   
   // For standings projection, exclude playoff weeks (> lastRegularSeasonWeek)
   const standingsWeeks = lastRegWeek
