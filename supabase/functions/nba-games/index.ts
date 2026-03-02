@@ -185,7 +185,24 @@ serve(async (req) => {
     console.log(`Processing request. Today: ${todayStr}, Yesterday: ${yesterdayStr}`);
     
     if (dateParam) {
-      // Fetch specific date
+      // Validate date format (YYYY-MM-DD or YYYYMMDD)
+      if (!/^\d{4}-?\d{2}-?\d{2}$/.test(dateParam)) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid date format. Use YYYY-MM-DD.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      // Validate it's an actual date within a reasonable range
+      const normalized = dateParam.replace(/-/g, '');
+      const year = parseInt(normalized.slice(0, 4));
+      const month = parseInt(normalized.slice(4, 6));
+      const day = parseInt(normalized.slice(6, 8));
+      if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2000 || year > 2100) {
+        return new Response(
+          JSON.stringify({ error: 'Date out of valid range.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       const games = await fetchESPNGames(dateParam);
       return new Response(JSON.stringify({ games, date: dateParam }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
