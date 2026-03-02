@@ -6,7 +6,7 @@
  * like All-Star break), falling back to Mon-Sun when no schedule is imported.
  */
 
-import { LeagueSchedule } from '@/lib/scheduleParser';
+import { LeagueSchedule, normalizeTeamName } from '@/lib/scheduleParser';
 
 const MONTH_INDEX: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -120,6 +120,61 @@ export function getCurrentMatchupWeekFromSchedule(
 
   // Return last week as fallback
   return weeksWithDates[weeksWithDates.length - 1] ?? null;
+}
+
+/**
+ * Find the current-week scheduled matchup for a specific fantasy team.
+ * Returns null when the team has a bye (or no current week is available).
+ */
+export function getCurrentWeekMatchupForTeam(
+  teamName: string,
+  schedule?: LeagueSchedule | null
+): {
+  week: number;
+  dateRangeText: string;
+  opponentTeamName: string;
+  isHome: boolean;
+  isPlayoff: boolean;
+} | null {
+  if (!teamName) return null;
+
+  const sched = schedule ?? loadPersistedSchedule();
+  if (!sched || sched.matchups.length === 0) return null;
+
+  const currentWeek = getCurrentMatchupWeekFromSchedule(sched);
+  if (!currentWeek) return null;
+
+  const normalizedTeam = normalizeTeamName(teamName);
+  if (!normalizedTeam) return null;
+
+  const weekMatchups = sched.matchups.filter((m) => m.week === currentWeek.week);
+
+  for (const matchup of weekMatchups) {
+    const awayNorm = normalizeTeamName(matchup.awayTeamName);
+    const homeNorm = normalizeTeamName(matchup.homeTeamName);
+
+    if (awayNorm === normalizedTeam) {
+      return {
+        week: matchup.week,
+        dateRangeText: matchup.dateRangeText,
+        opponentTeamName: matchup.homeTeamName,
+        isHome: false,
+        isPlayoff: !!matchup.isPlayoff,
+      };
+    }
+
+    if (homeNorm === normalizedTeam) {
+      return {
+        week: matchup.week,
+        dateRangeText: matchup.dateRangeText,
+        opponentTeamName: matchup.awayTeamName,
+        isHome: true,
+        isPlayoff: !!matchup.isPlayoff,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**

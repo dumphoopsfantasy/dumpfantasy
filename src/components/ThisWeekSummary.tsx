@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImportTimestamps, formatTimestampAge, ImportTimestamps } from "@/lib/importTimestamps";
-import { getMatchupWeekDatesFromSchedule, getRemainingMatchupDatesFromSchedule, getCurrentMatchupWeekFromSchedule } from "@/lib/matchupWeekDates";
+import { getMatchupWeekDatesFromSchedule, getRemainingMatchupDatesFromSchedule, getCurrentMatchupWeekFromSchedule, getCurrentWeekMatchupForTeam } from "@/lib/matchupWeekDates";
 import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
 import { computeBaselineStats, projectFromStarts, addToTotals } from "@/hooks/useMatchupModel";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
@@ -154,6 +154,16 @@ export function ThisWeekSummary({
 
   // Current matchup week info
   const currentWeek = useMemo(() => getCurrentMatchupWeekFromSchedule(), []);
+  const currentScheduledMatchup = useMemo(() => {
+    const myTeamName = matchupData?.myTeam?.name;
+    if (!myTeamName) return null;
+    return getCurrentWeekMatchupForTeam(myTeamName);
+  }, [matchupData?.myTeam?.name]);
+  const isByeWeek = useMemo(() => {
+    if (!currentWeek || !matchupData?.myTeam?.name) return false;
+    return !currentScheduledMatchup;
+  }, [currentWeek, currentScheduledMatchup, matchupData?.myTeam?.name]);
+
   const weekDates = useMemo(() => getMatchupWeekDatesFromSchedule(), []);
   const remainingDates = useMemo(() => getRemainingMatchupDatesFromSchedule(), []);
 
@@ -166,7 +176,7 @@ export function ThisWeekSummary({
 
   // ── Projected Final computation (same logic as Matchup tab) ──
   const projectedFinal = useMemo(() => {
-    if (!matchupData) return null;
+    if (!matchupData || isByeWeek) return null;
     const oppRoster = matchupData.opponentRoster;
     if (!oppRoster || oppRoster.length === 0) return null;
 
@@ -228,11 +238,11 @@ export function ThisWeekSummary({
       myRemainingStarts,
       oppRemainingStarts,
     };
-  }, [matchupData, roster, gamesByDate, weekDates, myTeamWeekly]);
+  }, [matchupData, isByeWeek, roster, gamesByDate, weekDates, myTeamWeekly]);
 
   // Category results based on outlook mode
   const catResults = useMemo(() => {
-    if (!matchupData) return [];
+    if (!matchupData || isByeWeek) return [];
     if (outlookMode === "projected" && projectedFinal) {
       return classifyCats(projectedFinal.myFinal, projectedFinal.oppFinal);
     }
@@ -240,7 +250,7 @@ export function ThisWeekSummary({
     const myStats = myTeamWeekly ? myTeamWeekly.team.stats : matchupData.myTeam.stats;
     const oppStats = myTeamWeekly ? myTeamWeekly.opp.stats : matchupData.opponent.stats;
     return classifyCats(myStats, oppStats);
-  }, [matchupData, myTeamWeekly, outlookMode, projectedFinal]);
+  }, [matchupData, myTeamWeekly, outlookMode, projectedFinal, isByeWeek]);
 
   const wins = catResults.filter(c => c.status === "win");
   const losses = catResults.filter(c => c.status === "loss");
@@ -499,86 +509,97 @@ export function ThisWeekSummary({
                 <Swords className="w-4 h-4 text-primary" />
                 <span className="font-display font-semibold text-sm">Matchup Outlook</span>
                 <Badge variant="outline" className="text-xs ml-auto">
-                  vs {matchupData!.opponent.name.split(" ").slice(0, 2).join(" ")}
+                  {isByeWeek ? "BYE" : `vs ${matchupData!.opponent.name.split(" ").slice(0, 2).join(" ")}`}
                 </Badge>
               </div>
 
-              {/* Current vs Projected Final toggle */}
-              <div className="flex items-center gap-2 mb-3">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2">
-                      <span className={cn("text-xs font-medium", outlookMode === "current" ? "text-foreground" : "text-muted-foreground")}>
-                        Current
+              {isByeWeek ? (
+                <div className="rounded-md border border-primary/25 bg-primary/5 p-3 text-sm">
+                  <p className="font-medium">You have a bye this week.</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    No head-to-head scoreboard for {currentWeek?.dateRangeText ?? "this matchup period"}.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Current vs Projected Final toggle */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center gap-2">
+                          <span className={cn("text-xs font-medium", outlookMode === "current" ? "text-foreground" : "text-muted-foreground")}>
+                            Current
+                          </span>
+                          <Switch
+                            checked={outlookMode === "projected"}
+                            onCheckedChange={(checked) => setOutlookMode(checked ? "projected" : "current")}
+                            disabled={!canProjectFinal}
+                            className="data-[state=checked]:bg-primary"
+                          />
+                          <span className={cn("text-xs font-medium", outlookMode === "projected" ? "text-foreground" : "text-muted-foreground")}>
+                            Projected Final
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs max-w-[220px]">
+                        {canProjectFinal
+                          ? "Toggle between current scoreboard totals and schedule-aware projected final."
+                          : "Import opponent roster and schedule to enable projected outlook."}
+                      </TooltipContent>
+                    </Tooltip>
+                    {outlookMode === "projected" && projectedFinal && (
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        {projectedFinal.myRemainingStarts} vs {projectedFinal.oppRemainingStarts} starts left
                       </span>
-                      <Switch
-                        checked={outlookMode === "projected"}
-                        onCheckedChange={(checked) => setOutlookMode(checked ? "projected" : "current")}
-                        disabled={!canProjectFinal}
-                        className="data-[state=checked]:bg-primary"
-                      />
-                      <span className={cn("text-xs font-medium", outlookMode === "projected" ? "text-foreground" : "text-muted-foreground")}>
-                        Projected Final
+                    )}
+                  </div>
+
+                  {/* Category chips */}
+                  <div className="grid grid-cols-9 gap-1 mb-3">
+                    {catResults.map(c => (
+                      <Tooltip key={c.key}>
+                        <TooltipTrigger asChild>
+                          <div className={cn(
+                            "flex flex-col items-center p-1.5 rounded text-center border cursor-default",
+                            c.status === "win" && "bg-stat-positive/15 border-stat-positive/30 text-stat-positive",
+                            c.status === "loss" && "bg-stat-negative/15 border-stat-negative/30 text-stat-negative",
+                            c.status === "tossup" && "bg-warning/15 border-warning/30 text-warning",
+                          )}>
+                            <span className="text-[10px] font-medium">{c.label}</span>
+                            {c.status === "win" ? <TrendingUp className="w-3 h-3" /> :
+                             c.status === "loss" ? <TrendingDown className="w-3 h-3" /> :
+                             <Minus className="w-3 h-3" />}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="text-xs">
+                          <p className="font-medium">{c.label}: {c.status === "win" ? "Likely Win" : c.status === "loss" ? "Likely Loss" : "Toss-up"}</p>
+                          <p className="text-muted-foreground">
+                            Margin: {c.key === "fgPct" || c.key === "ftPct" ? c.margin.toFixed(3) : c.margin.toFixed(1)}
+                            {c.status === "tossup" && " — small enough to swing either way"}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
+
+                  {/* Summary line */}
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-stat-positive" /> {wins.length}W</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-stat-negative" /> {losses.length}L</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-warning" /> {tossups.length} Flip</span>
+                    {swingCats.length > 0 && (
+                      <span className="ml-auto text-muted-foreground">
+                        Swing cats: <span className="text-foreground font-medium">{swingCats.map(c => c.label).join(", ")}</span>
                       </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs max-w-[220px]">
-                    {canProjectFinal
-                      ? "Toggle between current scoreboard totals and schedule-aware projected final."
-                      : "Import opponent roster and schedule to enable projected outlook."}
-                  </TooltipContent>
-                </Tooltip>
-                {outlookMode === "projected" && projectedFinal && (
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    {projectedFinal.myRemainingStarts} vs {projectedFinal.oppRemainingStarts} starts left
-                  </span>
-                )}
-              </div>
+                    )}
+                  </div>
 
-              {/* Category chips */}
-              <div className="grid grid-cols-9 gap-1 mb-3">
-                {catResults.map(c => (
-                  <Tooltip key={c.key}>
-                    <TooltipTrigger asChild>
-                      <div className={cn(
-                        "flex flex-col items-center p-1.5 rounded text-center border cursor-default",
-                        c.status === "win" && "bg-stat-positive/15 border-stat-positive/30 text-stat-positive",
-                        c.status === "loss" && "bg-stat-negative/15 border-stat-negative/30 text-stat-negative",
-                        c.status === "tossup" && "bg-warning/15 border-warning/30 text-warning",
-                      )}>
-                        <span className="text-[10px] font-medium">{c.label}</span>
-                        {c.status === "win" ? <TrendingUp className="w-3 h-3" /> :
-                         c.status === "loss" ? <TrendingDown className="w-3 h-3" /> :
-                         <Minus className="w-3 h-3" />}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">
-                      <p className="font-medium">{c.label}: {c.status === "win" ? "Likely Win" : c.status === "loss" ? "Likely Loss" : "Toss-up"}</p>
-                      <p className="text-muted-foreground">
-                        Margin: {c.key === "fgPct" || c.key === "ftPct" ? c.margin.toFixed(3) : c.margin.toFixed(1)}
-                        {c.status === "tossup" && " — small enough to swing either way"}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-
-              {/* Summary line */}
-              <div className="flex items-center gap-3 text-xs">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-stat-positive" /> {wins.length}W</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-stat-negative" /> {losses.length}L</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-warning" /> {tossups.length} Flip</span>
-                {swingCats.length > 0 && (
-                  <span className="ml-auto text-muted-foreground">
-                    Swing cats: <span className="text-foreground font-medium">{swingCats.map(c => c.label).join(", ")}</span>
-                  </span>
-                )}
-              </div>
-
-              {/* Mode caption */}
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {outlookMode === "current" ? "Based on current scoreboard totals" : "Based on schedule-aware projected final (same as Matchup tab)"}
-              </p>
+                  {/* Mode caption */}
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {outlookMode === "current" ? "Based on current scoreboard totals" : "Based on schedule-aware projected final (same as Matchup tab)"}
+                  </p>
+                </>
+              )}
             </>
           ) : (
             <div className="text-center py-4">
