@@ -1,61 +1,77 @@
 
-Goal
-- When you paste your ESPN roster page into the Roster tab importer, IR players (like Malik Monk) should still show their “Last 15” stats if ESPN includes them.
+# Fix: Forecast Engine Doesn't Recognize Playoffs
 
-What’s actually happening (root cause)
-- The Roster tab does not use `parseEspnRosterSlotsFromTeamPage` (`src/lib/espnRosterSlots.ts`). It uses a separate parser inside `src/components/DataUpload.tsx` (`parseESPNData`).
-- In `DataUpload.tsx`, the stat-token collector accepts:
-  - numbers (e.g. `24.4`)
-  - `--`
-  - numeric fractions like `5.3/10.6`
-- It does NOT accept missing fraction tokens like `--/--`.
-- In your paste, Dejounte Murray’s row contains `--/--` for FGM/FGA and FTM/FTA. Those 2 tokens get dropped, so the stat token stream becomes misaligned and ends up with 238 tokens instead of the expected 240 (= 16 players * 15 columns).
-- The logs you saw match this perfectly:
-  - “Collected 238 stat tokens”
-  - “Built 15 stat rows” (not 16)
-- Result: Malik Monk’s stat row exists in the paste, but the importer never builds a complete row for him, so his minutes become 0, and the roster table hides all stats because it uses `hasStats = player.minutes > 0`.
+## Problem
 
-Plan to fix (minimal, targeted fix)
-1) Fix stat token collection in `src/components/DataUpload.tsx`
-   - Import and use `normalizeMissingToken` / `isMissingToken` / `isMissingFractionToken` from `src/lib/espnTokenUtils.ts` (already exists).
-   - While iterating `statsLines`, normalize each token first:
-     - Convert unicode dashes (—, –) to canonical `--`
-     - Convert `-- / --` into `--/--`
-   - Update the “accept token” condition to include missing fraction tokens (`--/--`) in addition to `--`.
-   - This ensures the token stream preserves column alignment even when a player has missing FGM/FGA and FTM/FTA.
+The schedule parser (`scheduleParser.ts` line 209) explicitly **stops parsing at "Playoff Round"** lines. This means:
 
-2) Keep the conversion behavior the same, just more correct
-   - In `numericSlice`, the current logic already treats anything containing `/` as 0, which is fine for this Roster tab (it doesn’t use FGM/FGA directly).
-   - We’re only ensuring `--/--` is counted as a placeholder token so we don’t lose alignment.
+1. Playoff weeks (19, 20, 21) are never imported into the schedule data
+2. The forecast engine only knows about regular season weeks 1-18
+3. The `PlayoffBracket` component guesses playoff weeks by taking the **last N weeks of the parsed schedule** -- which are actually the last regular season weeks, not real playoff weeks
+4. The current week cutoff (auto-detected as week 18) doesn't know the season is over and playoffs have started
 
-3) Add a safety warning (optional but recommended)
-   - If `statTokens.length % 15 !== 0`, log a warning that the stats table is misaligned and show:
-     - token count
-     - computed rows
-     - remainder
-   - This will make future ESPN format changes much easier to diagnose.
+From your ESPN paste, the structure is:
+- Matchups 1-18: Regular season
+- Playoff Round 1 (Mar 2-8): Week 19
+- Playoff Round 2 (Mar 9-15): Week 20
+- Playoff Round 3 (Mar 16-22): Week 21
 
-4) Add/adjust a unit test (recommended)
-   - Add a test case for the Roster-tab importer logic to cover the exact scenario:
-     - an IR player with `--/--` stats preceding an IR player with real stats
-     - ensure Malik Monk’s `minutes=24.4`, `threepm=2.7`, `points=15.1` after parsing
-   - Since `parseESPNData` is currently nested inside the React component, the clean approach is to extract it into a small utility in `src/lib/` (or export it) so it can be tested directly.
+## Solution
 
-How we’ll verify it works (end-to-end)
-- Paste your full ESPN roster page again into the Roster tab and click “Load Players”.
-- Expected log changes:
-  - “Collected 240 stat tokens” (or at least “Built 16 stat rows”)
-- Expected UI:
-  - Malik Monk row (IR) shows MIN ~24.4, 3PM ~2.7, PTS ~15.1 (even though IR rows are visually dimmed).
+Add a **"Last Regular Season Week"** setting that tells the system where the regular season ends, and update the parser to also import playoff round matchups.
 
-Why this is the correct fix (and why the last edit didn’t change the Roster tab)
-- The last edit improved `src/lib/espnRosterSlots.ts`, which is used by the Matchup Projection parsing flow, not the Roster tab importer.
-- The Roster tab importer has its own independent parsing implementation in `DataUpload.tsx`, and that’s where the `--/--` bug is.
+### Changes
 
-Risks / Edge cases covered
-- ESPN sometimes uses unicode dashes or spaced fractions; using `normalizeMissingToken` covers those.
-- This fix is backwards compatible: it only adds support for tokens that were previously ignored.
+**1. Update Schedule Parser (`src/lib/scheduleParser.ts`)**
+- Instead of breaking at "Playoff Round" lines, continue parsing them as additional weeks
+- Tag parsed matchups with an `isPlayoff` flag so the rest of the system can distinguish them
+- Auto-detect "Playoff Round N" headers as week numbers (e.g., week = lastRegularWeek + roundNumber)
 
-Optional follow-up improvement (best long-term)
-- Replace the Roster tab’s custom parsing with the shared canonical parser `parseEspnRosterSlotsFromTeamPage`, then map it into the existing `PlayerStats[]` shape used by `Index.tsx`.
-- This avoids “two parsers drifting apart” and prevents the same class of bugs in the future.
+**2. Add `lastRegularSeasonWeek` to persisted settings**
+- New persisted state key: `dumphoops-schedule-lastRegularWeek.v2`
+- Auto-detect from schedule data: the highest "Matchup N" week before the first "Playoff Round" header
+- Allow manual override in the Schedule Forecast settings panel
+
+**3. Update Forecast Engine (`src/lib/forecastEngine.ts`)**
+- Add `lastRegularSeasonWeek` to `ForecastSettings`
+- In `projectFinalStandings`, only simulate weeks up to `lastRegularSeasonWeek` for standings projection (playoff results don't affect regular season standings)
+- Keep `forecastTeamMatchups` able to show playoff week predictions too
+
+**4. Update PlayoffBracket (`src/components/PlayoffBracket.tsx`)**
+- Use `lastRegularSeasonWeek` to correctly identify which weeks are playoff weeks (any week > lastRegularSeasonWeek)
+- Use actual playoff matchups from the parsed schedule (seeds 1/2 get byes in round 1, 3v6 and 4v5 play) instead of simulating from scratch
+- When actual playoff matchups exist in the schedule, use them for the bracket; only simulate outcomes
+
+**5. Update ScheduleForecast (`src/components/ScheduleForecast.tsx`)**
+- Read and persist the new `lastRegularSeasonWeek` value
+- Add a small dropdown or input in the settings panel: "Last regular season week" (auto-detected, editable)
+- Pass it through to both the forecast engine and the PlayoffBracket
+
+**6. Update LeagueStandings (`src/components/LeagueStandings.tsx`)**
+- Pass `lastRegularSeasonWeek` to the PlayoffBracket component
+
+### Technical Details
+
+**Schedule Parser change (key logic):**
+```text
+Current: if isPlayoffSection(line) → break
+New:     if isPlayoffSection(line) → set isPlayoffRound = true, 
+         parse "Playoff Round N" as week = lastMatchupWeek + N,
+         tag matchups with isPlayoff = true
+```
+
+**New type additions:**
+- `ScheduleMatchup.isPlayoff?: boolean` -- flag on parsed matchups
+- `ForecastSettings.lastRegularSeasonWeek?: number` -- cutoff for standings sim
+
+**Auto-detection logic:**
+- When parsing, track the highest "Matchup N" week number
+- When a "Playoff Round" header appears, record that the previous matchup week was the last regular season week
+- Store this alongside the schedule data
+
+### What the user sees after this change
+
+- The forecast will correctly show that we're now in **Playoff Round 1** (not matchup 18)
+- Projected standings will be based only on regular season weeks (1-18)
+- The playoff bracket will show the **actual playoff matchups** from ESPN (not simulated seedings)
+- A small "Last regular season week: 18" indicator in settings confirms the boundary
