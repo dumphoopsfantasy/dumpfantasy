@@ -62,6 +62,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   const [schedule] = usePersistedState<LeagueSchedule | null>("dumphoops-schedule.v2", null);
   const [aliases] = usePersistedState<TeamAliasMap>("dumphoops-schedule-aliases.v2", {});
   const [currentWeekCutoff] = usePersistedState<number>("dumphoops-schedule-currentWeekCutoff.v2", 0);
+  const [lastRegularSeasonWeek] = usePersistedState<number | null>("dumphoops-schedule-lastRegularWeek.v2", null);
 
   const effectiveCutoff = useMemo(() => {
     if (currentWeekCutoff !== 0) return currentWeekCutoff;
@@ -100,11 +101,14 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     return { season: schedule.season, matchups };
   }, [schedule, aliases, leagueTeams]);
 
+  const effectiveLastRegWeek = lastRegularSeasonWeek ?? schedule?.lastRegularSeasonWeek ?? undefined;
+
   const forecastSettings: ForecastSettings = useMemo(() => ({
     useCri: true, useWeightedCri: false, simulationScale: 1,
     includeCompletedWeeks: false, startFromCurrentRecords: true,
     completedWeeks: [], currentWeekCutoff: effectiveCutoff,
-  }), [effectiveCutoff]);
+    lastRegularSeasonWeek: effectiveLastRegWeek,
+  }), [effectiveCutoff, effectiveLastRegWeek]);
 
   const projectedStandings = useMemo(() => {
     if (!resolvedSchedule || leagueTeams.length === 0) return [];
@@ -131,9 +135,16 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   const playoffWeeks = useMemo(() => {
     if (!resolvedSchedule) return [];
     const allWeeks = Array.from(new Set(resolvedSchedule.matchups.map(m => m.week))).sort((a, b) => a - b);
+    
+    // If we know the last regular season week, playoff weeks are any week > that
+    if (effectiveLastRegWeek) {
+      return allWeeks.filter(w => w > effectiveLastRegWeek);
+    }
+    
+    // Fallback: take last N weeks
     const numPlayoffWeeks = numPlayoffTeams === 6 ? 3 : 2;
     return allWeeks.slice(-numPlayoffWeeks);
-  }, [resolvedSchedule, numPlayoffTeams]);
+  }, [resolvedSchedule, numPlayoffTeams, effectiveLastRegWeek]);
 
   const playoffScheduleMatchups = useMemo(() => {
     if (!resolvedSchedule || playoffWeeks.length === 0) return [];
@@ -488,7 +499,11 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
             <Collapsible key={week} defaultOpen={idx === 0}>
               <CollapsibleTrigger className="flex items-center justify-between w-full p-3 rounded-lg hover:bg-muted/30 transition-colors group text-left">
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold">Week {week}</span>
+                  <span className="text-sm font-semibold">
+                    {effectiveLastRegWeek && week > effectiveLastRegWeek
+                      ? `Playoff Round ${week - effectiveLastRegWeek}`
+                      : `Week ${week}`}
+                  </span>
                   {dateRange && <span className="text-xs text-muted-foreground">{dateRange}</span>}
                   <span className="text-[11px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">
                     {wkMatchups.length} game{wkMatchups.length !== 1 ? 's' : ''}

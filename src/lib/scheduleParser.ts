@@ -18,12 +18,14 @@ export type ScheduleMatchup = {
   awayManagerName?: string;
   homeTeamName: string;
   homeManagerName?: string;
+  isPlayoff?: boolean;
 };
 
 export type LeagueSchedule = {
   season: string;
   teams: ScheduleTeam[];
   matchups: ScheduleMatchup[];
+  lastRegularSeasonWeek?: number;
 };
 
 export type ScheduleParseResult = {
@@ -82,22 +84,32 @@ export function normalizeTeamName(input: string): string {
  * Check if a line looks like a week header
  * Example: "Matchup 1 (Oct 21 - 26)" or "Matchup 11 (Dec 29 - Jan 4)"
  */
-function parseWeekHeader(line: string): { week: number; dateRange: string } | null {
-  const match = line.match(/^Matchup\s+(\d+)\s*\(([^)]+)\)/i);
-  if (match) {
+function parseWeekHeader(line: string): { week: number; dateRange: string; isPlayoff?: boolean } | null {
+  // Regular matchup header
+  const matchupMatch = line.match(/^Matchup\s+(\d+)\s*\(([^)]+)\)/i);
+  if (matchupMatch) {
     return {
-      week: parseInt(match[1], 10),
-      dateRange: match[2].trim(),
+      week: parseInt(matchupMatch[1], 10),
+      dateRange: matchupMatch[2].trim(),
+    };
+  }
+  // Playoff round header: "Playoff Round 1 (Mar 2 - 8)"
+  const playoffMatch = line.match(/^Playoff\s+Round\s+(\d+)\s*\(([^)]+)\)/i);
+  if (playoffMatch) {
+    return {
+      week: parseInt(playoffMatch[1], 10), // temporary; will be adjusted to lastRegular + N
+      dateRange: playoffMatch[2].trim(),
+      isPlayoff: true,
     };
   }
   return null;
 }
 
 /**
- * Check if we should stop parsing (playoff section)
+ * Check if a line is a "Matchups to be determined" placeholder (skip it)
  */
-function isPlayoffSection(line: string): boolean {
-  return /playoff\s+round/i.test(line) || /matchups\s+to\s+be\s+determined/i.test(line);
+function isMatchupsTBD(line: string): boolean {
+  return /matchups\s+to\s+be\s+determined/i.test(line);
 }
 
 /**
@@ -162,6 +174,9 @@ export function parseScheduleData(
   let currentDateRange = "";
   let teamsFoundInWeek: string[] = [];
   let weekDebug: WeekDebugInfo | null = null;
+  let isCurrentWeekPlayoff = false;
+  let lastMatchupWeek = 0; // highest regular season "Matchup N" week
+  let detectedLastRegularWeek: number | undefined;
 
   const finalizeWeek = () => {
     if (currentWeek === 0 || teamsFoundInWeek.length === 0) return;
@@ -177,6 +192,7 @@ export function parseScheduleData(
         dateRangeText: currentDateRange,
         awayTeamName: away,
         homeTeamName: home,
+        ...(isCurrentWeekPlayoff ? { isPlayoff: true } : {}),
       });
 
       // Register teams
@@ -205,19 +221,32 @@ export function parseScheduleData(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Stop at playoff section
-    if (isPlayoffSection(line)) {
-      break;
-    }
+    // Skip "Matchups to be determined" lines
+    if (isMatchupsTBD(line)) continue;
 
-    // Check for week header
+    // Skip "View/Edit Playoff Bracket" links
+    if (/view\/edit\s+playoff\s+bracket/i.test(line)) continue;
+
+    // Check for week header (regular or playoff)
     const weekHeader = parseWeekHeader(line);
     if (weekHeader) {
       // Finalize previous week
       finalizeWeek();
 
-      // Start new week
-      currentWeek = weekHeader.week;
+      if (weekHeader.isPlayoff) {
+        // First playoff round: record the last regular season week
+        if (detectedLastRegularWeek === undefined) {
+          detectedLastRegularWeek = lastMatchupWeek;
+        }
+        // Playoff week number = lastRegularWeek + playoffRoundNumber
+        currentWeek = (detectedLastRegularWeek || 0) + weekHeader.week;
+        isCurrentWeekPlayoff = true;
+      } else {
+        currentWeek = weekHeader.week;
+        lastMatchupWeek = Math.max(lastMatchupWeek, weekHeader.week);
+        isCurrentWeekPlayoff = false;
+      }
+
       currentDateRange = weekHeader.dateRange;
       teamsFoundInWeek = [];
       weekDebug = {
@@ -235,8 +264,8 @@ export function parseScheduleData(
 
     // Skip obvious non-team lines
     if (looksLikeRecord(line) || looksLikeScore(line)) continue;
-    if (/^(Edit|AWAY|HOME|TEAM|Score|MANAGER)$/i.test(line)) continue;
-    if (/^(AWAY\s+TEAM|HOME\s+TEAM|TEAM\s+MANAGER)/i.test(line)) continue;
+    if (/^(Edit|AWAY|HOME|TEAM|Score|MANAGER|Bye)$/i.test(line)) continue;
+    if (/^(AWAY\s+TEAM|HOME\s+TEAM|TEAM\s+MANAGER|Bye:)/i.test(line)) continue;
 
     // Try to match against known teams
     const normalized = normalizeTeamName(line);
@@ -295,6 +324,7 @@ export function parseScheduleData(
       season,
       teams: Array.from(teamsSet.values()),
       matchups,
+      lastRegularSeasonWeek: detectedLastRegularWeek,
     },
     warnings,
     debugInfo,
