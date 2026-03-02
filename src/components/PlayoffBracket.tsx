@@ -62,7 +62,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   const [schedule] = usePersistedState<LeagueSchedule | null>("dumphoops-schedule.v2", null);
   const [aliases] = usePersistedState<TeamAliasMap>("dumphoops-schedule-aliases.v2", {});
   const [currentWeekCutoff] = usePersistedState<number>("dumphoops-schedule-currentWeekCutoff.v2", 0);
-  const [lastRegularSeasonWeek] = usePersistedState<number | null>("dumphoops-schedule-lastRegularWeek.v2", null);
+  const [lastRegularSeasonWeek, setLastRegularSeasonWeek] = usePersistedState<number | null>("dumphoops-schedule-lastRegularWeek.v2", null);
 
   const effectiveCutoff = useMemo(() => {
     if (currentWeekCutoff !== 0) return currentWeekCutoff;
@@ -101,7 +101,22 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     return { season: schedule.season, matchups };
   }, [schedule, aliases, leagueTeams]);
 
-  const effectiveLastRegWeek = lastRegularSeasonWeek ?? schedule?.lastRegularSeasonWeek ?? undefined;
+  const inferredLastRegWeek = useMemo(() => {
+    if (!schedule) return undefined;
+    if (schedule.lastRegularSeasonWeek != null) return schedule.lastRegularSeasonWeek;
+    const playoffWeeks = schedule.matchups.filter((m) => m.isPlayoff).map((m) => m.week);
+    if (playoffWeeks.length === 0) return undefined;
+    return Math.min(...playoffWeeks) - 1;
+  }, [schedule]);
+
+  const effectiveLastRegWeek = lastRegularSeasonWeek ?? inferredLastRegWeek ?? undefined;
+
+  const regularSeasonWeekOptions = useMemo(() => {
+    if (!schedule) return [] as number[];
+    return Array.from(new Set(schedule.matchups.map((m) => m.week)))
+      .filter((w) => !schedule.matchups.some((m) => m.week === w && m.isPlayoff))
+      .sort((a, b) => a - b);
+  }, [schedule]);
 
   const forecastSettings: ForecastSettings = useMemo(() => ({
     useCri: true, useWeightedCri: false, simulationScale: 1,
@@ -361,7 +376,26 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
             Table
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <span className="text-xs text-muted-foreground">Reg season ends:</span>
+          <Select
+            value={lastRegularSeasonWeek != null ? String(lastRegularSeasonWeek) : "auto"}
+            onValueChange={(v) => {
+              if (v === "auto") {
+                setLastRegularSeasonWeek(inferredLastRegWeek ?? null);
+              } else {
+                setLastRegularSeasonWeek(parseInt(v, 10));
+              }
+            }}
+          >
+            <SelectTrigger className="w-[170px] h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto{inferredLastRegWeek ? ` (${inferredLastRegWeek})` : ""}</SelectItem>
+              {regularSeasonWeekOptions.map((w) => (
+                <SelectItem key={w} value={String(w)}>Week {w}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <span className="text-xs text-muted-foreground">Teams:</span>
           <Select value={playoffTeamCount} onValueChange={setPlayoffTeamCount}>
             <SelectTrigger className="w-[60px] h-8 text-xs"><SelectValue /></SelectTrigger>
