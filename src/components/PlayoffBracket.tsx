@@ -513,29 +513,53 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       {/* ============================================================ */}
       {viewMode === "bracket" && (
         <div className="space-y-8">
-          {bracket.rounds.map((round, rIdx) => (
-            <div key={rIdx}>
-              <div className="flex items-center gap-3 mb-4">
-                <h3 className="font-display font-semibold text-base text-foreground">
-                  {roundLabels[round[0]?.round] || round[0]?.round || `Round ${rIdx + 1}`}
-                </h3>
-                {rIdx === 0 && numPlayoffTeams === 6 && (
-                  <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
-                    #1 & #2 have byes
-                  </span>
-                )}
+          <div className="space-y-8">
+            {bracket.rounds.map((round, rIdx) => (
+              <div key={rIdx}>
+                <div className="flex items-center gap-3 mb-4">
+                  <h3 className="font-display font-semibold text-base text-foreground">
+                    {roundLabels[round[0]?.round] || round[0]?.round || `Round ${rIdx + 1}`}
+                  </h3>
+                  {rIdx === 0 && numPlayoffTeams === 6 && (
+                    <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
+                      #1 & #2 have byes
+                    </span>
+                  )}
+                  <div className="flex-1 h-px bg-border/40" />
+                </div>
+                <div className={cn(
+                  "grid gap-3",
+                  round.length > 1 ? "grid-cols-1 md:grid-cols-2" : "max-w-md"
+                )}>
+                  {round.map((matchup, mIdx) => (
+                    <MatchupCard key={mIdx} matchup={matchup} isUserTeam={isUserTeam} isFinals={matchup.round === "Finals"} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {numPlayoffTeams === 6 && bracket.consolationRounds.length > 0 && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="font-display font-semibold text-base text-foreground">Consolation Ladder</h3>
+                <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">Seeds 7-10</span>
                 <div className="flex-1 h-px bg-border/40" />
               </div>
-              <div className={cn(
-                "grid gap-3",
-                round.length > 1 ? "grid-cols-1 md:grid-cols-2" : "max-w-md"
-              )}>
-                {round.map((matchup, mIdx) => (
-                  <MatchupCard key={mIdx} matchup={matchup} isUserTeam={isUserTeam} isFinals={matchup.round === "Finals"} />
-                ))}
-              </div>
+              {bracket.consolationRounds.map((round, rIdx) => (
+                <div key={`consolation-${rIdx}`}>
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                    Round {rIdx + 1}
+                  </div>
+                  <div className={cn("grid gap-3", round.length > 1 ? "grid-cols-1 md:grid-cols-2" : "max-w-md")}>
+                    {round.map((matchup, mIdx) => (
+                      <MatchupCard key={`c-${rIdx}-${mIdx}`} matchup={matchup} isUserTeam={isUserTeam} isFinals={false} />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
