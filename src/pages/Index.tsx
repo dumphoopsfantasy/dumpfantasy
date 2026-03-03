@@ -864,7 +864,7 @@ const Index = () => {
               userTeamName={matchupData?.myTeam?.name || ""}
               roster={rosterWithCRI}
               freeAgents={freeAgents}
-              weights={dynamicWeights.effectiveWeights as Record<string, number>}
+              weights={dynamicWeights.effectiveWeights as unknown as Record<string, number>}
               onNavigateTab={(tab) => setActiveTab(tab)}
             />
           </TabsContent>
