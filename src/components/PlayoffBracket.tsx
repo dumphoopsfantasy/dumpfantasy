@@ -351,7 +351,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     return Math.max(15, 50 + winBuffer * 15);
   }, [userSeed, standingsForBracket, numPlayoffTeams]);
 
-  if (projectedStandings.length === 0) {
+  if (standingsForBracket.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-4">
