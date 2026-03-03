@@ -552,8 +552,8 @@ const Index = () => {
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${
-            !showDraftTab && !showTradeTab ? 'grid-cols-7' :
-            (showDraftTab && showTradeTab) ? 'grid-cols-9' : 'grid-cols-8'
+            !showDraftTab && !showTradeTab ? 'grid-cols-8' :
+            (showDraftTab && showTradeTab) ? 'grid-cols-10' : 'grid-cols-9'
           }`}>
             <TabsTrigger value="roster" className="font-display font-semibold text-xs md:text-sm">
               <Users className="w-4 h-4 mr-1 hidden md:inline" />
@@ -570,6 +570,10 @@ const Index = () => {
             <TabsTrigger value="matchup" className="font-display font-semibold text-xs md:text-sm">
               <Swords className="w-4 h-4 mr-1 hidden md:inline" />
               Matchup
+            </TabsTrigger>
+            <TabsTrigger value="playoffs" className="font-display font-semibold text-xs md:text-sm">
+              <Shield className="w-4 h-4 mr-1 hidden md:inline" />
+              Playoffs
             </TabsTrigger>
             <TabsTrigger value="weekly" className="font-display font-semibold text-xs md:text-sm">
               <Calendar className="w-4 h-4 mr-1 hidden md:inline" />
