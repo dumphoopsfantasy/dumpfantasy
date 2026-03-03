@@ -1,9 +1,9 @@
 /**
- * Playoff Projection Engine
+ * Playoff Projection Engine v2.1
  * 
  * Shared projection logic for the Playoff Intel dashboard.
  * Computes category confidence tiers, win probability via logistic curve,
- * CRIS-weighted edge scores, and schedule density analysis.
+ * CRIS-weighted edge scores, schedule density, and strategic category classification.
  */
 
 import { LeagueTeam } from '@/types/league';
@@ -16,6 +16,8 @@ import { compareCategoryResults, projectWeeklyStats, type TeamStats, type Catego
 // ============================================================================
 
 export type ConfidenceTier = 'Lock Win' | 'Lean Win' | 'Coinflip' | 'Lean Loss' | 'Lock Loss';
+export type VolatilityLevel = 'high' | 'medium' | 'low';
+export type CategoryStrategy = 'Protect' | 'Attack' | 'Reinforce' | 'Punt';
 
 export interface CategoryProjection {
   key: string;
@@ -30,6 +32,18 @@ export interface CategoryProjection {
   /** Is this a "swing" category (close margin) */
   isSwing: boolean;
   notes: string[];
+  /** Volatility level */
+  volatility: VolatilityLevel;
+  /** Raw margin for display */
+  rawMargin: string;
+  /** Flippability score 0-100 */
+  flippability: number;
+  /** Strategic classification */
+  strategy: CategoryStrategy;
+  /** Priority score for ranking */
+  priorityScore: number;
+  /** Strategy reasoning */
+  strategyReason: string;
 }
 
 export interface OpponentScenario {
@@ -77,42 +91,49 @@ export interface ScheduleSummary {
   density: ScheduleDensity[];
 }
 
+export interface PlayoffIdentity {
+  protect: string[];
+  attack: string[];
+  reinforce: string[];
+  punt: string[];
+  summary: string;
+}
+
 export interface ByeWeekPlan {
-  targetCategories: Array<{ key: string; label: string; reason: string }>;
+  targetCategories: Array<{ key: string; label: string; reason: string; strategy: CategoryStrategy; priorityScore: number }>;
   streamerProfile: string[];
   rosterNotes: string[];
+  identity: PlayoffIdentity;
+  vulnerableToStreaming: string[];
 }
 
 // ============================================================================
-// CATEGORY VOLATILITY (proxy for confidence calculation)
+// CATEGORY VOLATILITY
 // ============================================================================
 
-/** 
- * Approximate standard deviation per category as a fraction of the mean.
- * Used to normalize deltas into confidence tiers.
- * Higher = more volatile = harder to be confident about.
- */
 const CATEGORY_VOLATILITY: Record<string, number> = {
-  fgPct: 0.025,   // FG% swings ~2.5% week to week
-  ftPct: 0.035,   // FT% slightly more volatile
-  threepm: 0.18,  // 3PM ~18% variance
+  fgPct: 0.025,
+  ftPct: 0.035,
+  threepm: 0.18,
   rebounds: 0.12,
   assists: 0.14,
-  steals: 0.22,   // STL/BLK high variance
+  steals: 0.22,
   blocks: 0.25,
   turnovers: 0.15,
   points: 0.10,
 };
 
+export function getVolatilityLevel(key: string): VolatilityLevel {
+  const vol = CATEGORY_VOLATILITY[key] || 0.15;
+  if (vol >= 0.20) return 'high';
+  if (vol >= 0.12) return 'medium';
+  return 'low';
+}
+
 // ============================================================================
 // LOGISTIC WIN PROBABILITY
 // ============================================================================
 
-/**
- * Maps a normalized delta to a win probability using a logistic curve.
- * delta > 0 means advantage, delta < 0 means disadvantage.
- * k controls steepness (higher = more decisive margins).
- */
 function logisticWinProb(normalizedDelta: number, k: number = 4): number {
   return 1 / (1 + Math.exp(-k * normalizedDelta));
 }
@@ -130,12 +151,49 @@ function getConfidenceTier(winProb: number): ConfidenceTier {
 }
 
 // ============================================================================
+// FLIPPABILITY + STRATEGY
+// ============================================================================
+
+function computeFlippability(normalizedDelta: number, volatilityKey: string, crisWeight: number): number {
+  const vol = CATEGORY_VOLATILITY[volatilityKey] || 0.15;
+  const absDelta = Math.abs(normalizedDelta);
+  // Higher flippability when: close margin + high volatility + high CRIS weight
+  const marginFactor = Math.max(0, 1 - absDelta / 2); // 1.0 at delta=0, 0 at delta=2
+  const volFactor = vol / 0.25; // normalized to ~1.0 for high-vol cats
+  const weightFactor = crisWeight; // 0.35–1.0
+  return Math.min(100, Math.round(marginFactor * volFactor * weightFactor * 100));
+}
+
+function classifyStrategy(
+  normalizedDelta: number,
+  winProb: number,
+  flippability: number,
+  crisWeight: number,
+): { strategy: CategoryStrategy; reason: string } {
+  const isWinning = normalizedDelta > 0;
+  
+  if (isWinning && winProb >= 0.65 && crisWeight >= 0.6) {
+    return { strategy: 'Protect', reason: `Strong edge (${Math.round(winProb * 100)}% win) with high CRIS weight — protect this lead` };
+  }
+  if (isWinning && winProb >= 0.55 && flippability >= 30) {
+    return { strategy: 'Reinforce', reason: `Lean win but volatile — could flip without reinforcement` };
+  }
+  if (!isWinning && flippability >= 25) {
+    return { strategy: 'Attack', reason: `Losing but flippable (${flippability}% flip chance) — target with streaming` };
+  }
+  if (!isWinning && flippability < 25) {
+    return { strategy: 'Punt', reason: `Large deficit with low flip chance — ROI too low to chase` };
+  }
+  if (isWinning) {
+    return { strategy: 'Protect', reason: `Winning this category — maintain edge` };
+  }
+  return { strategy: 'Punt', reason: `Not realistically flippable given current margins` };
+}
+
+// ============================================================================
 // CORE PROJECTION
 // ============================================================================
 
-/**
- * Project a full category-level matchup between two teams for a given week.
- */
 export function projectCategoryMatchup(
   myStats: TeamStats,
   oppStats: TeamStats,
@@ -145,22 +203,33 @@ export function projectCategoryMatchup(
   const myProjected = projectWeeklyStats(myStats, scale);
   const oppProjected = projectWeeklyStats(oppStats, scale);
   const catResults = compareCategoryResults(myProjected, oppProjected);
+  const w = weights || CRIS_WEIGHTS;
 
   return catResults.map((r) => {
     const catInfo = CATEGORIES.find(c => c.key === r.category);
     const label = catInfo?.label || r.category;
     const isTO = r.category === 'turnovers';
+    const isPct = r.category === 'fgPct' || r.category === 'ftPct';
 
-    // Compute raw delta (positive = good for "my" team)
     const rawDelta = isTO ? (r.oppValue - r.myValue) : (r.myValue - r.oppValue);
-
-    // Normalize by volatility proxy
     const vol = CATEGORY_VOLATILITY[r.category] || 0.15;
     const avgVal = (r.myValue + r.oppValue) / 2;
     const normalizedDelta = avgVal > 0 ? rawDelta / (avgVal * vol) : 0;
 
     const winProb = logisticWinProb(normalizedDelta);
     const confidence = getConfidenceTier(winProb);
+    const volatility = getVolatilityLevel(r.category);
+    const crisWeight = w[r.category as keyof typeof CRIS_WEIGHTS] ?? 1;
+    const flippability = computeFlippability(normalizedDelta, r.category, crisWeight);
+    const { strategy, reason: strategyReason } = classifyStrategy(normalizedDelta, winProb, flippability, crisWeight);
+
+    // Priority score for ranking
+    const priorityScore = Math.abs(normalizedDelta) * vol * crisWeight * (strategy === 'Attack' ? 2 : strategy === 'Reinforce' ? 1.5 : 1);
+
+    // Raw margin string
+    const rawMargin = isPct
+      ? `${rawDelta >= 0 ? '+' : ''}${(rawDelta * 100).toFixed(1)}%`
+      : `${rawDelta >= 0 ? '+' : ''}${rawDelta.toFixed(1)}`;
 
     const notes: string[] = [];
     if (Math.abs(normalizedDelta) < 0.5) notes.push('Very close — could go either way');
@@ -177,13 +246,18 @@ export function projectCategoryMatchup(
       winProbability: winProb,
       isSwing: Math.abs(normalizedDelta) < 1.0,
       notes,
+      volatility,
+      rawMargin,
+      flippability,
+      strategy,
+      priorityScore,
+      strategyReason,
     };
   });
 }
 
 /**
  * Compute overall win probability from category projections.
- * Uses expected categories won distribution.
  */
 export function computeOverallWinProb(categories: CategoryProjection[]): {
   winProbability: number;
@@ -201,9 +275,6 @@ export function computeOverallWinProb(categories: CategoryProjection[]): {
 
   const expectedLost = categories.length - expectedWon;
   const majority = categories.length / 2;
-
-  // Approximate overall win probability:
-  // If expected cats won > 4.5 (majority of 9), increasingly likely to win
   const edge = expectedWon - majority;
   const winProbability = logisticWinProb(edge, 1.8);
 
@@ -231,6 +302,64 @@ export function computeWeightedEdge(
 }
 
 // ============================================================================
+// PLAYOFF IDENTITY
+// ============================================================================
+
+export function buildPlayoffIdentity(categories: CategoryProjection[]): PlayoffIdentity {
+  const protect = categories.filter(c => c.strategy === 'Protect').map(c => c.label);
+  const attack = categories.filter(c => c.strategy === 'Attack').map(c => c.label);
+  const reinforce = categories.filter(c => c.strategy === 'Reinforce').map(c => c.label);
+  const punt = categories.filter(c => c.strategy === 'Punt').map(c => c.label);
+
+  const parts: string[] = [];
+  if (protect.length > 0) parts.push(`Lock down ${protect.join(', ')}`);
+  if (attack.length > 0) parts.push(`stream for ${attack.join(', ')}`);
+  if (reinforce.length > 0) parts.push(`shore up ${reinforce.join(', ')}`);
+  if (punt.length > 0) parts.push(`punt ${punt.join(', ')}`);
+  const summary = parts.length > 0 ? parts.join('; ') + '.' : 'No clear strategic direction — all categories competitive.';
+
+  return { protect, attack, reinforce, punt, summary };
+}
+
+// ============================================================================
+// OPPONENT STREAMING SENSITIVITY
+// ============================================================================
+
+/**
+ * Simulate opponent adding streaming games and return which categories flip.
+ */
+export function simulateOpponentStreaming(
+  categories: CategoryProjection[],
+  streamingGames: number = 4,
+): { flippedCats: string[]; updatedCategories: CategoryProjection[] } {
+  const flippedCats: string[] = [];
+  const updated = categories.map(cat => {
+    // Estimate streaming impact: adds ~2% to counting stats per game, negligible for %
+    const isPct = cat.key === 'fgPct' || cat.key === 'ftPct';
+    if (isPct) return cat;
+
+    const streamBoost = cat.oppValue * 0.02 * streamingGames;
+    const isTO = cat.key === 'turnovers';
+    const newOppValue = cat.oppValue + (isTO ? streamBoost * 0.5 : streamBoost);
+    const newDelta = isTO ? (newOppValue - cat.myValue) * -1 + (cat.myValue - newOppValue) : cat.myValue - newOppValue;
+
+    const avgVal = (cat.myValue + newOppValue) / 2;
+    const vol = CATEGORY_VOLATILITY[cat.key] || 0.15;
+    const newNormDelta = avgVal > 0 ? (isTO ? (newOppValue - cat.myValue) : (cat.myValue - newOppValue)) / (avgVal * vol) : 0;
+    const newWinProb = logisticWinProb(newNormDelta);
+    const newConf = getConfidenceTier(newWinProb);
+
+    const wasWinning = cat.winProbability >= 0.5;
+    const nowWinning = newWinProb >= 0.5;
+    if (wasWinning && !nowWinning) flippedCats.push(cat.label);
+
+    return { ...cat, confidence: newConf, winProbability: newWinProb, normalizedDelta: newNormDelta };
+  });
+
+  return { flippedCats, updatedCategories: updated };
+}
+
+// ============================================================================
 // OPPONENT SCENARIOS
 // ============================================================================
 
@@ -240,10 +369,6 @@ interface BracketSeed {
   record: string;
 }
 
-/**
- * Determine likely opponents based on bracket seeding.
- * For a 6-team bracket: seeds 1-2 get byes, 3v6 and 4v5 in round 1.
- */
 export function getLikelyOpponents(
   userSeed: number,
   playoffSeeds: BracketSeed[],
@@ -253,12 +378,10 @@ export function getLikelyOpponents(
 
   if (numPlayoffTeams === 6) {
     if (userSeed === 1) {
-      // Bye round 1, faces winner of 4v5 in semis
       const s4 = playoffSeeds.find(s => s.seed === 4);
       const s5 = playoffSeeds.find(s => s.seed === 5);
       if (s4) opponents.push({ ...s4, round: 'Semifinal', likelihood: 0.55 });
       if (s5) opponents.push({ ...s5, round: 'Semifinal', likelihood: 0.45 });
-      // Could face seeds 2, 3, or 6 in finals
       const s2 = playoffSeeds.find(s => s.seed === 2);
       const s3 = playoffSeeds.find(s => s.seed === 3);
       const s6 = playoffSeeds.find(s => s.seed === 6);
@@ -266,12 +389,10 @@ export function getLikelyOpponents(
       if (s3) opponents.push({ ...s3, round: 'Finals', likelihood: 0.25 });
       if (s6) opponents.push({ ...s6, round: 'Finals', likelihood: 0.10 });
     } else if (userSeed === 2) {
-      // Bye round 1, faces winner of 3v6 in semis
       const s3 = playoffSeeds.find(s => s.seed === 3);
       const s6 = playoffSeeds.find(s => s.seed === 6);
       if (s3) opponents.push({ ...s3, round: 'Semifinal', likelihood: 0.65 });
       if (s6) opponents.push({ ...s6, round: 'Semifinal', likelihood: 0.35 });
-      // Could face seeds 1, 4, or 5 in finals
       const s1 = playoffSeeds.find(s => s.seed === 1);
       const s4 = playoffSeeds.find(s => s.seed === 4);
       const s5 = playoffSeeds.find(s => s.seed === 5);
@@ -327,9 +448,6 @@ export function getLikelyOpponents(
   return opponents;
 }
 
-/**
- * Build full opponent scenario with all projections.
- */
 export function buildOpponentScenario(
   opponent: { teamName: string; seed: number; record: string; round: string; likelihood: number },
   myTeam: LeagueTeam,
@@ -349,7 +467,7 @@ export function buildOpponentScenario(
   };
 
   const categories = projectCategoryMatchup(myStats, oppStats, scale, weights);
-  const { winProbability, expectedCatsWon, expectedCatsLost, coinflipCount } = computeOverallWinProb(categories);
+  const { winProbability, expectedCatsWon, expectedCatsLost } = computeOverallWinProb(categories);
   const weightedEdge = computeWeightedEdge(categories, weights);
 
   const swingCategories = categories
@@ -373,7 +491,7 @@ export function buildOpponentScenario(
     expectedCatsWon,
     expectedCatsLost,
     swingCategories,
-    scheduleEdge: 0, // populated externally if schedule data available
+    scheduleEdge: 0,
     categories,
     weightedEdge,
     overallConfidence,
@@ -381,85 +499,62 @@ export function buildOpponentScenario(
 }
 
 // ============================================================================
-// BYE WEEK PREP
+// BYE WEEK PREP (v2.1 — with strategy + identity + vulnerability)
 // ============================================================================
 
-/**
- * Generate a bye week preparation plan based on projected matchups.
- */
 export function generateByeWeekPlan(
   scenarios: OpponentScenario[],
   weights?: Record<string, number>,
 ): ByeWeekPlan {
   if (scenarios.length === 0) {
-    return { targetCategories: [], streamerProfile: [], rosterNotes: [] };
+    return {
+      targetCategories: [], streamerProfile: [], rosterNotes: [],
+      identity: { protect: [], attack: [], reinforce: [], punt: [], summary: '' },
+      vulnerableToStreaming: [],
+    };
   }
 
-  // Aggregate category data across most likely opponents
-  const catScores: Record<string, { totalDelta: number; count: number; isSwingCount: number }> = {};
+  // Use most likely first-round opponent for identity
+  const primary = scenarios.reduce((best, s) => s.likelihood > best.likelihood ? s : best, scenarios[0]);
+  const identity = buildPlayoffIdentity(primary.categories);
+  const { flippedCats: vulnerableToStreaming } = simulateOpponentStreaming(primary.categories, 4);
 
-  for (const s of scenarios) {
-    for (const cat of s.categories) {
-      if (!catScores[cat.key]) catScores[cat.key] = { totalDelta: 0, count: 0, isSwingCount: 0 };
-      catScores[cat.key].totalDelta += cat.normalizedDelta * s.likelihood;
-      catScores[cat.key].count++;
-      if (cat.isSwing) catScores[cat.key].isSwingCount++;
-    }
-  }
+  // Ranked target categories from the primary scenario
+  const targetCategories = primary.categories
+    .filter(c => c.strategy === 'Attack' || c.strategy === 'Reinforce')
+    .sort((a, b) => b.priorityScore - a.priorityScore)
+    .slice(0, 5)
+    .map(c => ({
+      key: c.key,
+      label: c.label,
+      reason: c.strategyReason,
+      strategy: c.strategy,
+      priorityScore: c.priorityScore,
+    }));
 
-  // Target categories: ones where we're slightly behind or close (swing categories)
-  const targetCategories = Object.entries(catScores)
-    .filter(([_, v]) => v.totalDelta < 0.5 && v.totalDelta > -2) // Not locked losses, but improvable
-    .sort((a, b) => a[1].totalDelta - b[1].totalDelta) // Worst first
-    .slice(0, 4)
-    .map(([key, v]) => {
-      const catInfo = CATEGORIES.find(c => c.key === key);
-      const label = catInfo?.label || key;
-      let reason = '';
-      if (v.totalDelta < -0.5) reason = 'Currently projected to lose — high impact if improved';
-      else if (v.totalDelta < 0) reason = 'Slight disadvantage — winnable with a stream target';
-      else reason = 'Close contest — protect this edge';
-      return { key, label, reason };
-    });
-
-  // Streamer profile based on target categories
+  // Streamer profile
   const streamerProfile: string[] = [];
   const targetKeys = targetCategories.map(t => t.key);
-  if (targetKeys.includes('threepm') || targetKeys.includes('points')) {
-    streamerProfile.push('High-volume scorers with 3PT upside');
-  }
-  if (targetKeys.includes('steals') || targetKeys.includes('blocks')) {
-    streamerProfile.push('Defensive specialists (STL/BLK)');
-  }
-  if (targetKeys.includes('rebounds')) {
-    streamerProfile.push('Big men with high rebound rates');
-  }
-  if (targetKeys.includes('assists')) {
-    streamerProfile.push('Playmakers / high-usage guards');
-  }
-  if (targetKeys.includes('fgPct')) {
-    streamerProfile.push('Efficient scorers (avoid low FG% shooters)');
-  }
-  if (targetKeys.includes('ftPct')) {
-    streamerProfile.push('Strong FT shooters (guards, wings)');
-  }
-  if (targetKeys.includes('turnovers')) {
-    streamerProfile.push('Low-turnover role players');
-  }
-  if (streamerProfile.length === 0) {
-    streamerProfile.push('Stream for volume — maximize games played');
-  }
+  if (targetKeys.includes('threepm') || targetKeys.includes('points')) streamerProfile.push('High-volume scorers with 3PT upside');
+  if (targetKeys.includes('steals') || targetKeys.includes('blocks')) streamerProfile.push('Defensive specialists (STL/BLK)');
+  if (targetKeys.includes('rebounds')) streamerProfile.push('Big men with high rebound rates');
+  if (targetKeys.includes('assists')) streamerProfile.push('Playmakers / high-usage guards');
+  if (targetKeys.includes('fgPct')) streamerProfile.push('Efficient scorers (avoid low FG% shooters)');
+  if (targetKeys.includes('ftPct')) streamerProfile.push('Strong FT shooters (guards, wings)');
+  if (targetKeys.includes('turnovers')) streamerProfile.push('Low-turnover role players');
+  if (streamerProfile.length === 0) streamerProfile.push('Stream for volume — maximize games played');
 
   const rosterNotes: string[] = [];
-  const mostLikely = scenarios.reduce((best, s) => s.likelihood > best.likelihood ? s : best, scenarios[0]);
-  if (mostLikely.winProbability > 0.65) {
-    rosterNotes.push(`Strong projection vs ${mostLikely.teamName} — focus on protecting your edges`);
-  } else if (mostLikely.winProbability < 0.4) {
-    rosterNotes.push(`Tough matchup vs ${mostLikely.teamName} — consider aggressive streaming`);
+  if (primary.winProbability > 0.65) {
+    rosterNotes.push(`Strong projection vs ${primary.teamName} — protect your edges in ${identity.protect.join(', ') || 'key categories'}`);
+  } else if (primary.winProbability < 0.4) {
+    rosterNotes.push(`Tough matchup vs ${primary.teamName} — aggressive streaming recommended for ${identity.attack.join(', ') || 'swing categories'}`);
+  } else {
+    rosterNotes.push(`Competitive matchup vs ${primary.teamName} — target swing categories to tip the scale`);
   }
-  if (mostLikely.swingCategories.length > 0) {
-    rosterNotes.push(`Swing categories: ${mostLikely.swingCategories.join(', ')} — target these with adds`);
+  if (vulnerableToStreaming.length > 0) {
+    rosterNotes.push(`⚠ Vulnerable if opponent streams: ${vulnerableToStreaming.join(', ')} could flip`);
   }
 
-  return { targetCategories, streamerProfile, rosterNotes };
+  return { targetCategories, streamerProfile, rosterNotes, identity, vulnerableToStreaming };
 }
