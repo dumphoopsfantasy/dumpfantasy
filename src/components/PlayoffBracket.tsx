@@ -695,7 +695,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       {/* Legend */}
       <div className="flex items-start gap-2 text-[11px] text-muted-foreground/60 pt-2">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-        <span>Projections based on 9-cat season averages simulated through remaining schedule. Playoff seeding uses projected final records.</span>
+        <span>Projections use 9-cat season averages; when playoffs have started, seeding is locked to the imported final regular-season standings.</span>
       </div>
     </div>
   );
