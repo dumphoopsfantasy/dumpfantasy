@@ -54,6 +54,16 @@ function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
   return weeksWithDates[0]?.week ?? 0;
 }
 
+function parseRecordParts(record?: string): { wins: number; losses: number; ties: number } {
+  if (!record) return { wins: 0, losses: 0, ties: 0 };
+  const [w, l, t] = record.split("-");
+  return {
+    wins: parseInt(w || "0", 10) || 0,
+    losses: parseInt(l || "0", 10) || 0,
+    ties: parseInt(t || "0", 10) || 0,
+  };
+}
+
 export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracketProps) => {
   const [playoffTeamCount, setPlayoffTeamCount] = useState("6");
   const [viewMode, setViewMode] = useState<"bracket" | "table">("bracket");
@@ -133,6 +143,36 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     );
   }, [resolvedSchedule, leagueTeams, forecastSettings]);
 
+  const standingsForBracket = useMemo(() => {
+    // Once playoffs start (or regular season cutoff is reached), lock seeding to imported standings order.
+    const shouldUseImportedStandings =
+      effectiveLastRegWeek != null && effectiveCutoff >= effectiveLastRegWeek;
+
+    if (shouldUseImportedStandings) {
+      return leagueTeams.map((team, idx) => {
+        const rec = parseRecordParts(team.record);
+        return {
+          teamName: team.name,
+          currentWins: rec.wins,
+          currentLosses: rec.losses,
+          currentTies: rec.ties,
+          projectedWins: 0,
+          projectedLosses: 0,
+          projectedTies: 0,
+          totalWins: rec.wins,
+          totalLosses: rec.losses,
+          totalTies: rec.ties,
+          projectedRank: idx + 1,
+          totalCategoryWins: 0,
+          totalCategoryLosses: 0,
+          categoryWinPct: 0,
+        };
+      });
+    }
+
+    return projectedStandings;
+  }, [leagueTeams, projectedStandings, effectiveCutoff, effectiveLastRegWeek]);
+
   const teamStatsMap = useMemo(() => {
     const map = new Map<string, LeagueTeam>();
     leagueTeams.forEach(t => map.set(t.name.toLowerCase(), t));
@@ -140,22 +180,31 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   }, [leagueTeams]);
 
   const playoffSeeds = useMemo(() => {
-    if (projectedStandings.length === 0) return [];
-    return projectedStandings.slice(0, numPlayoffTeams).map((s, i) => ({
+    if (standingsForBracket.length === 0) return [];
+    return standingsForBracket.slice(0, numPlayoffTeams).map((s, i) => ({
       seed: i + 1, teamName: s.teamName,
       record: `${s.totalWins}-${s.totalLosses}-${s.totalTies}`,
     }));
-  }, [projectedStandings, numPlayoffTeams]);
+  }, [standingsForBracket, numPlayoffTeams]);
+
+  const consolationSeeds = useMemo(() => {
+    if (standingsForBracket.length <= numPlayoffTeams) return [];
+    return standingsForBracket.slice(numPlayoffTeams).map((s, i) => ({
+      seed: numPlayoffTeams + i + 1,
+      teamName: s.teamName,
+      record: `${s.totalWins}-${s.totalLosses}-${s.totalTies}`,
+    }));
+  }, [standingsForBracket, numPlayoffTeams]);
 
   const playoffWeeks = useMemo(() => {
     if (!resolvedSchedule) return [];
     const allWeeks = Array.from(new Set(resolvedSchedule.matchups.map(m => m.week))).sort((a, b) => a - b);
-    
+
     // If we know the last regular season week, playoff weeks are any week > that
     if (effectiveLastRegWeek) {
       return allWeeks.filter(w => w > effectiveLastRegWeek);
     }
-    
+
     // Fallback: take last N weeks
     const numPlayoffWeeks = numPlayoffTeams === 6 ? 3 : 2;
     return allWeeks.slice(-numPlayoffWeeks);
@@ -165,21 +214,37 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     if (!resolvedSchedule || playoffWeeks.length === 0) return [];
     return playoffWeeks.map(week => {
       const weekMatchups = resolvedSchedule.matchups.filter(m => m.week === week);
-      const playoffTeamNames = new Set(playoffSeeds.map(s => s.teamName.toLowerCase()));
+      const bracketTeamNames = new Set([...playoffSeeds, ...consolationSeeds].map(s => s.teamName.toLowerCase()));
       const playoffGames = weekMatchups.filter(m =>
-        playoffTeamNames.has(m.awayTeam.toLowerCase()) || playoffTeamNames.has(m.homeTeam.toLowerCase())
+        bracketTeamNames.has(m.awayTeam.toLowerCase()) || bracketTeamNames.has(m.homeTeam.toLowerCase())
       );
       return { week, dateRange: weekMatchups[0]?.dateRangeText || "", matchups: playoffGames };
     });
-  }, [resolvedSchedule, playoffWeeks, playoffSeeds]);
+  }, [resolvedSchedule, playoffWeeks, playoffSeeds, consolationSeeds]);
 
   const bracket = useMemo(() => {
-    if (playoffSeeds.length < 4) return { rounds: [] as BracketMatchup[][], champion: null as string | null };
+    if (playoffSeeds.length < 4) {
+      return {
+        rounds: [] as BracketMatchup[][],
+        consolationRounds: [] as BracketMatchup[][],
+        champion: null as string | null,
+      };
+    }
 
     const getTeamStats = (name: string) => {
       const t = teamStatsMap.get(name.toLowerCase());
       if (!t) return null;
-      return { fgPct: t.fgPct, ftPct: t.ftPct, threepm: t.threepm, rebounds: t.rebounds, assists: t.assists, steals: t.steals, blocks: t.blocks, turnovers: t.turnovers, points: t.points };
+      return {
+        fgPct: t.fgPct,
+        ftPct: t.ftPct,
+        threepm: t.threepm,
+        rebounds: t.rebounds,
+        assists: t.assists,
+        steals: t.steals,
+        blocks: t.blocks,
+        turnovers: t.turnovers,
+        points: t.points,
+      };
     };
 
     const simulateMatchup = (seedA: number, teamA: string, seedB: number, teamB: string, roundLabel: string): BracketMatchup => {
@@ -193,26 +258,62 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     };
 
     const rounds: BracketMatchup[][] = [];
+    const consolationRounds: BracketMatchup[][] = [];
 
     if (numPlayoffTeams === 6) {
+      // Winner's bracket (ESPN 6-team structure)
       const r1m1 = simulateMatchup(3, playoffSeeds[2].teamName, 6, playoffSeeds[5].teamName, "Round 1");
       const r1m2 = simulateMatchup(4, playoffSeeds[3].teamName, 5, playoffSeeds[4].teamName, "Round 1");
       rounds.push([r1m1, r1m2]);
+
       const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, r1m1.winnerSeed || 3, r1m1.winner || playoffSeeds[2].teamName, "Semifinal");
       const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, r1m2.winnerSeed || 4, r1m2.winner || playoffSeeds[3].teamName, "Semifinal");
       rounds.push([sf1, sf2]);
-      const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
+
+      const finals = simulateMatchup(
+        sf1.winnerSeed || 1,
+        sf1.winner || playoffSeeds[0].teamName,
+        sf2.winnerSeed || 2,
+        sf2.winner || playoffSeeds[1].teamName,
+        "Finals"
+      );
       rounds.push([finals]);
-      return { rounds, champion: finals.winner || null };
-    } else {
-      const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, 4, playoffSeeds[3].teamName, "Semifinal");
-      const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, 3, playoffSeeds[2].teamName, "Semifinal");
-      rounds.push([sf1, sf2]);
-      const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
-      rounds.push([finals]);
-      return { rounds, champion: finals.winner || null };
+
+      // Consolation ladder (seeds 7-10)
+      if (consolationSeeds.length >= 4) {
+        const c1 = simulateMatchup(consolationSeeds[0].seed, consolationSeeds[0].teamName, consolationSeeds[1].seed, consolationSeeds[1].teamName, "Consolation R1");
+        const c2 = simulateMatchup(consolationSeeds[2].seed, consolationSeeds[2].teamName, consolationSeeds[3].seed, consolationSeeds[3].teamName, "Consolation R1");
+        consolationRounds.push([c1, c2]);
+
+        const c1LoserSeed = c1.winnerSeed === c1.seedA ? c1.seedB : c1.seedA;
+        const c1LoserTeam = c1.winner === c1.teamA ? c1.teamB : c1.teamA;
+        const c2LoserSeed = c2.winnerSeed === c2.seedA ? c2.seedB : c2.seedA;
+        const c2LoserTeam = c2.winner === c2.teamA ? c2.teamB : c2.teamA;
+
+        const c3 = simulateMatchup(c1.winnerSeed || c1.seedA, c1.winner || c1.teamA, c2.winnerSeed || c2.seedA, c2.winner || c2.teamA, "Consolation R2");
+        const c4 = simulateMatchup(c1LoserSeed, c1LoserTeam, c2LoserSeed, c2LoserTeam, "Consolation R2");
+        consolationRounds.push([c3, c4]);
+
+        const c3LoserSeed = c3.winnerSeed === c3.seedA ? c3.seedB : c3.seedA;
+        const c3LoserTeam = c3.winner === c3.teamA ? c3.teamB : c3.teamA;
+        const c4LoserSeed = c4.winnerSeed === c4.seedA ? c4.seedB : c4.seedA;
+        const c4LoserTeam = c4.winner === c4.teamA ? c4.teamB : c4.teamA;
+
+        const c5 = simulateMatchup(c3.winnerSeed || c3.seedA, c3.winner || c3.teamA, c4.winnerSeed || c4.seedA, c4.winner || c4.teamA, "Consolation R3");
+        const c6 = simulateMatchup(c3LoserSeed, c3LoserTeam, c4LoserSeed, c4LoserTeam, "Consolation R3");
+        consolationRounds.push([c5, c6]);
+      }
+
+      return { rounds, consolationRounds, champion: finals.winner || null };
     }
-  }, [playoffSeeds, teamStatsMap, forecastSettings, numPlayoffTeams]);
+
+    const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, 4, playoffSeeds[3].teamName, "Semifinal");
+    const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, 3, playoffSeeds[2].teamName, "Semifinal");
+    rounds.push([sf1, sf2]);
+    const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
+    rounds.push([finals]);
+    return { rounds, consolationRounds, champion: finals.winner || null };
+  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams]);
 
   const isUserTeam = (name: string) => {
     if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
@@ -236,11 +337,11 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
 
   // Compute a rough playoff odds % based on standing buffer
   const playoffOdds = useMemo(() => {
-    if (!userSeed || projectedStandings.length === 0) return null;
-    const userStanding = projectedStandings.find(s => isUserTeam(s.teamName));
+    if (!userSeed || standingsForBracket.length === 0) return null;
+    const userStanding = standingsForBracket.find(s => isUserTeam(s.teamName));
     if (!userStanding) return null;
-    const cutoffTeam = projectedStandings[numPlayoffTeams - 1];
-    const bubbleTeam = projectedStandings[numPlayoffTeams];
+    const cutoffTeam = standingsForBracket[numPlayoffTeams - 1];
+    const bubbleTeam = standingsForBracket[numPlayoffTeams];
     if (!cutoffTeam || !bubbleTeam) return 95;
     const winBuffer = userStanding.totalWins - bubbleTeam.totalWins;
     if (winBuffer >= 4) return 98;
@@ -248,9 +349,9 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     if (winBuffer >= 1) return 72;
     if (winBuffer === 0) return 50;
     return Math.max(15, 50 + winBuffer * 15);
-  }, [userSeed, projectedStandings, numPlayoffTeams]);
+  }, [userSeed, standingsForBracket, numPlayoffTeams]);
 
-  if (projectedStandings.length === 0) {
+  if (standingsForBracket.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-4">
@@ -412,29 +513,53 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       {/* ============================================================ */}
       {viewMode === "bracket" && (
         <div className="space-y-8">
-          {bracket.rounds.map((round, rIdx) => (
-            <div key={rIdx}>
-              <div className="flex items-center gap-3 mb-4">
-                <h3 className="font-display font-semibold text-base text-foreground">
-                  {roundLabels[round[0]?.round] || round[0]?.round || `Round ${rIdx + 1}`}
-                </h3>
-                {rIdx === 0 && numPlayoffTeams === 6 && (
-                  <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
-                    #1 & #2 have byes
-                  </span>
-                )}
+          <div className="space-y-8">
+            {bracket.rounds.map((round, rIdx) => (
+              <div key={rIdx}>
+                <div className="flex items-center gap-3 mb-4">
+                  <h3 className="font-display font-semibold text-base text-foreground">
+                    {roundLabels[round[0]?.round] || round[0]?.round || `Round ${rIdx + 1}`}
+                  </h3>
+                  {rIdx === 0 && numPlayoffTeams === 6 && (
+                    <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
+                      #1 & #2 have byes
+                    </span>
+                  )}
+                  <div className="flex-1 h-px bg-border/40" />
+                </div>
+                <div className={cn(
+                  "grid gap-3",
+                  round.length > 1 ? "grid-cols-1 md:grid-cols-2" : "max-w-md"
+                )}>
+                  {round.map((matchup, mIdx) => (
+                    <MatchupCard key={mIdx} matchup={matchup} isUserTeam={isUserTeam} isFinals={matchup.round === "Finals"} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {numPlayoffTeams === 6 && bracket.consolationRounds.length > 0 && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="font-display font-semibold text-base text-foreground">Consolation Ladder</h3>
+                <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">Seeds 7-10</span>
                 <div className="flex-1 h-px bg-border/40" />
               </div>
-              <div className={cn(
-                "grid gap-3",
-                round.length > 1 ? "grid-cols-1 md:grid-cols-2" : "max-w-md"
-              )}>
-                {round.map((matchup, mIdx) => (
-                  <MatchupCard key={mIdx} matchup={matchup} isUserTeam={isUserTeam} isFinals={matchup.round === "Finals"} />
-                ))}
-              </div>
+              {bracket.consolationRounds.map((round, rIdx) => (
+                <div key={`consolation-${rIdx}`}>
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                    Round {rIdx + 1}
+                  </div>
+                  <div className={cn("grid gap-3", round.length > 1 ? "grid-cols-1 md:grid-cols-2" : "max-w-md")}>
+                    {round.map((matchup, mIdx) => (
+                      <MatchupCard key={`c-${rIdx}-${mIdx}`} matchup={matchup} isUserTeam={isUserTeam} isFinals={false} />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -453,9 +578,8 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
               </tr>
             </thead>
             <tbody>
-              {playoffSeeds.map((s, i) => {
+              {playoffSeeds.map((s) => {
                 const isUser = isUserTeam(s.teamName);
-                const standing = projectedStandings.find(ps => ps.teamName === s.teamName);
                 const currentTeam = leagueTeams.find(t => t.name === s.teamName);
                 let currentRank = 0;
                 if (currentTeam) {
@@ -492,7 +616,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
                 );
               })}
               {/* Bubble separator */}
-              {projectedStandings.length > numPlayoffTeams && (
+              {standingsForBracket.length > numPlayoffTeams && (
                 <>
                   <tr>
                     <td colSpan={4} className="px-3 py-1.5">
@@ -503,7 +627,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
                       </div>
                     </td>
                   </tr>
-                  {projectedStandings.slice(numPlayoffTeams, numPlayoffTeams + 2).map(s => {
+                  {standingsForBracket.slice(numPlayoffTeams, numPlayoffTeams + 2).map(s => {
                     const isUser = isUserTeam(s.teamName);
                     return (
                       <tr key={s.teamName} className={cn("border-b border-border/30", isUser && "bg-primary/[0.04]")}>
@@ -571,7 +695,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       {/* Legend */}
       <div className="flex items-start gap-2 text-[11px] text-muted-foreground/60 pt-2">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-        <span>Projections based on 9-cat season averages simulated through remaining schedule. Playoff seeding uses projected final records.</span>
+        <span>Projections use 9-cat season averages; when playoffs have started, seeding is locked to the imported final regular-season standings.</span>
       </div>
     </div>
   );
