@@ -143,6 +143,36 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     );
   }, [resolvedSchedule, leagueTeams, forecastSettings]);
 
+  const standingsForBracket = useMemo(() => {
+    // Once playoffs start (or regular season cutoff is reached), lock seeding to imported standings order.
+    const shouldUseImportedStandings =
+      effectiveLastRegWeek != null && effectiveCutoff >= effectiveLastRegWeek;
+
+    if (shouldUseImportedStandings) {
+      return leagueTeams.map((team, idx) => {
+        const rec = parseRecordParts(team.record);
+        return {
+          teamName: team.name,
+          currentWins: rec.wins,
+          currentLosses: rec.losses,
+          currentTies: rec.ties,
+          projectedWins: 0,
+          projectedLosses: 0,
+          projectedTies: 0,
+          totalWins: rec.wins,
+          totalLosses: rec.losses,
+          totalTies: rec.ties,
+          projectedRank: idx + 1,
+          totalCategoryWins: 0,
+          totalCategoryLosses: 0,
+          categoryWinPct: 0,
+        };
+      });
+    }
+
+    return projectedStandings;
+  }, [leagueTeams, projectedStandings, effectiveCutoff, effectiveLastRegWeek]);
+
   const teamStatsMap = useMemo(() => {
     const map = new Map<string, LeagueTeam>();
     leagueTeams.forEach(t => map.set(t.name.toLowerCase(), t));
@@ -150,22 +180,31 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   }, [leagueTeams]);
 
   const playoffSeeds = useMemo(() => {
-    if (projectedStandings.length === 0) return [];
-    return projectedStandings.slice(0, numPlayoffTeams).map((s, i) => ({
+    if (standingsForBracket.length === 0) return [];
+    return standingsForBracket.slice(0, numPlayoffTeams).map((s, i) => ({
       seed: i + 1, teamName: s.teamName,
       record: `${s.totalWins}-${s.totalLosses}-${s.totalTies}`,
     }));
-  }, [projectedStandings, numPlayoffTeams]);
+  }, [standingsForBracket, numPlayoffTeams]);
+
+  const consolationSeeds = useMemo(() => {
+    if (standingsForBracket.length <= numPlayoffTeams) return [];
+    return standingsForBracket.slice(numPlayoffTeams).map((s, i) => ({
+      seed: numPlayoffTeams + i + 1,
+      teamName: s.teamName,
+      record: `${s.totalWins}-${s.totalLosses}-${s.totalTies}`,
+    }));
+  }, [standingsForBracket, numPlayoffTeams]);
 
   const playoffWeeks = useMemo(() => {
     if (!resolvedSchedule) return [];
     const allWeeks = Array.from(new Set(resolvedSchedule.matchups.map(m => m.week))).sort((a, b) => a - b);
-    
+
     // If we know the last regular season week, playoff weeks are any week > that
     if (effectiveLastRegWeek) {
       return allWeeks.filter(w => w > effectiveLastRegWeek);
     }
-    
+
     // Fallback: take last N weeks
     const numPlayoffWeeks = numPlayoffTeams === 6 ? 3 : 2;
     return allWeeks.slice(-numPlayoffWeeks);
@@ -175,13 +214,13 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     if (!resolvedSchedule || playoffWeeks.length === 0) return [];
     return playoffWeeks.map(week => {
       const weekMatchups = resolvedSchedule.matchups.filter(m => m.week === week);
-      const playoffTeamNames = new Set(playoffSeeds.map(s => s.teamName.toLowerCase()));
+      const bracketTeamNames = new Set([...playoffSeeds, ...consolationSeeds].map(s => s.teamName.toLowerCase()));
       const playoffGames = weekMatchups.filter(m =>
-        playoffTeamNames.has(m.awayTeam.toLowerCase()) || playoffTeamNames.has(m.homeTeam.toLowerCase())
+        bracketTeamNames.has(m.awayTeam.toLowerCase()) || bracketTeamNames.has(m.homeTeam.toLowerCase())
       );
       return { week, dateRange: weekMatchups[0]?.dateRangeText || "", matchups: playoffGames };
     });
-  }, [resolvedSchedule, playoffWeeks, playoffSeeds]);
+  }, [resolvedSchedule, playoffWeeks, playoffSeeds, consolationSeeds]);
 
   const bracket = useMemo(() => {
     if (playoffSeeds.length < 4) return { rounds: [] as BracketMatchup[][], champion: null as string | null };
