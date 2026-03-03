@@ -54,6 +54,16 @@ function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
   return weeksWithDates[0]?.week ?? 0;
 }
 
+function parseRecordParts(record?: string): { wins: number; losses: number; ties: number } {
+  if (!record) return { wins: 0, losses: 0, ties: 0 };
+  const [w, l, t] = record.split("-");
+  return {
+    wins: parseInt(w || "0", 10) || 0,
+    losses: parseInt(l || "0", 10) || 0,
+    ties: parseInt(t || "0", 10) || 0,
+  };
+}
+
 export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracketProps) => {
   const [playoffTeamCount, setPlayoffTeamCount] = useState("6");
   const [viewMode, setViewMode] = useState<"bracket" | "table">("bracket");
