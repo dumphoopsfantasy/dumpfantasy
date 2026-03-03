@@ -858,6 +858,17 @@ const Index = () => {
             </div>
           </TabsContent>
 
+          <TabsContent value="playoffs">
+            <PlayoffIntel
+              leagueTeams={leagueTeams}
+              userTeamName={matchupData?.myTeam?.name || ""}
+              roster={rosterWithCRI}
+              freeAgents={freeAgents}
+              weights={dynamicWeights.effectiveWeights}
+              onNavigateTab={(tab) => setActiveTab(tab)}
+            />
+          </TabsContent>
+
           <TabsContent value="weekly">
             <WeeklyPerformance
               persistedMatchups={weeklyMatchups}
