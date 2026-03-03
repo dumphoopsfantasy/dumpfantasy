@@ -337,11 +337,11 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
 
   // Compute a rough playoff odds % based on standing buffer
   const playoffOdds = useMemo(() => {
-    if (!userSeed || projectedStandings.length === 0) return null;
-    const userStanding = projectedStandings.find(s => isUserTeam(s.teamName));
+    if (!userSeed || standingsForBracket.length === 0) return null;
+    const userStanding = standingsForBracket.find(s => isUserTeam(s.teamName));
     if (!userStanding) return null;
-    const cutoffTeam = projectedStandings[numPlayoffTeams - 1];
-    const bubbleTeam = projectedStandings[numPlayoffTeams];
+    const cutoffTeam = standingsForBracket[numPlayoffTeams - 1];
+    const bubbleTeam = standingsForBracket[numPlayoffTeams];
     if (!cutoffTeam || !bubbleTeam) return 95;
     const winBuffer = userStanding.totalWins - bubbleTeam.totalWins;
     if (winBuffer >= 4) return 98;
@@ -349,7 +349,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     if (winBuffer >= 1) return 72;
     if (winBuffer === 0) return 50;
     return Math.max(15, 50 + winBuffer * 15);
-  }, [userSeed, projectedStandings, numPlayoffTeams]);
+  }, [userSeed, standingsForBracket, numPlayoffTeams]);
 
   if (projectedStandings.length === 0) {
     return (
