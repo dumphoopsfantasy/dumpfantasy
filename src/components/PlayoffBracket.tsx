@@ -593,7 +593,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
                 );
               })}
               {/* Bubble separator */}
-              {projectedStandings.length > numPlayoffTeams && (
+              {standingsForBracket.length > numPlayoffTeams && (
                 <>
                   <tr>
                     <td colSpan={4} className="px-3 py-1.5">
@@ -604,7 +604,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
                       </div>
                     </td>
                   </tr>
-                  {projectedStandings.slice(numPlayoffTeams, numPlayoffTeams + 2).map(s => {
+                  {standingsForBracket.slice(numPlayoffTeams, numPlayoffTeams + 2).map(s => {
                     const isUser = isUserTeam(s.teamName);
                     return (
                       <tr key={s.teamName} className={cn("border-b border-border/30", isUser && "bg-primary/[0.04]")}>
