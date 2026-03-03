@@ -223,12 +223,28 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   }, [resolvedSchedule, playoffWeeks, playoffSeeds, consolationSeeds]);
 
   const bracket = useMemo(() => {
-    if (playoffSeeds.length < 4) return { rounds: [] as BracketMatchup[][], champion: null as string | null };
+    if (playoffSeeds.length < 4) {
+      return {
+        rounds: [] as BracketMatchup[][],
+        consolationRounds: [] as BracketMatchup[][],
+        champion: null as string | null,
+      };
+    }
 
     const getTeamStats = (name: string) => {
       const t = teamStatsMap.get(name.toLowerCase());
       if (!t) return null;
-      return { fgPct: t.fgPct, ftPct: t.ftPct, threepm: t.threepm, rebounds: t.rebounds, assists: t.assists, steals: t.steals, blocks: t.blocks, turnovers: t.turnovers, points: t.points };
+      return {
+        fgPct: t.fgPct,
+        ftPct: t.ftPct,
+        threepm: t.threepm,
+        rebounds: t.rebounds,
+        assists: t.assists,
+        steals: t.steals,
+        blocks: t.blocks,
+        turnovers: t.turnovers,
+        points: t.points,
+      };
     };
 
     const simulateMatchup = (seedA: number, teamA: string, seedB: number, teamB: string, roundLabel: string): BracketMatchup => {
@@ -242,26 +258,62 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     };
 
     const rounds: BracketMatchup[][] = [];
+    const consolationRounds: BracketMatchup[][] = [];
 
     if (numPlayoffTeams === 6) {
+      // Winner's bracket (ESPN 6-team structure)
       const r1m1 = simulateMatchup(3, playoffSeeds[2].teamName, 6, playoffSeeds[5].teamName, "Round 1");
       const r1m2 = simulateMatchup(4, playoffSeeds[3].teamName, 5, playoffSeeds[4].teamName, "Round 1");
       rounds.push([r1m1, r1m2]);
+
       const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, r1m1.winnerSeed || 3, r1m1.winner || playoffSeeds[2].teamName, "Semifinal");
       const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, r1m2.winnerSeed || 4, r1m2.winner || playoffSeeds[3].teamName, "Semifinal");
       rounds.push([sf1, sf2]);
-      const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
+
+      const finals = simulateMatchup(
+        sf1.winnerSeed || 1,
+        sf1.winner || playoffSeeds[0].teamName,
+        sf2.winnerSeed || 2,
+        sf2.winner || playoffSeeds[1].teamName,
+        "Finals"
+      );
       rounds.push([finals]);
-      return { rounds, champion: finals.winner || null };
-    } else {
-      const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, 4, playoffSeeds[3].teamName, "Semifinal");
-      const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, 3, playoffSeeds[2].teamName, "Semifinal");
-      rounds.push([sf1, sf2]);
-      const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
-      rounds.push([finals]);
-      return { rounds, champion: finals.winner || null };
+
+      // Consolation ladder (seeds 7-10)
+      if (consolationSeeds.length >= 4) {
+        const c1 = simulateMatchup(consolationSeeds[0].seed, consolationSeeds[0].teamName, consolationSeeds[1].seed, consolationSeeds[1].teamName, "Consolation R1");
+        const c2 = simulateMatchup(consolationSeeds[2].seed, consolationSeeds[2].teamName, consolationSeeds[3].seed, consolationSeeds[3].teamName, "Consolation R1");
+        consolationRounds.push([c1, c2]);
+
+        const c1LoserSeed = c1.winnerSeed === c1.seedA ? c1.seedB : c1.seedA;
+        const c1LoserTeam = c1.winner === c1.teamA ? c1.teamB : c1.teamA;
+        const c2LoserSeed = c2.winnerSeed === c2.seedA ? c2.seedB : c2.seedA;
+        const c2LoserTeam = c2.winner === c2.teamA ? c2.teamB : c2.teamA;
+
+        const c3 = simulateMatchup(c1.winnerSeed || c1.seedA, c1.winner || c1.teamA, c2.winnerSeed || c2.seedA, c2.winner || c2.teamA, "Consolation R2");
+        const c4 = simulateMatchup(c1LoserSeed, c1LoserTeam, c2LoserSeed, c2LoserTeam, "Consolation R2");
+        consolationRounds.push([c3, c4]);
+
+        const c3LoserSeed = c3.winnerSeed === c3.seedA ? c3.seedB : c3.seedA;
+        const c3LoserTeam = c3.winner === c3.teamA ? c3.teamB : c3.teamA;
+        const c4LoserSeed = c4.winnerSeed === c4.seedA ? c4.seedB : c4.seedA;
+        const c4LoserTeam = c4.winner === c4.teamA ? c4.teamB : c4.teamA;
+
+        const c5 = simulateMatchup(c3.winnerSeed || c3.seedA, c3.winner || c3.teamA, c4.winnerSeed || c4.seedA, c4.winner || c4.teamA, "Consolation R3");
+        const c6 = simulateMatchup(c3LoserSeed, c3LoserTeam, c4LoserSeed, c4LoserTeam, "Consolation R3");
+        consolationRounds.push([c5, c6]);
+      }
+
+      return { rounds, consolationRounds, champion: finals.winner || null };
     }
-  }, [playoffSeeds, teamStatsMap, forecastSettings, numPlayoffTeams]);
+
+    const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, 4, playoffSeeds[3].teamName, "Semifinal");
+    const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, 3, playoffSeeds[2].teamName, "Semifinal");
+    rounds.push([sf1, sf2]);
+    const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
+    rounds.push([finals]);
+    return { rounds, consolationRounds, champion: finals.winner || null };
+  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams]);
 
   const isUserTeam = (name: string) => {
     if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
