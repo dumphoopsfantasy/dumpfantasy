@@ -12,6 +12,7 @@ import { Settings } from "@/pages/Settings";
 import { Gameplan } from "@/pages/Gameplan";
 import { DraftStrategy } from "@/pages/DraftStrategy";
 import { TradeAnalyzer } from "@/pages/TradeAnalyzer";
+import { PlayoffIntel } from "@/pages/PlayoffIntel";
 import { RosterTable } from "@/components/roster/RosterTable";
 import { PositionBreakdown } from "@/components/roster/PositionBreakdown";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
@@ -51,6 +52,7 @@ import {
   Trash2,
   ChevronDown,
   Target,
+  Shield,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
