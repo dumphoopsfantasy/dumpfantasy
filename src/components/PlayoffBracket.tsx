@@ -554,9 +554,8 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
               </tr>
             </thead>
             <tbody>
-              {playoffSeeds.map((s, i) => {
+              {playoffSeeds.map((s) => {
                 const isUser = isUserTeam(s.teamName);
-                const standing = projectedStandings.find(ps => ps.teamName === s.teamName);
                 const currentTeam = leagueTeams.find(t => t.name === s.teamName);
                 let currentRank = 0;
                 if (currentTeam) {
