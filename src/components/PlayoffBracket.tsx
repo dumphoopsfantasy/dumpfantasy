@@ -227,6 +227,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       return {
         rounds: [] as BracketMatchup[][],
         consolationRounds: [] as BracketMatchup[][],
+        winnersConsolation: [] as BracketMatchup[][],
         champion: null as string | null,
       };
     }
