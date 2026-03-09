@@ -484,7 +484,7 @@ export const PlayoffIntel = ({
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
               )}
             >
-              {getRoundLabel(roundInfo.currentPlayoffRound + 1, roundInfo.totalPlayoffRounds)} (Next)
+              {getRoundLabelLocal(roundInfo.currentPlayoffRound + 1, roundInfo.totalPlayoffRounds)} (Next)
             </button>
             <div className="flex-1 h-px bg-border/40" />
           </div>
