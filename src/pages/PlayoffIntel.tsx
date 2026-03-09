@@ -354,6 +354,30 @@ export const PlayoffIntel = ({
     );
   }
 
+  if (!effectiveUserTeam && leagueTeams.length > 0) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-4">
+        <Card className="p-8 text-center">
+          <Trophy className="w-10 h-10 text-primary mx-auto mb-4" />
+          <h2 className="text-xl font-display font-bold mb-2">Select Your Team</h2>
+          <p className="text-muted-foreground text-sm mb-4">
+            Choose your team to see playoff projections and matchup analysis.
+          </p>
+          <Select value="" onValueChange={(v) => setPersistedMyTeam(v)}>
+            <SelectTrigger className="w-[250px] h-9 text-sm mx-auto">
+              <SelectValue placeholder="Choose your team…" />
+            </SelectTrigger>
+            <SelectContent>
+              {leagueTeams.map(t => (
+                <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Card>
+      </div>
+    );
+  }
+
   if (!isInPlayoffs) {
     return (
       <div className="max-w-3xl mx-auto space-y-4">

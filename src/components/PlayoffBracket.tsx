@@ -367,8 +367,9 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams, resolvedSchedule, effectiveLastRegWeek]);
 
   const isUserTeam = (name: string) => {
-    if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
-    return name.toLowerCase().includes('bane');
+    const effectiveUser = userTeamName || persistedMyTeam;
+    if (effectiveUser) return name.toLowerCase() === effectiveUser.toLowerCase();
+    return false;
   };
 
   const isInPlayoffs = playoffSeeds.some(s => isUserTeam(s.teamName));
