@@ -445,19 +445,54 @@ export const PlayoffIntel = ({
       </div>
 
       {/* ============================================================ */}
-      {/* LIKELY OPPONENTS                                              */}
+      {/* ROUND SELECTOR + OPPONENTS                                    */}
       {/* ============================================================ */}
       <div>
-        <div className="flex items-center gap-3 mb-3">
-          <h3 className="font-display font-semibold text-sm">Likely Opponents</h3>
-          <div className="flex-1 h-px bg-border/40" />
-        </div>
+        {/* Round selector tabs */}
+        {isInPlayoffRound && roundInfo && roundInfo.currentPlayoffRound < roundInfo.totalPlayoffRounds && (
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              onClick={() => { setSelectedRound('current'); setSelectedOpponent(null); }}
+              className={cn(
+                'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors',
+                selectedRound === 'current'
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+              )}
+            >
+              {roundInfo.roundLabel} (This Week)
+            </button>
+            <button
+              onClick={() => { setSelectedRound('future'); setSelectedOpponent(null); }}
+              className={cn(
+                'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors',
+                selectedRound === 'future'
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+              )}
+            >
+              {getRoundLabel(roundInfo.currentPlayoffRound + 1, roundInfo.totalPlayoffRounds)} (Next)
+            </button>
+            <div className="flex-1 h-px bg-border/40" />
+          </div>
+        )}
+
+        {/* Section header */}
+        {(!isInPlayoffRound || !roundInfo || roundInfo.currentPlayoffRound >= roundInfo.totalPlayoffRounds) && (
+          <div className="flex items-center gap-3 mb-3">
+            <h3 className="font-display font-semibold text-sm">
+              {playoffAware?.confirmedOpponent ? 'Your Opponent' : 'Likely Opponents'}
+            </h3>
+            <div className="flex-1 h-px bg-border/40" />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {opponentScenarios.map((scenario) => {
             const isActive = activeScenario?.teamName === scenario.teamName;
             const isFavored = scenario.winProbability >= 0.55;
             const isUnderdog = scenario.winProbability < 0.45;
+            const isConfirmed = scenario.likelihood === 1.0 && selectedRound === 'current';
 
             return (
               <button
@@ -470,9 +505,14 @@ export const PlayoffIntel = ({
               >
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <div className="font-semibold text-sm">{scenario.teamName}</div>
+                    <div className="font-semibold text-sm flex items-center gap-2">
+                      {scenario.teamName}
+                      {isConfirmed && (
+                        <Badge className="text-[9px] bg-primary/15 text-primary border-0">Confirmed</Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">
-                      #{scenario.seed} · {scenario.record} · {scenario.round}
+                      {scenario.seed > 0 && `#${scenario.seed} · `}{scenario.record}{scenario.record && ' · '}{scenario.round}
                     </div>
                   </div>
                   <div className={cn(
@@ -488,7 +528,7 @@ export const PlayoffIntel = ({
                     <span className="text-muted-foreground">Cats:</span>{' '}
                     <span className="font-bold">{scenario.expectedCatsWon.toFixed(1)}–{scenario.expectedCatsLost.toFixed(1)}</span>
                   </div>
-                  {scenario.likelihood < 1 && (
+                  {!isConfirmed && scenario.likelihood < 1 && (
                     <div>
                       <span className="text-muted-foreground">Chance:</span>{' '}
                       <span className="font-medium">{Math.round(scenario.likelihood * 100)}%</span>
