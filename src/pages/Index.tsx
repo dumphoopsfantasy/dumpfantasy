@@ -144,6 +144,10 @@ const Index = () => {
 
   // Matchup projection state (persisted)
   const [matchupData, setMatchupData] = usePersistedState<MatchupProjectionData | null>("dumphoops-matchup", null);
+  const [persistedMyTeam, setPersistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
+
+  // Auto-populate my team from matchup data
+  const effectiveUserTeam = matchupData?.myTeam?.name || persistedMyTeam || "";
 
   // Global CRI weights for Settings page
   const [globalWeights, setGlobalWeights] = usePersistedState<CustomWeights>("dumphoops.criWeights", CRIS_WEIGHTS as CustomWeights);
