@@ -159,6 +159,7 @@ export const PlayoffIntel = ({
   const [aliases] = usePersistedState<TeamAliasMap>('dumphoops-schedule-aliases.v2', {});
   const [currentWeekCutoff] = usePersistedState<number>('dumphoops-schedule-currentWeekCutoff.v2', 0);
   const [lastRegularSeasonWeek] = usePersistedState<number | null>('dumphoops-schedule-lastRegularWeek.v2', null);
+  const [persistedMyTeam, setPersistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
 
   const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
   const [assumeOppStreaming, setAssumeOppStreaming] = useState(false);
