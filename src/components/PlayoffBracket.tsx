@@ -362,8 +362,8 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     rounds.push([sf1, sf2]);
     const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
     rounds.push([finals]);
-    return { rounds, consolationRounds, champion: finals.winner || null };
-  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams]);
+    return { rounds, consolationRounds, winnersConsolation: [] as BracketMatchup[][], champion: finals.winner || null };
+  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams, resolvedSchedule, effectiveLastRegWeek]);
 
   const isUserTeam = (name: string) => {
     if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
