@@ -148,6 +148,7 @@ export const PlayoffIntel = ({
 
   const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
   const [assumeOppStreaming, setAssumeOppStreaming] = useState(false);
+  const [selectedRound, setSelectedRound] = useState<'current' | 'future'>('current');
 
   // ---- resolve schedule ----
   const effectiveCutoff = useMemo(() => {
