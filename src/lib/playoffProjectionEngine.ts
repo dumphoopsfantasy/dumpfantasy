@@ -600,6 +600,15 @@ function getLikelyOpponentsFallback(
   return opponents;
 }
 
+/** @deprecated Use getPlayoffAwareOpponents instead */
+export function getLikelyOpponents(
+  userSeed: number,
+  playoffSeeds: BracketSeed[],
+  numPlayoffTeams: number,
+) {
+  return getLikelyOpponentsFallback(userSeed, playoffSeeds, numPlayoffTeams);
+}
+
 export function buildOpponentScenario(
   opponent: { teamName: string; seed: number; record: string; round: string; likelihood: number },
   myTeam: LeagueTeam,
