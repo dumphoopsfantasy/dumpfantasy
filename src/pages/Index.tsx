@@ -881,7 +881,7 @@ const Index = () => {
               onMatchupsChange={(m: WeeklyMatchup[]) => { setWeeklyMatchups(m); if (m.length > 0) setImportTimestamp("weekly"); }}
               onTitleChange={setWeeklyTitle}
               leagueTeams={leagueTeams}
-              userTeamName={matchupData?.myTeam?.name || ""}
+              userTeamName={effectiveUserTeam}
             />
           </TabsContent>
 
