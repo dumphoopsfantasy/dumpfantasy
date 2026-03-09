@@ -283,15 +283,15 @@ export const PlayoffIntel = ({
 
   // ---- build scenarios ----
   const opponentScenarios = useMemo(() => {
-    if (!userTeamData || likelyOpponents.length === 0) return [];
-    return likelyOpponents
+    if (!userTeamData || displayOpponents.length === 0) return [];
+    return displayOpponents
       .map(opp => {
         const oppTeam = leagueTeams.find(t => t.name === opp.teamName);
         if (!oppTeam) return null;
         return buildOpponentScenario(opp, userTeamData, oppTeam, 1, weights);
       })
       .filter(Boolean) as OpponentScenario[];
-  }, [userTeamData, likelyOpponents, leagueTeams, weights]);
+  }, [userTeamData, displayOpponents, leagueTeams, weights]);
 
   // ---- selected scenario detail ----
   const activeScenario = useMemo(() => {
