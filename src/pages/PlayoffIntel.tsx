@@ -385,7 +385,9 @@ export const PlayoffIntel = ({
               <Shield className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Playoff Intel</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                {roundInfo ? `Round ${roundInfo.currentPlayoffRound} — ${roundInfo.roundLabel}` : 'Playoff Intel'}
+              </div>
               <div className="font-display font-bold text-lg">
                 <span className="text-primary">#{userSeedObj?.seed}</span> Seed — {userSeedObj?.record}
               </div>
