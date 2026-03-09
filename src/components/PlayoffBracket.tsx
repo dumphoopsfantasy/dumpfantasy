@@ -418,6 +418,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     "Round 1": "First Round",
     "Semifinal": "Semifinals",
     "Finals": "Championship",
+    "Winner's Consolation": "Winner's Consolation",
   };
 
   return (
