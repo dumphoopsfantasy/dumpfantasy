@@ -253,11 +253,33 @@ export const PlayoffIntel = ({
   const userTeamData = leagueTeams.find(t => isUserTeam(t.name));
   const isInPlayoffs = !!userSeedObj;
 
-  // ---- likely opponents ----
-  const likelyOpponents = useMemo(() => {
-    if (!userSeedObj || !userTeamData) return [];
-    return getLikelyOpponents(userSeedObj.seed, playoffSeeds, numPlayoffTeams);
-  }, [userSeedObj, userTeamData, playoffSeeds, numPlayoffTeams]);
+  // ---- round-aware opponents ----
+  const playoffAware = useMemo(() => {
+    if (!userSeedObj || !userTeamData) return null;
+    return getPlayoffAwareOpponents(
+      userTeamData.name,
+      playoffSeeds,
+      numPlayoffTeams,
+      effectiveCutoff,
+      effectiveLastRegWeek,
+      resolvedSchedule?.matchups,
+    );
+  }, [userSeedObj, userTeamData, playoffSeeds, numPlayoffTeams, effectiveCutoff, effectiveLastRegWeek, resolvedSchedule]);
+
+  const roundInfo = playoffAware?.roundInfo;
+  const isInPlayoffRound = (effectiveLastRegWeek != null && effectiveCutoff > effectiveLastRegWeek);
+
+  const currentRoundOpponents = useMemo(() => {
+    if (!playoffAware) return [];
+    return playoffAware.confirmedOpponent ? [playoffAware.confirmedOpponent] : [];
+  }, [playoffAware]);
+
+  const futureRoundOpponents = useMemo(() => {
+    return playoffAware?.futureOpponents || [];
+  }, [playoffAware]);
+
+  const activeRoundOpponents = selectedRound === 'current' ? currentRoundOpponents : futureRoundOpponents;
+  const displayOpponents = activeRoundOpponents.length > 0 ? activeRoundOpponents : (playoffAware?.allOpponents || []);
 
   // ---- build scenarios ----
   const opponentScenarios = useMemo(() => {
