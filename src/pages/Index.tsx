@@ -865,7 +865,7 @@ const Index = () => {
           <TabsContent value="playoffs">
             <PlayoffIntel
               leagueTeams={leagueTeams}
-              userTeamName={matchupData?.myTeam?.name || ""}
+              userTeamName={effectiveUserTeam}
               roster={rosterWithCRI}
               freeAgents={freeAgents}
               weights={dynamicWeights.effectiveWeights as unknown as Record<string, number>}
