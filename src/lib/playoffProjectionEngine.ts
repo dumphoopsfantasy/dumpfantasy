@@ -442,20 +442,37 @@ export function getPlayoffAwareOpponents(
         ? userMatchup.homeTeam
         : userMatchup.awayTeam;
       const oppSeed = playoffSeeds.find(s => s.teamName.toLowerCase() === oppName.toLowerCase());
+      
+      // Determine bracket path: winner's bracket vs consolation
+      let bracketRoundLabel = roundLabel;
+      if (currentPlayoffRound >= 2 && numPlayoffTeams === 6) {
+        const userSeedNum = playoffSeeds.find(s => s.teamName.toLowerCase() === normUser)?.seed || 0;
+        const oppSeedNum = oppSeed?.seed || 0;
+        // Winner's bracket semis involve seed 1 or 2; if neither team is top 2, it's consolation
+        if (userSeedNum >= 3 && oppSeedNum >= 3 && userSeedNum <= 6 && oppSeedNum <= 6) {
+          bracketRoundLabel = "Winner's Consolation";
+        }
+      }
+      
       confirmedOpponent = {
         teamName: oppSeed?.teamName || oppName,
         seed: oppSeed?.seed || 0,
         record: oppSeed?.record || '',
-        round: roundLabel,
+        round: bracketRoundLabel,
         likelihood: 1.0,
       };
+      
+      // Update roundInfo label if user is in consolation bracket
+      if (bracketRoundLabel !== roundLabel) {
+        roundInfo.roundLabel = bracketRoundLabel;
+      }
     }
   }
 
   // Generate future round opponents (speculative)
   const futureOpponents: PlayoffAwareResult['futureOpponents'] = [];
   
-  if (currentPlayoffRound < totalPlayoffRounds) {
+  if (currentPlayoffRound < totalPlayoffRounds && (!confirmedOpponent || confirmedOpponent.round !== "Winner's Consolation")) {
     // Find potential opponents for the next round(s)
     const nextRound = currentPlayoffRound + 1;
     const nextRoundLabel = getRoundLabel(nextRound, totalPlayoffRounds);
