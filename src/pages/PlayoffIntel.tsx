@@ -358,7 +358,7 @@ export const PlayoffIntel = ({
       {/* ============================================================ */}
       {/* BYE WEEK BANNER                                               */}
       {/* ============================================================ */}
-      {isByeWeek && (
+      {isByeWeek && !isInPlayoffRound && (
         <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
             <Zap className="w-5 h-5 text-primary" />
