@@ -259,9 +259,10 @@ export const PlayoffIntel = ({
   }, [standingsForBracket, numPlayoffTeams]);
 
   // ---- identify user ----
+  const effectiveUserTeam = userTeamName || persistedMyTeam;
   const isUserTeam = (name: string) => {
-    if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
-    return name.toLowerCase().includes('bane');
+    if (effectiveUserTeam) return name.toLowerCase() === effectiveUserTeam.toLowerCase();
+    return false;
   };
 
   const userSeedObj = playoffSeeds.find(s => isUserTeam(s.teamName));
