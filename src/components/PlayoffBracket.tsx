@@ -590,6 +590,22 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
             ))}
           </div>
 
+          {/* Winner's Consolation bracket */}
+          {numPlayoffTeams === 6 && bracket.winnersConsolation.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="font-display font-semibold text-base text-foreground">Winner's Consolation</h3>
+                <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">R1 Losers</span>
+                <div className="flex-1 h-px bg-border/40" />
+              </div>
+              <div className="grid gap-3 max-w-md">
+                {bracket.winnersConsolation.flat().map((matchup, mIdx) => (
+                  <MatchupCard key={`wc-${mIdx}`} matchup={matchup} isUserTeam={isUserTeam} isFinals={false} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {numPlayoffTeams === 6 && bracket.consolationRounds.length > 0 && (
             <div className="space-y-6">
               <div className="flex items-center gap-3 mb-2">

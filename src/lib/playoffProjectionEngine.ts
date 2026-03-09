@@ -472,7 +472,7 @@ export function getPlayoffAwareOpponents(
   // Generate future round opponents (speculative)
   const futureOpponents: PlayoffAwareResult['futureOpponents'] = [];
   
-  if (currentPlayoffRound < totalPlayoffRounds) {
+  if (currentPlayoffRound < totalPlayoffRounds && (!confirmedOpponent || confirmedOpponent.round !== "Winner's Consolation")) {
     // Find potential opponents for the next round(s)
     const nextRound = currentPlayoffRound + 1;
     const nextRoundLabel = getRoundLabel(nextRound, totalPlayoffRounds);

@@ -462,7 +462,7 @@ export const PlayoffIntel = ({
       {/* ============================================================ */}
       <div>
         {/* Round selector tabs */}
-        {isInPlayoffRound && roundInfo && roundInfo.currentPlayoffRound < roundInfo.totalPlayoffRounds && (
+        {isInPlayoffRound && roundInfo && roundInfo.currentPlayoffRound < roundInfo.totalPlayoffRounds && roundInfo.roundLabel !== "Winner's Consolation" && (
           <div className="flex items-center gap-2 mb-3">
             <button
               onClick={() => { setSelectedRound('current'); setSelectedOpponent(null); }}
