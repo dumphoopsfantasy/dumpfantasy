@@ -40,6 +40,19 @@ import {
   type PlayoffRoundInfo,
 } from '@/lib/playoffProjectionEngine';
 
+function getRoundLabelLocal(round: number, totalRounds: number): string {
+  if (totalRounds === 3) {
+    if (round === 1) return 'Quarterfinal';
+    if (round === 2) return 'Semifinal';
+    return 'Finals';
+  }
+  if (totalRounds === 2) {
+    if (round === 1) return 'Semifinal';
+    return 'Finals';
+  }
+  return `Round ${round}`;
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================
