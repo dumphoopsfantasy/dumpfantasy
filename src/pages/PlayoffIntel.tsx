@@ -29,6 +29,7 @@ import { projectFinalStandings, type ForecastSettings } from '@/lib/forecastEngi
 import { parseDateRangeText } from '@/lib/matchupWeekDates';
 import {
   getLikelyOpponents,
+  getPlayoffAwareOpponents,
   buildOpponentScenario,
   generateByeWeekPlan,
   simulateOpponentStreaming,
@@ -36,6 +37,7 @@ import {
   type CategoryProjection,
   type ConfidenceTier,
   type CategoryStrategy,
+  type PlayoffRoundInfo,
 } from '@/lib/playoffProjectionEngine';
 
 // ============================================================================
