@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
@@ -158,6 +159,7 @@ export const PlayoffIntel = ({
   const [aliases] = usePersistedState<TeamAliasMap>('dumphoops-schedule-aliases.v2', {});
   const [currentWeekCutoff] = usePersistedState<number>('dumphoops-schedule-currentWeekCutoff.v2', 0);
   const [lastRegularSeasonWeek] = usePersistedState<number | null>('dumphoops-schedule-lastRegularWeek.v2', null);
+  const [persistedMyTeam, setPersistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
 
   const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
   const [assumeOppStreaming, setAssumeOppStreaming] = useState(false);
@@ -257,9 +259,10 @@ export const PlayoffIntel = ({
   }, [standingsForBracket, numPlayoffTeams]);
 
   // ---- identify user ----
+  const effectiveUserTeam = userTeamName || persistedMyTeam;
   const isUserTeam = (name: string) => {
-    if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
-    return name.toLowerCase().includes('bane');
+    if (effectiveUserTeam) return name.toLowerCase() === effectiveUserTeam.toLowerCase();
+    return false;
   };
 
   const userSeedObj = playoffSeeds.find(s => isUserTeam(s.teamName));
@@ -346,6 +349,30 @@ export const PlayoffIntel = ({
             <Upload className="w-4 h-4 mr-2" />
             Import Standings
           </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!effectiveUserTeam && leagueTeams.length > 0) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-4">
+        <Card className="p-8 text-center">
+          <Trophy className="w-10 h-10 text-primary mx-auto mb-4" />
+          <h2 className="text-xl font-display font-bold mb-2">Select Your Team</h2>
+          <p className="text-muted-foreground text-sm mb-4">
+            Choose your team to see playoff projections and matchup analysis.
+          </p>
+          <Select value="" onValueChange={(v) => setPersistedMyTeam(v)}>
+            <SelectTrigger className="w-[250px] h-9 text-sm mx-auto">
+              <SelectValue placeholder="Choose your team…" />
+            </SelectTrigger>
+            <SelectContent>
+              {leagueTeams.map(t => (
+                <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Card>
       </div>
     );

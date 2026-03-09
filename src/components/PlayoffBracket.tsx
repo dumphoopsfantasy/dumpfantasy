@@ -73,6 +73,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   const [aliases] = usePersistedState<TeamAliasMap>("dumphoops-schedule-aliases.v2", {});
   const [currentWeekCutoff] = usePersistedState<number>("dumphoops-schedule-currentWeekCutoff.v2", 0);
   const [lastRegularSeasonWeek, setLastRegularSeasonWeek] = usePersistedState<number | null>("dumphoops-schedule-lastRegularWeek.v2", null);
+  const [persistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
 
   const effectiveCutoff = useMemo(() => {
     if (currentWeekCutoff !== 0) return currentWeekCutoff;
@@ -366,8 +367,9 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams, resolvedSchedule, effectiveLastRegWeek]);
 
   const isUserTeam = (name: string) => {
-    if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
-    return name.toLowerCase().includes('bane');
+    const effectiveUser = userTeamName || persistedMyTeam;
+    if (effectiveUser) return name.toLowerCase() === effectiveUser.toLowerCase();
+    return false;
   };
 
   const isInPlayoffs = playoffSeeds.some(s => isUserTeam(s.teamName));
