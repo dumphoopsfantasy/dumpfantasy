@@ -199,15 +199,27 @@ export const RestOfWeekPlanner = ({
   return (
     <Card className="border-border/50 bg-card/50 p-3">
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-1">
         <CalendarDays className="w-4 h-4 text-primary" />
         <h4 className="font-display font-semibold text-xs">Rest of Week</h4>
+        <span className="text-[9px] text-muted-foreground ml-0.5">Projected lineup opportunities remaining</span>
 
         <Badge variant="outline" className="text-[9px] ml-auto">
           {userStats.remainingDays}d left
           {userStats.todayIsElapsed && <span className="ml-1">(today started)</span>}
         </Badge>
       </div>
+
+      {/* Validation warning */}
+      {userStats.remainingDays > 0 && userStats.remainingStarts === 0 && roster.length > 0 && (
+        <div className="mb-2 p-2 rounded bg-amber-400/10 border border-amber-400/30 text-[9px] text-amber-400">
+          <p className="font-medium">⚠ 0 starts projected with {userStats.remainingDays} days remaining</p>
+          <p className="mt-0.5 text-amber-400/80">
+            This usually means NBA schedule data hasn't loaded for the matchup dates yet. 
+            Try refreshing or check that your league schedule is imported.
+          </p>
+        </div>
+      )}
 
       {/* 7-day grid */}
       <div className="grid grid-cols-7 gap-0.5 mb-3">
