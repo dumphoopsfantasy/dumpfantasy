@@ -77,8 +77,11 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   const [persistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
 
   const effectiveCutoff = useMemo(() => {
+    if (schedule) {
+      const autoDetected = getSuggestedCurrentWeek(schedule);
+      if (autoDetected > 0) return autoDetected;
+    }
     if (currentWeekCutoff !== 0) return currentWeekCutoff;
-    if (schedule) return getSuggestedCurrentWeek(schedule);
     return 0;
   }, [currentWeekCutoff, schedule]);
 

@@ -167,9 +167,13 @@ export const PlayoffIntel = ({
   const [selectedRound, setSelectedRound] = useState<'current' | 'future'>('current');
 
   // ---- resolve schedule ----
+  // Always use auto-detected current week from schedule dates rather than stale persisted value
   const effectiveCutoff = useMemo(() => {
+    if (schedule) {
+      const autoDetected = getSuggestedCurrentWeek(schedule);
+      if (autoDetected > 0) return autoDetected;
+    }
     if (currentWeekCutoff !== 0) return currentWeekCutoff;
-    if (schedule) return getSuggestedCurrentWeek(schedule);
     return 0;
   }, [currentWeekCutoff, schedule]);
 
