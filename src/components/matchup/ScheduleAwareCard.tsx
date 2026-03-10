@@ -124,10 +124,18 @@ export const ScheduleAwareCard = ({
             <h3 className="font-display font-semibold text-sm">Schedule-Aware: Current → Final</h3>
           </MetricTooltip>
           <p className="text-[10px] text-muted-foreground">
+            <span className="font-medium text-primary/70">Uses remaining games & projected usable starts.</span>
+          </p>
+          <p className="text-[10px] text-muted-foreground">
             <MetricTooltip metricKey="remaining-starts" inline>
               <span>{remainingDays} days remaining · {myRemainingStarts} vs {oppRemainingStarts} starts</span>
             </MetricTooltip>
           </p>
+          {remainingDays > 0 && myRemainingStarts === 0 && oppRemainingStarts === 0 && (
+            <p className="text-[10px] text-amber-400 flex items-center gap-1 mt-0.5">
+              ⚠ 0 starts detected with {remainingDays} days left — schedule data may be incomplete
+            </p>
+          )}
         </div>
         <Badge variant="outline" className="text-xs">
           {myWins > oppWins ? (
