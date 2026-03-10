@@ -85,7 +85,10 @@ export function getCurrentMatchupWeekFromSchedule(
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
-  const seasonYear = parseInt(sched.season.slice(0, 4)) || new Date().getFullYear();
+  // season is stored as the START year (e.g., "2025" or "2025-26")
+  // parseDateRangeText expects the END year (Jan-Aug use seasonYear, Oct-Dec use seasonYear-1)
+  const seasonStartYear = parseInt(sched.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonYear = seasonStartYear + 1;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
