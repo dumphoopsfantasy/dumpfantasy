@@ -81,7 +81,8 @@ function parseRecordParts(record?: string): { wins: number; losses: number; ties
 }
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonStartYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonYear = seasonStartYear + 1; // NBA season "2025" means games in 2025-2026; Jan-Aug dates are in 2026
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
