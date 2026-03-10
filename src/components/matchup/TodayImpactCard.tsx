@@ -166,7 +166,8 @@ export const TodayImpactCard = ({
             </MetricTooltip>
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Today: {myTodayStarts} vs {oppTodayStarts} usable starts
+            <span className="font-medium text-primary/70">Effect of today's games only.</span>{" "}
+            {myTodayStarts} vs {oppTodayStarts} starts
           </p>
         </div>
         {slateStatus && (
