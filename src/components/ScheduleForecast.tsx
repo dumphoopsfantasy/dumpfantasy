@@ -76,7 +76,8 @@ type ResolvedScheduleResult = {
 import { parseDateRangeText } from "@/lib/matchupWeekDates";
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonStartYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonYear = seasonStartYear + 1; // NBA season "2025" spans 2025-2026; Jan-Aug dates are in 2026
   const today = new Date();
   // Normalize to start of day to avoid timezone edge cases
   today.setHours(0, 0, 0, 0);
