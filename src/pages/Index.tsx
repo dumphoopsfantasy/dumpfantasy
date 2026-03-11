@@ -522,7 +522,7 @@ const Index = () => {
 
       {/* Header - NO reset buttons here, moved to Roster tab */}
       <header className="border-b-2 border-primary/30 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-3">
+        <div className="w-full px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg gradient-primary shadow-glow">
