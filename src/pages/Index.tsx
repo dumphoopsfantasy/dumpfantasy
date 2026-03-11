@@ -144,10 +144,6 @@ const Index = () => {
 
   // Matchup projection state (persisted)
   const [matchupData, setMatchupData] = usePersistedState<MatchupProjectionData | null>("dumphoops-matchup", null);
-  const [persistedMyTeam, setPersistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
-
-  // Explicit team selection takes priority over matchup import detection
-  const effectiveUserTeam = persistedMyTeam || matchupData?.myTeam?.name || "";
 
   // Global CRI weights for Settings page
   const [globalWeights, setGlobalWeights] = usePersistedState<CustomWeights>("dumphoops.criWeights", CRIS_WEIGHTS as CustomWeights);
@@ -865,7 +861,7 @@ const Index = () => {
           <TabsContent value="playoffs">
             <PlayoffIntel
               leagueTeams={leagueTeams}
-              userTeamName={effectiveUserTeam}
+              userTeamName={matchupData?.myTeam?.name || ""}
               roster={rosterWithCRI}
               freeAgents={freeAgents}
               weights={dynamicWeights.effectiveWeights as unknown as Record<string, number>}
@@ -881,7 +877,7 @@ const Index = () => {
               onMatchupsChange={(m: WeeklyMatchup[]) => { setWeeklyMatchups(m); if (m.length > 0) setImportTimestamp("weekly"); }}
               onTitleChange={setWeeklyTitle}
               leagueTeams={leagueTeams}
-              userTeamName={effectiveUserTeam}
+              userTeamName={matchupData?.myTeam?.name || ""}
             />
           </TabsContent>
 

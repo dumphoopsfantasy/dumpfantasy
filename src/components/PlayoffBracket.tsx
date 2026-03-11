@@ -32,8 +32,7 @@ interface BracketMatchup {
 }
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  const seasonStartYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
-  const seasonYear = seasonStartYear + 1; // NBA season "2025" spans 2025-2026; Jan-Aug dates are in 2026
+  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
@@ -74,14 +73,10 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   const [aliases] = usePersistedState<TeamAliasMap>("dumphoops-schedule-aliases.v2", {});
   const [currentWeekCutoff] = usePersistedState<number>("dumphoops-schedule-currentWeekCutoff.v2", 0);
   const [lastRegularSeasonWeek, setLastRegularSeasonWeek] = usePersistedState<number | null>("dumphoops-schedule-lastRegularWeek.v2", null);
-  const [persistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
 
   const effectiveCutoff = useMemo(() => {
-    if (schedule) {
-      const autoDetected = getSuggestedCurrentWeek(schedule);
-      if (autoDetected > 0) return autoDetected;
-    }
     if (currentWeekCutoff !== 0) return currentWeekCutoff;
+    if (schedule) return getSuggestedCurrentWeek(schedule);
     return 0;
   }, [currentWeekCutoff, schedule]);
 
@@ -232,7 +227,6 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       return {
         rounds: [] as BracketMatchup[][],
         consolationRounds: [] as BracketMatchup[][],
-        winnersConsolation: [] as BracketMatchup[][],
         champion: null as string | null,
       };
     }
@@ -267,72 +261,23 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     const consolationRounds: BracketMatchup[][] = [];
 
     if (numPlayoffTeams === 6) {
-      // Winner's bracket (ESPN 6-team: 3v6, 4v5 in R1; 1 vs w(4v5), 2 vs w(3v6) in R2)
-      let r1m1 = simulateMatchup(3, playoffSeeds[2].teamName, 6, playoffSeeds[5].teamName, "Round 1");
-      let r1m2 = simulateMatchup(4, playoffSeeds[3].teamName, 5, playoffSeeds[4].teamName, "Round 1");
-
-      // If we have R2 schedule data, infer R1 winners from who plays seed 1/2
-      const findSeedNum = (name: string) => playoffSeeds.find(s => s.teamName.toLowerCase() === name.toLowerCase())?.seed || 0;
-      const r2Week = effectiveLastRegWeek ? effectiveLastRegWeek + 2 : 0;
-      const r2ScheduleGames = r2Week > 0 && resolvedSchedule
-        ? resolvedSchedule.matchups.filter(m => m.week === r2Week)
-        : [];
-
-      if (r2ScheduleGames.length > 0) {
-        for (const m of r2ScheduleGames) {
-          const seedAway = findSeedNum(m.awayTeam);
-          const seedHome = findSeedNum(m.homeTeam);
-
-          // Seed 1's semifinal opponent won the 4v5 matchup (r1m2)
-          if (seedAway === 1 || seedHome === 1) {
-            const winner = seedAway === 1 ? m.homeTeam : m.awayTeam;
-            const ws = findSeedNum(winner);
-            if ([4, 5].includes(ws)) r1m2 = { ...r1m2, winner, winnerSeed: ws, outcome: "Final" };
-            else if ([3, 6].includes(ws)) r1m1 = { ...r1m1, winner, winnerSeed: ws, outcome: "Final" };
-          }
-          // Seed 2's semifinal opponent won the 3v6 matchup (r1m1)
-          if (seedAway === 2 || seedHome === 2) {
-            const winner = seedAway === 2 ? m.homeTeam : m.awayTeam;
-            const ws = findSeedNum(winner);
-            if ([3, 6].includes(ws)) r1m1 = { ...r1m1, winner, winnerSeed: ws, outcome: "Final" };
-            else if ([4, 5].includes(ws)) r1m2 = { ...r1m2, winner, winnerSeed: ws, outcome: "Final" };
-          }
-        }
-      }
-
+      // Winner's bracket (ESPN 6-team structure)
+      const r1m1 = simulateMatchup(3, playoffSeeds[2].teamName, 6, playoffSeeds[5].teamName, "Round 1");
+      const r1m2 = simulateMatchup(4, playoffSeeds[3].teamName, 5, playoffSeeds[4].teamName, "Round 1");
       rounds.push([r1m1, r1m2]);
 
-      // Semifinals (ESPN format: seed 1 vs winner of 4v5, seed 2 vs winner of 3v6)
-      const sf1 = simulateMatchup(
-        1, playoffSeeds[0].teamName,
-        r1m2.winnerSeed || 4, r1m2.winner || playoffSeeds[3].teamName,
-        "Semifinal"
-      );
-      const sf2 = simulateMatchup(
-        2, playoffSeeds[1].teamName,
-        r1m1.winnerSeed || 3, r1m1.winner || playoffSeeds[2].teamName,
-        "Semifinal"
-      );
+      const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, r1m1.winnerSeed || 3, r1m1.winner || playoffSeeds[2].teamName, "Semifinal");
+      const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, r1m2.winnerSeed || 4, r1m2.winner || playoffSeeds[3].teamName, "Semifinal");
       rounds.push([sf1, sf2]);
 
       const finals = simulateMatchup(
-        sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName,
-        sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName,
+        sf1.winnerSeed || 1,
+        sf1.winner || playoffSeeds[0].teamName,
+        sf2.winnerSeed || 2,
+        sf2.winner || playoffSeeds[1].teamName,
         "Finals"
       );
       rounds.push([finals]);
-
-      // Winner's Consolation: R1 losers play each other in R2
-      const winnersConsolation: BracketMatchup[][] = [];
-      if (r1m1.winner && r1m2.winner) {
-        const loser1 = r1m1.winner === r1m1.teamA ? r1m1.teamB : r1m1.teamA;
-        const loser1Seed = r1m1.winner === r1m1.teamA ? r1m1.seedB : r1m1.seedA;
-        const loser2 = r1m2.winner === r1m2.teamA ? r1m2.teamB : r1m2.teamA;
-        const loser2Seed = r1m2.winner === r1m2.teamA ? r1m2.seedB : r1m2.seedA;
-        winnersConsolation.push([
-          simulateMatchup(loser1Seed, loser1, loser2Seed, loser2, "Winner's Consolation")
-        ]);
-      }
 
       // Consolation ladder (seeds 7-10)
       if (consolationSeeds.length >= 4) {
@@ -359,7 +304,7 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
         consolationRounds.push([c5, c6]);
       }
 
-      return { rounds, consolationRounds, winnersConsolation, champion: finals.winner || null };
+      return { rounds, consolationRounds, champion: finals.winner || null };
     }
 
     const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, 4, playoffSeeds[3].teamName, "Semifinal");
@@ -367,13 +312,12 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     rounds.push([sf1, sf2]);
     const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
     rounds.push([finals]);
-    return { rounds, consolationRounds, winnersConsolation: [] as BracketMatchup[][], champion: finals.winner || null };
-  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams, resolvedSchedule, effectiveLastRegWeek]);
+    return { rounds, consolationRounds, champion: finals.winner || null };
+  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams]);
 
   const isUserTeam = (name: string) => {
-    const effectiveUser = userTeamName || persistedMyTeam;
-    if (effectiveUser) return name.toLowerCase() === effectiveUser.toLowerCase();
-    return false;
+    if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
+    return name.toLowerCase().includes('bane');
   };
 
   const isInPlayoffs = playoffSeeds.some(s => isUserTeam(s.teamName));
@@ -424,7 +368,6 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     "Round 1": "First Round",
     "Semifinal": "Semifinals",
     "Finals": "Championship",
-    "Winner's Consolation": "Winner's Consolation",
   };
 
   return (
@@ -595,22 +538,6 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
               </div>
             ))}
           </div>
-
-          {/* Winner's Consolation bracket */}
-          {numPlayoffTeams === 6 && bracket.winnersConsolation.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <h3 className="font-display font-semibold text-base text-foreground">Winner's Consolation</h3>
-                <span className="text-[11px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">R1 Losers</span>
-                <div className="flex-1 h-px bg-border/40" />
-              </div>
-              <div className="grid gap-3 max-w-md">
-                {bracket.winnersConsolation.flat().map((matchup, mIdx) => (
-                  <MatchupCard key={`wc-${mIdx}`} matchup={matchup} isUserTeam={isUserTeam} isFinals={false} />
-                ))}
-              </div>
-            </div>
-          )}
 
           {numPlayoffTeams === 6 && bracket.consolationRounds.length > 0 && (
             <div className="space-y-6">

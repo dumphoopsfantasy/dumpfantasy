@@ -105,10 +105,7 @@ export const BaselineCard = ({
               <h3 className="font-display font-semibold text-sm">Baseline Strength (×40)</h3>
             </MetricTooltip>
           </div>
-          <p className="text-[10px] text-muted-foreground">
-            <span className="font-medium text-primary/70">Talent only, ignores schedule.</span>{" "}
-            Roster avg × 40 hypothetical games.
-          </p>
+          <p className="text-[10px] text-muted-foreground">Roster average × 40 games (schedule-independent)</p>
         </div>
         <Badge variant="outline" className="text-xs">
           {myWins > oppWins ? (

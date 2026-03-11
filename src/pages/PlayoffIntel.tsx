@@ -10,7 +10,6 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
@@ -30,7 +29,6 @@ import { projectFinalStandings, type ForecastSettings } from '@/lib/forecastEngi
 import { parseDateRangeText } from '@/lib/matchupWeekDates';
 import {
   getLikelyOpponents,
-  getPlayoffAwareOpponents,
   buildOpponentScenario,
   generateByeWeekPlan,
   simulateOpponentStreaming,
@@ -38,21 +36,7 @@ import {
   type CategoryProjection,
   type ConfidenceTier,
   type CategoryStrategy,
-  type PlayoffRoundInfo,
 } from '@/lib/playoffProjectionEngine';
-
-function getRoundLabelLocal(round: number, totalRounds: number): string {
-  if (totalRounds === 3) {
-    if (round === 1) return 'Quarterfinal';
-    if (round === 2) return 'Semifinal';
-    return 'Finals';
-  }
-  if (totalRounds === 2) {
-    if (round === 1) return 'Semifinal';
-    return 'Finals';
-  }
-  return `Round ${round}`;
-}
 
 // ============================================================================
 // TYPES
@@ -81,8 +65,7 @@ function parseRecordParts(record?: string): { wins: number; losses: number; ties
 }
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  const seasonStartYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
-  const seasonYear = seasonStartYear + 1; // NBA season "2025" means games in 2025-2026; Jan-Aug dates are in 2026
+  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
@@ -160,20 +143,14 @@ export const PlayoffIntel = ({
   const [aliases] = usePersistedState<TeamAliasMap>('dumphoops-schedule-aliases.v2', {});
   const [currentWeekCutoff] = usePersistedState<number>('dumphoops-schedule-currentWeekCutoff.v2', 0);
   const [lastRegularSeasonWeek] = usePersistedState<number | null>('dumphoops-schedule-lastRegularWeek.v2', null);
-  const [persistedMyTeam, setPersistedMyTeam] = usePersistedState<string>('dumphoops-my-team', '');
 
   const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
   const [assumeOppStreaming, setAssumeOppStreaming] = useState(false);
-  const [selectedRound, setSelectedRound] = useState<'current' | 'future'>('current');
 
   // ---- resolve schedule ----
-  // Always use auto-detected current week from schedule dates rather than stale persisted value
   const effectiveCutoff = useMemo(() => {
-    if (schedule) {
-      const autoDetected = getSuggestedCurrentWeek(schedule);
-      if (autoDetected > 0) return autoDetected;
-    }
     if (currentWeekCutoff !== 0) return currentWeekCutoff;
+    if (schedule) return getSuggestedCurrentWeek(schedule);
     return 0;
   }, [currentWeekCutoff, schedule]);
 
@@ -264,55 +241,32 @@ export const PlayoffIntel = ({
   }, [standingsForBracket, numPlayoffTeams]);
 
   // ---- identify user ----
-  const effectiveUserTeam = userTeamName || persistedMyTeam;
   const isUserTeam = (name: string) => {
-    if (effectiveUserTeam) return name.toLowerCase() === effectiveUserTeam.toLowerCase();
-    return false;
+    if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
+    return name.toLowerCase().includes('bane');
   };
 
   const userSeedObj = playoffSeeds.find(s => isUserTeam(s.teamName));
   const userTeamData = leagueTeams.find(t => isUserTeam(t.name));
   const isInPlayoffs = !!userSeedObj;
 
-  // ---- round-aware opponents ----
-  const playoffAware = useMemo(() => {
-    if (!userSeedObj || !userTeamData) return null;
-    return getPlayoffAwareOpponents(
-      userTeamData.name,
-      playoffSeeds,
-      numPlayoffTeams,
-      effectiveCutoff,
-      effectiveLastRegWeek,
-      resolvedSchedule?.matchups,
-    );
-  }, [userSeedObj, userTeamData, playoffSeeds, numPlayoffTeams, effectiveCutoff, effectiveLastRegWeek, resolvedSchedule]);
-
-  const roundInfo = playoffAware?.roundInfo;
-  const isInPlayoffRound = (effectiveLastRegWeek != null && effectiveCutoff > effectiveLastRegWeek);
-
-  const currentRoundOpponents = useMemo(() => {
-    if (!playoffAware) return [];
-    return playoffAware.confirmedOpponent ? [playoffAware.confirmedOpponent] : [];
-  }, [playoffAware]);
-
-  const futureRoundOpponents = useMemo(() => {
-    return playoffAware?.futureOpponents || [];
-  }, [playoffAware]);
-
-  const activeRoundOpponents = selectedRound === 'current' ? currentRoundOpponents : futureRoundOpponents;
-  const displayOpponents = activeRoundOpponents.length > 0 ? activeRoundOpponents : (playoffAware?.allOpponents || []);
+  // ---- likely opponents ----
+  const likelyOpponents = useMemo(() => {
+    if (!userSeedObj || !userTeamData) return [];
+    return getLikelyOpponents(userSeedObj.seed, playoffSeeds, numPlayoffTeams);
+  }, [userSeedObj, userTeamData, playoffSeeds, numPlayoffTeams]);
 
   // ---- build scenarios ----
   const opponentScenarios = useMemo(() => {
-    if (!userTeamData || displayOpponents.length === 0) return [];
-    return displayOpponents
+    if (!userTeamData || likelyOpponents.length === 0) return [];
+    return likelyOpponents
       .map(opp => {
         const oppTeam = leagueTeams.find(t => t.name === opp.teamName);
         if (!oppTeam) return null;
         return buildOpponentScenario(opp, userTeamData, oppTeam, 1, weights);
       })
       .filter(Boolean) as OpponentScenario[];
-  }, [userTeamData, displayOpponents, leagueTeams, weights]);
+  }, [userTeamData, likelyOpponents, leagueTeams, weights]);
 
   // ---- selected scenario detail ----
   const activeScenario = useMemo(() => {
@@ -359,30 +313,6 @@ export const PlayoffIntel = ({
     );
   }
 
-  if (!effectiveUserTeam && leagueTeams.length > 0) {
-    return (
-      <div className="max-w-3xl mx-auto space-y-4">
-        <Card className="p-8 text-center">
-          <Trophy className="w-10 h-10 text-primary mx-auto mb-4" />
-          <h2 className="text-xl font-display font-bold mb-2">Select Your Team</h2>
-          <p className="text-muted-foreground text-sm mb-4">
-            Choose your team to see playoff projections and matchup analysis.
-          </p>
-          <Select value="" onValueChange={(v) => setPersistedMyTeam(v)}>
-            <SelectTrigger className="w-[250px] h-9 text-sm mx-auto">
-              <SelectValue placeholder="Choose your team…" />
-            </SelectTrigger>
-            <SelectContent>
-              {leagueTeams.map(t => (
-                <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Card>
-      </div>
-    );
-  }
-
   if (!isInPlayoffs) {
     return (
       <div className="max-w-3xl mx-auto space-y-4">
@@ -403,7 +333,7 @@ export const PlayoffIntel = ({
       {/* ============================================================ */}
       {/* BYE WEEK BANNER                                               */}
       {/* ============================================================ */}
-      {isByeWeek && !isInPlayoffRound && (
+      {isByeWeek && (
         <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
             <Zap className="w-5 h-5 text-primary" />
@@ -430,9 +360,7 @@ export const PlayoffIntel = ({
               <Shield className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
-                {roundInfo ? `Round ${roundInfo.currentPlayoffRound} — ${roundInfo.roundLabel}` : 'Playoff Intel'}
-              </div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Playoff Intel</div>
               <div className="font-display font-bold text-lg">
                 <span className="text-primary">#{userSeedObj?.seed}</span> Seed — {userSeedObj?.record}
               </div>
@@ -490,54 +418,19 @@ export const PlayoffIntel = ({
       </div>
 
       {/* ============================================================ */}
-      {/* ROUND SELECTOR + OPPONENTS                                    */}
+      {/* LIKELY OPPONENTS                                              */}
       {/* ============================================================ */}
       <div>
-        {/* Round selector tabs */}
-        {isInPlayoffRound && roundInfo && roundInfo.currentPlayoffRound < roundInfo.totalPlayoffRounds && roundInfo.roundLabel !== "Winner's Consolation" && (
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              onClick={() => { setSelectedRound('current'); setSelectedOpponent(null); }}
-              className={cn(
-                'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors',
-                selectedRound === 'current'
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-              )}
-            >
-              {roundInfo.roundLabel} (This Week)
-            </button>
-            <button
-              onClick={() => { setSelectedRound('future'); setSelectedOpponent(null); }}
-              className={cn(
-                'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors',
-                selectedRound === 'future'
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-              )}
-            >
-              {getRoundLabelLocal(roundInfo.currentPlayoffRound + 1, roundInfo.totalPlayoffRounds)} (Next)
-            </button>
-            <div className="flex-1 h-px bg-border/40" />
-          </div>
-        )}
-
-        {/* Section header */}
-        {(!isInPlayoffRound || !roundInfo || roundInfo.currentPlayoffRound >= roundInfo.totalPlayoffRounds) && (
-          <div className="flex items-center gap-3 mb-3">
-            <h3 className="font-display font-semibold text-sm">
-              {playoffAware?.confirmedOpponent ? 'Your Opponent' : 'Likely Opponents'}
-            </h3>
-            <div className="flex-1 h-px bg-border/40" />
-          </div>
-        )}
+        <div className="flex items-center gap-3 mb-3">
+          <h3 className="font-display font-semibold text-sm">Likely Opponents</h3>
+          <div className="flex-1 h-px bg-border/40" />
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {opponentScenarios.map((scenario) => {
             const isActive = activeScenario?.teamName === scenario.teamName;
             const isFavored = scenario.winProbability >= 0.55;
             const isUnderdog = scenario.winProbability < 0.45;
-            const isConfirmed = scenario.likelihood === 1.0 && selectedRound === 'current';
 
             return (
               <button
@@ -550,14 +443,9 @@ export const PlayoffIntel = ({
               >
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <div className="font-semibold text-sm flex items-center gap-2">
-                      {scenario.teamName}
-                      {isConfirmed && (
-                        <Badge className="text-[9px] bg-primary/15 text-primary border-0">Confirmed</Badge>
-                      )}
-                    </div>
+                    <div className="font-semibold text-sm">{scenario.teamName}</div>
                     <div className="text-xs text-muted-foreground">
-                      {scenario.seed > 0 && `#${scenario.seed} · `}{scenario.record}{scenario.record && ' · '}{scenario.round}
+                      #{scenario.seed} · {scenario.record} · {scenario.round}
                     </div>
                   </div>
                   <div className={cn(
@@ -573,7 +461,7 @@ export const PlayoffIntel = ({
                     <span className="text-muted-foreground">Cats:</span>{' '}
                     <span className="font-bold">{scenario.expectedCatsWon.toFixed(1)}–{scenario.expectedCatsLost.toFixed(1)}</span>
                   </div>
-                  {!isConfirmed && scenario.likelihood < 1 && (
+                  {scenario.likelihood < 1 && (
                     <div>
                       <span className="text-muted-foreground">Chance:</span>{' '}
                       <span className="font-medium">{Math.round(scenario.likelihood * 100)}%</span>
