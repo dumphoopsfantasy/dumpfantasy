@@ -297,6 +297,9 @@ export const MatchupProjection = ({
 
   const dayInfo = getMatchupDayInfo();
   
+  // NBA schedule for Start/Sit Advisor
+  const { gamesByDate } = useNBAUpcomingSchedule(14);
+  
   // Slate-aware projection hook (excludes started games from remaining)
   const {
     myProjection: slateMyProjection,
