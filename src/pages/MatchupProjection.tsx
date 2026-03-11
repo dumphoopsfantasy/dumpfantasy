@@ -1698,8 +1698,9 @@ Navigate to their team page and copy the whole page.`}
         />
       </div>
 
-      {/* Main Content */}
       <div className="space-y-6 animate-fade-in">
+        {/* Header */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
