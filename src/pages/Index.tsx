@@ -522,7 +522,7 @@ const Index = () => {
 
       {/* Header - NO reset buttons here, moved to Roster tab */}
       <header className="border-b-2 border-primary/30 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="w-full px-4 py-3">
+        <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg gradient-primary shadow-glow">
@@ -549,9 +549,9 @@ const Index = () => {
       />
 
       {/* Main Content */}
-      <main className="w-full px-4 py-6">
+      <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full bg-accent/30 border border-primary/20 mb-6 ${
+          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${
             !showDraftTab && !showTradeTab ? 'grid-cols-8' :
             (showDraftTab && showTradeTab) ? 'grid-cols-10' : 'grid-cols-9'
           }`}>
@@ -829,11 +829,11 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="matchup">
-            <div className="matchup-grid gap-6">
-              {/* Start/Sit Advisor on LEFT side */}
+            <div className="flex flex-col lg:flex-row gap-6">
+              {/* Start/Sit Advisor on LEFT side under Your Team */}
               {matchupData && rosterWithCRI.length > 0 && (
-                <div className="matchup-left-rail">
-                  <StartSitAdvisor 
+                <div className="lg:w-80 shrink-0 order-first">
+                <StartSitAdvisor 
                     roster={rosterWithCRI} 
                     opponentRoster={opponentRoster}
                     useCris={useCris} 
@@ -845,7 +845,7 @@ const Index = () => {
                   />
                 </div>
               )}
-              <div className="min-w-0">
+              <div className="flex-1">
                 <MatchupProjection 
                   persistedMatchup={matchupData} 
                   onMatchupChange={handleMatchupChange}
