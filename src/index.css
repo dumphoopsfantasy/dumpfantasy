@@ -205,4 +205,22 @@
   .heatmap-worst {
     @apply bg-stat-negative/30;
   }
+
+  /* Matchup page two-column grid */
+  .matchup-grid {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+  }
+
+  .matchup-left-rail {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+  }
+
+  @media (max-width: 899px) {
+    .matchup-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 }
