@@ -2027,8 +2027,8 @@ Navigate to their team page and copy the whole page.`}
 
         {/* Removed old BaselinePacePanel - now using 4-card layout above */}
       </div>
-      </div>{/* end main content column */}
-    </div>{/* end grid */}
+      </div>
+    </div>
   );
 };
 
