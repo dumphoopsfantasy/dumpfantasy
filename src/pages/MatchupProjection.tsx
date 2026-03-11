@@ -22,7 +22,7 @@ import { safeNum, fmtInt, fmtPct as fmtPctSafe, fmtDec, formatStatValue, determi
 import { SlateStatusBadge } from "@/components/SlateStatusBadge";
 import { getProjectionExplanation } from "@/lib/slateAwareProjection";
 import { BaselineCard, ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
-import { StartSitAdvisor } from "@/components/StartSitAdvisor";
+import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
@@ -296,6 +296,9 @@ export const MatchupProjection = ({
   // projectionMode removed - schedule-aware is now the only mode
 
   const dayInfo = getMatchupDayInfo();
+  
+  // NBA schedule for Start/Sit Advisor
+  const { gamesByDate } = useNBAUpcomingSchedule(14);
   
   // Slate-aware projection hook (excludes started games from remaining)
   const {
@@ -1683,9 +1686,21 @@ Navigate to their team page and copy the whole page.`}
   const hasDataWarnings = hasMyWarnings || hasOppWarnings;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="grid grid-cols-1 min-[900px]:grid-cols-[340px_1fr] gap-6">
+      {/* Left Rail - Start/Sit Advisor */}
+      <div className="hidden min-[900px]:block sticky top-4 self-start">
+        <MatchupLeftRail
+          roster={persistedMatchup?.myRoster ?? roster}
+          opponentRoster={persistedMatchup?.opponentRoster}
+          matchupData={persistedMatchup ? { myTeam: persistedMatchup.myTeam, opponent: persistedMatchup.opponent } : undefined}
+          weeklyMatchups={weeklyMatchups}
+          gamesByDate={gamesByDate}
+        />
+      </div>
+
+      <div className="space-y-6 animate-fade-in">
+        {/* Header */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -2012,6 +2027,7 @@ Navigate to their team page and copy the whole page.`}
         </div>
 
         {/* Removed old BaselinePacePanel - now using 4-card layout above */}
+      </div>
       </div>
     </div>
   );
