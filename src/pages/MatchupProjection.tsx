@@ -1686,9 +1686,20 @@ Navigate to their team page and copy the whole page.`}
   const hasDataWarnings = hasMyWarnings || hasOppWarnings;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="grid grid-cols-1 min-[900px]:grid-cols-[340px_1fr] gap-6">
+      {/* Left Rail - Start/Sit Advisor */}
+      <div className="hidden min-[900px]:block sticky top-4 self-start">
+        <MatchupLeftRail
+          roster={persistedMatchup?.myRoster ?? roster}
+          opponentRoster={persistedMatchup?.opponentRoster}
+          matchupData={persistedMatchup ? { myTeam: persistedMatchup.myTeam, opponent: persistedMatchup.opponent } : undefined}
+          weeklyMatchups={weeklyMatchups}
+          gamesByDate={gamesByDate}
+        />
+      </div>
+
+      {/* Main Content */}
+      <div className="space-y-6 animate-fade-in">
         <div>
           <h2 className="font-display font-bold text-2xl">Matchup Projection</h2>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
