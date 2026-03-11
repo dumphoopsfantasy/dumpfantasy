@@ -551,7 +551,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="w-full px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full max-w-5xl mx-auto bg-accent/30 border border-primary/20 mb-6 ${
+          <TabsList className={`grid w-full bg-accent/30 border border-primary/20 mb-6 ${
             !showDraftTab && !showTradeTab ? 'grid-cols-8' :
             (showDraftTab && showTradeTab) ? 'grid-cols-10' : 'grid-cols-9'
           }`}>
