@@ -22,7 +22,7 @@ import { safeNum, fmtInt, fmtPct as fmtPctSafe, fmtDec, formatStatValue, determi
 import { SlateStatusBadge } from "@/components/SlateStatusBadge";
 import { getProjectionExplanation } from "@/lib/slateAwareProjection";
 import { BaselineCard, ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
-import { StartSitAdvisor } from "@/components/StartSitAdvisor";
+import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
