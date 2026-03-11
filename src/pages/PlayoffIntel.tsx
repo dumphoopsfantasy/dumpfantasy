@@ -1,22 +1,23 @@
 /**
- * Playoff Intel Dashboard v2.1
+ * Playoff Intel Dashboard — Phase 2
  * 
- * Enhanced with: schedule density, flippability meter, strategy classification,
- * opponent streaming toggle, playoff identity, visual hierarchy upgrades.
+ * Sections:
+ * A) Likely Opponents — opponent cards with win probability, expected cats won, swing cats
+ * B) Category Matrix — full category breakdown with confidence tiers
+ * C) Schedule Density — day-by-day bar chart (recharts)
+ * D) Bye Week Prep Plan — target cats, streamer profile, roster notes
  */
 
 import { useMemo, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
 import {
   Trophy, Shield, Target, TrendingUp, TrendingDown,
   Info, Upload, Swords, ChevronRight, Zap, AlertTriangle,
-  Activity, BarChart3, Flame, Eye, Ban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePersistedState } from '@/hooks/usePersistedState';
@@ -31,12 +32,13 @@ import {
   getLikelyOpponents,
   buildOpponentScenario,
   generateByeWeekPlan,
-  simulateOpponentStreaming,
   type OpponentScenario,
   type CategoryProjection,
   type ConfidenceTier,
-  type CategoryStrategy,
 } from '@/lib/playoffProjectionEngine';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend, Cell,
+} from 'recharts';
 
 // ============================================================================
 // TYPES
@@ -51,7 +53,6 @@ interface PlayoffIntelProps {
   freeAgents?: Player[];
   weights?: Record<string, number>;
   onNavigateTab?: (tab: string) => void;
-  isByeWeek?: boolean;
 }
 
 // ============================================================================
@@ -87,40 +88,30 @@ function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
   return weeksWithDates[0]?.week ?? 0;
 }
 
+const confidenceColor = (tier: ConfidenceTier) => {
+  switch (tier) {
+    case 'Lock Win': return 'text-stat-positive';
+    case 'Lean Win': return 'text-stat-positive/80';
+    case 'Coinflip': return 'text-yellow-500';
+    case 'Lean Loss': return 'text-stat-negative/80';
+    case 'Lock Loss': return 'text-stat-negative';
+  }
+};
+
 const confidenceBg = (tier: ConfidenceTier) => {
   switch (tier) {
-    case 'Lock Win': return 'bg-stat-positive/10 text-stat-positive';
-    case 'Lean Win': return 'bg-stat-positive/8 text-stat-positive/80';
-    case 'Coinflip': return 'bg-stat-neutral/15 text-stat-neutral';
-    case 'Lean Loss': return 'bg-stat-negative/8 text-stat-negative/80';
-    case 'Lock Loss': return 'bg-stat-negative/10 text-stat-negative';
+    case 'Lock Win': return 'bg-stat-positive/15 text-stat-positive';
+    case 'Lean Win': return 'bg-stat-positive/10 text-stat-positive/80';
+    case 'Coinflip': return 'bg-yellow-500/15 text-yellow-500';
+    case 'Lean Loss': return 'bg-stat-negative/10 text-stat-negative/80';
+    case 'Lock Loss': return 'bg-stat-negative/15 text-stat-negative';
   }
 };
 
-const strategyIcon = (s: CategoryStrategy) => {
-  switch (s) {
-    case 'Protect': return <Shield className="w-3 h-3" />;
-    case 'Attack': return <Flame className="w-3 h-3" />;
-    case 'Reinforce': return <Eye className="w-3 h-3" />;
-    case 'Punt': return <Ban className="w-3 h-3" />;
-  }
-};
-
-const strategyColor = (s: CategoryStrategy) => {
-  switch (s) {
-    case 'Protect': return 'text-stat-positive bg-stat-positive/10';
-    case 'Attack': return 'text-primary bg-primary/10';
-    case 'Reinforce': return 'text-stat-neutral bg-stat-neutral/10';
-    case 'Punt': return 'text-muted-foreground bg-muted/30';
-  }
-};
-
-const volatilityLabel = (v: 'high' | 'medium' | 'low') => {
-  switch (v) {
-    case 'high': return { icon: '⚡', text: 'High Vol' };
-    case 'medium': return { icon: '〰', text: 'Med Vol' };
-    case 'low': return { icon: '▬', text: 'Low Vol' };
-  }
+const overallBadge = (conf: 'high' | 'medium' | 'low', winProb: number) => {
+  if (winProb >= 0.6) return { label: 'Favored', className: 'bg-stat-positive/15 text-stat-positive' };
+  if (winProb >= 0.45) return { label: 'Toss-up', className: 'bg-yellow-500/15 text-yellow-500' };
+  return { label: 'Underdog', className: 'bg-stat-negative/15 text-stat-negative' };
 };
 
 // ============================================================================
@@ -134,7 +125,6 @@ export const PlayoffIntel = ({
   freeAgents = [],
   weights,
   onNavigateTab,
-  isByeWeek = false,
 }: PlayoffIntelProps) => {
   const [playoffTeamCount] = usePersistedState<string>('dumphoops-playoff-team-count', '6');
   const numPlayoffTeams = parseInt(playoffTeamCount);
@@ -145,7 +135,6 @@ export const PlayoffIntel = ({
   const [lastRegularSeasonWeek] = usePersistedState<number | null>('dumphoops-schedule-lastRegularWeek.v2', null);
 
   const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
-  const [assumeOppStreaming, setAssumeOppStreaming] = useState(false);
 
   // ---- resolve schedule ----
   const effectiveCutoff = useMemo(() => {
@@ -274,22 +263,18 @@ export const PlayoffIntel = ({
     return opponentScenarios.find(s => s.teamName === selectedOpponent) || opponentScenarios[0] || null;
   }, [selectedOpponent, opponentScenarios]);
 
-  // ---- streaming sensitivity ----
-  const streamingSensitivity = useMemo(() => {
-    if (!activeScenario) return null;
-    return simulateOpponentStreaming(activeScenario.categories, 4);
-  }, [activeScenario]);
-
   // ---- bye week plan ----
   const byeWeekPlan = useMemo(() => {
     return generateByeWeekPlan(opponentScenarios, weights);
   }, [opponentScenarios, weights]);
 
-  // ---- categories to display (with or without streaming sim) ----
-  const displayCategories = useMemo(() => {
-    if (assumeOppStreaming && streamingSensitivity) return streamingSensitivity.updatedCategories;
-    return activeScenario?.categories || [];
-  }, [assumeOppStreaming, streamingSensitivity, activeScenario]);
+  // ---- playoff weeks for schedule density ----
+  const playoffWeeks = useMemo(() => {
+    if (!resolvedSchedule) return [];
+    const allWeeks = Array.from(new Set(resolvedSchedule.matchups.map(m => m.week))).sort((a, b) => a - b);
+    if (effectiveLastRegWeek) return allWeeks.filter(w => w > effectiveLastRegWeek);
+    return allWeeks.slice(-3);
+  }, [resolvedSchedule, effectiveLastRegWeek]);
 
   // ========================================
   // EMPTY STATE
@@ -304,10 +289,12 @@ export const PlayoffIntel = ({
             Import your league standings and schedule to unlock playoff projections,
             opponent analysis, and strategic recommendations.
           </p>
-          <Button variant="outline" size="sm" onClick={() => onNavigateTab?.('league')}>
-            <Upload className="w-4 h-4 mr-2" />
-            Import Standings
-          </Button>
+          <div className="flex gap-3 justify-center">
+            <Button variant="outline" size="sm" onClick={() => onNavigateTab?.('league')}>
+              <Upload className="w-4 h-4 mr-2" />
+              Import Standings
+            </Button>
+          </div>
         </Card>
       </div>
     );
@@ -321,6 +308,7 @@ export const PlayoffIntel = ({
           <h2 className="text-xl font-display font-bold mb-2">Outside Playoff Picture</h2>
           <p className="text-muted-foreground text-sm">
             Based on current projections, your team is outside the top {numPlayoffTeams} playoff spots.
+            Focus on climbing the standings!
           </p>
         </Card>
       </div>
@@ -328,49 +316,29 @@ export const PlayoffIntel = ({
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-5xl mx-auto space-y-8 animate-fade-in">
 
       {/* ============================================================ */}
-      {/* BYE WEEK BANNER                                               */}
+      {/* HERO — Your playoff status                                    */}
       {/* ============================================================ */}
-      {isByeWeek && (
-        <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-            <Zap className="w-5 h-5 text-primary" />
-          </div>
-          <div className="flex-1">
-            <div className="font-display font-bold text-sm text-primary">You're on a bye week</div>
-            <p className="text-xs text-muted-foreground mt-0.5">Use this time to structure your roster for the playoffs.</p>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => onNavigateTab?.('freeagents')}>
-              <TrendingUp className="w-3 h-3 mr-1" /> Streaming Plan
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* HERO SUMMARY BAR                                              */}
-      {/* ============================================================ */}
-      <div className="rounded-xl bg-gradient-to-br from-muted/60 to-muted/20 p-5">
-        <div className="flex flex-col md:flex-row md:items-center gap-5">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+      <div className="rounded-xl bg-gradient-to-br from-muted/60 to-muted/20 p-6">
+        <div className="flex flex-col md:flex-row md:items-center gap-6">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
               <Shield className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Playoff Intel</div>
-              <div className="font-display font-bold text-lg">
+              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">Playoff Intel</div>
+              <div className="font-display font-bold text-xl">
                 <span className="text-primary">#{userSeedObj?.seed}</span> Seed — {userSeedObj?.record}
               </div>
             </div>
           </div>
 
           {activeScenario && (
-            <div className="flex flex-wrap items-center gap-4 md:gap-5">
+            <div className="flex flex-wrap items-center gap-4 md:gap-6">
               <div className="text-center">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Win Prob</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wider">Win Prob</div>
                 <div className={cn(
                   'font-display font-bold text-lg',
                   activeScenario.winProbability >= 0.6 ? 'text-stat-positive' :
@@ -381,35 +349,14 @@ export const PlayoffIntel = ({
               </div>
               <div className="w-px h-8 bg-border/50 hidden md:block" />
               <div className="text-center">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Expected</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wider">Expected Score</div>
                 <div className="font-display font-bold text-lg">
                   {activeScenario.expectedCatsWon.toFixed(1)}–{activeScenario.expectedCatsLost.toFixed(1)}
                 </div>
               </div>
               <div className="w-px h-8 bg-border/50 hidden md:block" />
-              {/* wCRI Edge Score — moved to hero */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="text-center cursor-help">
-                      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">wCRI Edge</div>
-                      <div className={cn(
-                        'font-display font-bold text-lg',
-                        activeScenario.weightedEdge > 0.2 ? 'text-stat-positive' :
-                        activeScenario.weightedEdge < -0.2 ? 'text-stat-negative' : 'text-foreground'
-                      )}>
-                        {activeScenario.weightedEdge > 0 ? '+' : ''}{activeScenario.weightedEdge.toFixed(2)}
-                      </div>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs max-w-xs">CRIS-weighted matchup advantage. Positive = edge for you.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <div className="w-px h-8 bg-border/50 hidden md:block" />
               <div className="text-center">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">vs</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wider">vs</div>
                 <div className="font-semibold text-sm truncate max-w-[140px]">{activeScenario.teamName}</div>
               </div>
             </div>
@@ -418,19 +365,18 @@ export const PlayoffIntel = ({
       </div>
 
       {/* ============================================================ */}
-      {/* LIKELY OPPONENTS                                              */}
+      {/* SECTION A — LIKELY OPPONENTS                                  */}
       {/* ============================================================ */}
       <div>
-        <div className="flex items-center gap-3 mb-3">
-          <h3 className="font-display font-semibold text-sm">Likely Opponents</h3>
+        <div className="flex items-center gap-3 mb-4">
+          <h3 className="font-display font-semibold text-base">Likely Opponents</h3>
           <div className="flex-1 h-px bg-border/40" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {opponentScenarios.map((scenario) => {
+            const badge = overallBadge(scenario.overallConfidence, scenario.winProbability);
             const isActive = activeScenario?.teamName === scenario.teamName;
-            const isFavored = scenario.winProbability >= 0.55;
-            const isUnderdog = scenario.winProbability < 0.45;
 
             return (
               <button
@@ -448,15 +394,16 @@ export const PlayoffIntel = ({
                       #{scenario.seed} · {scenario.record} · {scenario.round}
                     </div>
                   </div>
-                  <div className={cn(
-                    'text-lg font-display font-bold',
-                    isFavored ? 'text-stat-positive' : isUnderdog ? 'text-stat-negative' : 'text-foreground'
-                  )}>
-                    {Math.round(scenario.winProbability * 100)}%
-                  </div>
+                  <Badge className={cn('text-[10px] font-semibold', badge.className)}>
+                    {badge.label}
+                  </Badge>
                 </div>
 
                 <div className="flex items-center gap-4 text-xs">
+                  <div>
+                    <span className="text-muted-foreground">Win:</span>{' '}
+                    <span className="font-bold">{Math.round(scenario.winProbability * 100)}%</span>
+                  </div>
                   <div>
                     <span className="text-muted-foreground">Cats:</span>{' '}
                     <span className="font-bold">{scenario.expectedCatsWon.toFixed(1)}–{scenario.expectedCatsLost.toFixed(1)}</span>
@@ -494,111 +441,78 @@ export const PlayoffIntel = ({
       </div>
 
       {/* ============================================================ */}
-      {/* CATEGORY MATRIX (enhanced)                                    */}
+      {/* SECTION B — CATEGORY MATRIX                                   */}
       {/* ============================================================ */}
       {activeScenario && (
         <div>
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="flex items-center gap-3">
-              <h3 className="font-display font-semibold text-sm">
-                Category Breakdown vs {activeScenario.teamName}
-              </h3>
-              <div className="flex-1 h-px bg-border/40" />
-            </div>
-            {/* Opponent streaming toggle */}
-            <div className="flex items-center gap-2 text-xs flex-shrink-0">
-              <span className="text-muted-foreground">Opp streams +4</span>
-              <Switch
-                checked={assumeOppStreaming}
-                onCheckedChange={setAssumeOppStreaming}
-                className="scale-75"
-              />
-            </div>
+          <div className="flex items-center gap-3 mb-4">
+            <h3 className="font-display font-semibold text-base">
+              Category Breakdown vs {activeScenario.teamName}
+            </h3>
+            <div className="flex-1 h-px bg-border/40" />
           </div>
-
-          {/* Streaming vulnerability alert */}
-          {assumeOppStreaming && streamingSensitivity && streamingSensitivity.flippedCats.length > 0 && (
-            <Alert className="mb-3 border-stat-negative/30 bg-stat-negative/[0.04]">
-              <AlertTriangle className="w-4 h-4 text-stat-negative" />
-              <AlertDescription className="text-xs">
-                <span className="font-semibold text-stat-negative">Categories vulnerable to opponent streaming:</span>{' '}
-                {streamingSensitivity.flippedCats.join(', ')}
-              </AlertDescription>
-            </Alert>
-          )}
 
           <div className="rounded-lg border border-border/50 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/20">
-                  <th className="text-left p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground">Cat</th>
-                  <th className="text-center p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground w-16">Strategy</th>
-                  <th className="text-right p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground">You</th>
-                  <th className="text-right p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground">Opp</th>
-                  <th className="text-right p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground">Delta</th>
-                  <th className="text-center p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground">Conf</th>
-                  <th className="text-center p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Vol</th>
-                  <th className="text-center p-2.5 font-display text-[10px] uppercase tracking-wider text-muted-foreground w-20">Flip</th>
+                  <th className="text-left p-3 font-display text-xs uppercase tracking-wider text-muted-foreground">Cat</th>
+                  <th className="text-right p-3 font-display text-xs uppercase tracking-wider text-muted-foreground">You</th>
+                  <th className="text-right p-3 font-display text-xs uppercase tracking-wider text-muted-foreground">Opp</th>
+                  <th className="text-right p-3 font-display text-xs uppercase tracking-wider text-muted-foreground">Delta</th>
+                  <th className="text-center p-3 font-display text-xs uppercase tracking-wider text-muted-foreground">Confidence</th>
+                  <th className="text-center p-3 font-display text-xs uppercase tracking-wider text-muted-foreground w-20">Win%</th>
                 </tr>
               </thead>
               <tbody>
-                {displayCategories.map((cat) => {
+                {activeScenario.categories.map((cat) => {
                   const isPct = cat.key === 'fgPct' || cat.key === 'ftPct';
-                  const myFormatted = isPct ? formatPct(cat.myValue) : cat.myValue.toFixed(1);
-                  const oppFormatted = isPct ? formatPct(cat.oppValue) : cat.oppValue.toFixed(1);
+                  const isTO = cat.key === 'turnovers';
+                  const myFormatted = isPct ? formatPct(cat.myValue) : cat.myValue.toFixed(isPct ? 3 : 1);
+                  const oppFormatted = isPct ? formatPct(cat.oppValue) : cat.oppValue.toFixed(isPct ? 3 : 1);
                   const deltaFormatted = isPct
                     ? (cat.delta >= 0 ? '+' : '') + formatPct(Math.abs(cat.delta))
                     : (cat.delta >= 0 ? '+' : '') + cat.delta.toFixed(1);
-                  const vol = volatilityLabel(cat.volatility);
-                  const rowBg = cat.delta > 0
-                    ? 'bg-stat-positive/[0.03]'
-                    : cat.delta < 0 ? 'bg-stat-negative/[0.03]' : '';
 
                   return (
-                    <tr key={cat.key} className={cn('border-b border-border/20 hover:bg-muted/10 transition-colors', rowBg)}>
-                      <td className="p-2.5 font-semibold text-xs">{cat.label}</td>
-                      <td className="p-2.5 text-center">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <Badge className={cn('text-[9px] font-bold gap-0.5 px-1.5', strategyColor(cat.strategy))}>
-                                {strategyIcon(cat.strategy)}
-                                {cat.strategy}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
-                              <p className="text-xs">{cat.strategyReason}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </td>
-                      <td className="p-2.5 text-right font-mono text-xs">{myFormatted}</td>
-                      <td className="p-2.5 text-right font-mono text-xs text-muted-foreground">{oppFormatted}</td>
+                    <tr key={cat.key} className="border-b border-border/30 hover:bg-muted/10">
+                      <td className="p-3 font-semibold">{cat.label}</td>
+                      <td className="p-3 text-right font-mono text-xs">{myFormatted}</td>
+                      <td className="p-3 text-right font-mono text-xs">{oppFormatted}</td>
                       <td className={cn(
-                        'p-2.5 text-right font-mono text-xs font-bold',
+                        'p-3 text-right font-mono text-xs font-semibold',
                         cat.delta > 0 ? 'text-stat-positive' : cat.delta < 0 ? 'text-stat-negative' : 'text-muted-foreground'
                       )}>
                         {deltaFormatted}
                       </td>
-                      <td className="p-2.5 text-center">
-                        <Badge className={cn(
-                          'text-[9px] font-medium',
-                          confidenceBg(cat.confidence),
-                          cat.confidence === 'Coinflip' && 'animate-pulse'
+                      <td className="p-3 text-center">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Badge className={cn('text-[10px] font-medium', confidenceBg(cat.confidence))}>
+                                {cat.confidence}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              {cat.notes.length > 0 ? (
+                                <div className="space-y-1">
+                                  {cat.notes.map((n, i) => <p key={i} className="text-xs">{n}</p>)}
+                                </div>
+                              ) : (
+                                <p className="text-xs">Based on season averages and category volatility</p>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={cn(
+                          'text-xs font-bold',
+                          cat.winProbability >= 0.6 ? 'text-stat-positive' :
+                          cat.winProbability >= 0.4 ? 'text-foreground' : 'text-stat-negative'
                         )}>
-                          {cat.confidence}
-                        </Badge>
-                      </td>
-                      <td className="p-2.5 text-center hidden sm:table-cell">
-                        <span className="text-[10px] text-muted-foreground" title={vol.text}>
-                          {vol.icon}
+                          {Math.round(cat.winProbability * 100)}%
                         </span>
-                      </td>
-                      <td className="p-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <Progress value={cat.flippability} className="h-1.5 flex-1" />
-                          <span className="text-[10px] text-muted-foreground w-6 text-right">{cat.flippability}</span>
-                        </div>
                       </td>
                     </tr>
                   );
@@ -606,73 +520,53 @@ export const PlayoffIntel = ({
               </tbody>
             </table>
           </div>
-        </div>
-      )}
 
-      {/* ============================================================ */}
-      {/* PLAYOFF IDENTITY + STRATEGY                                   */}
-      {/* ============================================================ */}
-      {byeWeekPlan.identity.summary && (
-        <div>
-          <div className="flex items-center gap-3 mb-3">
-            <Swords className="w-4 h-4 text-primary" />
-            <h3 className="font-display font-semibold text-sm">Recommended Playoff Identity</h3>
-            <div className="flex-1 h-px bg-border/40" />
+          {/* CRIS-weighted edge */}
+          <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+            <span>wCRI Edge Score:</span>
+            <span className={cn(
+              'font-bold',
+              activeScenario.weightedEdge > 0.2 ? 'text-stat-positive' :
+              activeScenario.weightedEdge < -0.2 ? 'text-stat-negative' : 'text-foreground'
+            )}>
+              {activeScenario.weightedEdge > 0 ? '+' : ''}{activeScenario.weightedEdge.toFixed(2)}
+            </span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger><Info className="w-3 h-3" /></TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs max-w-xs">
+                    Weighted category advantage using your CRIS weights. Positive = edge for you.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
-
-          <Card className="p-5 border-primary/20 bg-primary/[0.02]">
-            {/* Identity grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {([
-                { label: 'Protect', items: byeWeekPlan.identity.protect, color: 'text-stat-positive', icon: <Shield className="w-3.5 h-3.5" /> },
-                { label: 'Attack', items: byeWeekPlan.identity.attack, color: 'text-primary', icon: <Flame className="w-3.5 h-3.5" /> },
-                { label: 'Reinforce', items: byeWeekPlan.identity.reinforce, color: 'text-stat-neutral', icon: <Eye className="w-3.5 h-3.5" /> },
-                { label: 'Punt', items: byeWeekPlan.identity.punt, color: 'text-muted-foreground', icon: <Ban className="w-3.5 h-3.5" /> },
-              ] as const).map(group => (
-                <div key={group.label} className="space-y-1">
-                  <div className={cn('flex items-center gap-1.5 text-xs font-bold', group.color)}>
-                    {group.icon}
-                    {group.label}
-                  </div>
-                  <div className="text-xs text-foreground">
-                    {group.items.length > 0 ? group.items.join(', ') : '—'}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Summary sentence */}
-            <p className="text-xs text-muted-foreground border-t border-border/30 pt-3">
-              {byeWeekPlan.identity.summary}
-            </p>
-          </Card>
         </div>
       )}
 
       {/* ============================================================ */}
-      {/* TARGET CATEGORIES + STREAMER PROFILE                          */}
+      {/* SECTION D — BYE WEEK PREP PLAN                               */}
       {/* ============================================================ */}
       {byeWeekPlan.targetCategories.length > 0 && (
         <div>
-          <div className="flex items-center gap-3 mb-3">
-            <Target className="w-4 h-4 text-primary" />
-            <h3 className="font-display font-semibold text-sm">Priority Targets</h3>
+          <div className="flex items-center gap-3 mb-4">
+            <Zap className="w-4 h-4 text-primary" />
+            <h3 className="font-display font-semibold text-base">Playoff Prep Plan</h3>
             <div className="flex-1 h-px bg-border/40" />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Target categories — ranked with strategy tags */}
+            {/* Target categories */}
             <Card className="p-4 border-border/40 bg-muted/10">
-              <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-                <Activity className="w-3.5 h-3.5" />
-                Categories to Target (ranked)
+              <h4 className="text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                <Target className="w-3.5 h-3.5" />
+                Target Categories
               </h4>
-              <div className="space-y-2.5">
-                {byeWeekPlan.targetCategories.map((cat, i) => (
+              <div className="space-y-2">
+                {byeWeekPlan.targetCategories.map(cat => (
                   <div key={cat.key} className="flex items-start gap-2">
-                    <span className="text-[10px] text-muted-foreground/60 font-mono w-4 pt-0.5">{i + 1}.</span>
-                    <Badge className={cn('text-[9px] font-bold flex-shrink-0 mt-0.5 gap-0.5', strategyColor(cat.strategy))}>
-                      {strategyIcon(cat.strategy)}
+                    <Badge variant="outline" className="text-[10px] font-bold flex-shrink-0 mt-0.5">
                       {cat.label}
                     </Badge>
                     <span className="text-xs text-muted-foreground">{cat.reason}</span>
@@ -683,7 +577,7 @@ export const PlayoffIntel = ({
 
             {/* Streamer profile */}
             <Card className="p-4 border-border/40 bg-muted/10">
-              <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+              <h4 className="text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
                 <TrendingUp className="w-3.5 h-3.5" />
                 Ideal Streamer Profile
               </h4>
@@ -696,42 +590,35 @@ export const PlayoffIntel = ({
                 ))}
               </div>
             </Card>
-          </div>
-        </div>
-      )}
 
-      {/* ============================================================ */}
-      {/* STRATEGIC NOTES                                               */}
-      {/* ============================================================ */}
-      {byeWeekPlan.rosterNotes.length > 0 && (
-        <Card className="p-4 border-primary/15 bg-primary/[0.02]">
-          <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-            <Swords className="w-3.5 h-3.5 text-primary" />
-            Strategic Intel
-          </h4>
-          <div className="space-y-2">
-            {byeWeekPlan.rosterNotes.map((note, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs">
-                <ChevronRight className="w-3 h-3 text-primary flex-shrink-0 mt-0.5" />
-                <span className="font-medium">{note}</span>
-              </div>
-            ))}
+            {/* Roster notes */}
+            {byeWeekPlan.rosterNotes.length > 0 && (
+              <Card className="p-4 border-border/40 bg-muted/10 md:col-span-2">
+                <h4 className="text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                  <Swords className="w-3.5 h-3.5" />
+                  Strategic Notes
+                </h4>
+                <div className="space-y-1.5">
+                  {byeWeekPlan.rosterNotes.map((note, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <Info className="w-3 h-3 text-muted-foreground flex-shrink-0 mt-0.5" />
+                      <span>{note}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
           </div>
-        </Card>
-      )}
 
-      {/* ============================================================ */}
-      {/* FREE AGENT CTA                                                */}
-      {/* ============================================================ */}
-      {freeAgents.length > 0 && byeWeekPlan.identity.attack.length > 0 && (
-        <div className="text-center">
-          <Button variant="outline" size="sm" onClick={() => onNavigateTab?.('freeagents')}>
-            <TrendingUp className="w-4 h-4 mr-2" />
-            Browse Streamers for {byeWeekPlan.identity.attack.join(' + ')}
-          </Button>
-          <p className="text-[10px] text-muted-foreground mt-1">
-            Filtered for {byeWeekPlan.identity.attack.join(', ')} streamers with 3+ games
-          </p>
+          {/* CTA to free agents */}
+          {freeAgents.length > 0 && (
+            <div className="mt-3 text-center">
+              <Button variant="outline" size="sm" onClick={() => onNavigateTab?.('freeagents')}>
+                <TrendingUp className="w-4 h-4 mr-2" />
+                Browse Free Agents for Streamers
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -747,12 +634,12 @@ export const PlayoffIntel = ({
       )}
 
       {/* Legend */}
-      <div className="flex items-start gap-2 text-[10px] text-muted-foreground/50 pt-2">
+      <div className="flex items-start gap-2 text-[11px] text-muted-foreground/60 pt-2">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
         <span>
           Projections use 9-cat season averages and logistic win probability.
           Confidence tiers account for category-level volatility.
-          {assumeOppStreaming && ' Opponent streaming (+4 adds) applied.'}
+          Import opponent rosters for higher-fidelity projections.
         </span>
       </div>
     </div>

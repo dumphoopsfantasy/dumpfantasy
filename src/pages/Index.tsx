@@ -866,7 +866,6 @@ const Index = () => {
               freeAgents={freeAgents}
               weights={dynamicWeights.effectiveWeights as unknown as Record<string, number>}
               onNavigateTab={(tab) => setActiveTab(tab)}
-              isByeWeek={!matchupData?.opponent?.name}
             />
           </TabsContent>
 
