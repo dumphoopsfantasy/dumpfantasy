@@ -829,33 +829,14 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="matchup">
-            <div className="flex flex-col lg:flex-row gap-6">
-              {/* Start/Sit Advisor on LEFT side under Your Team */}
-              {matchupData && rosterWithCRI.length > 0 && (
-                <div className="lg:w-80 shrink-0 order-first">
-                <StartSitAdvisor 
-                    roster={rosterWithCRI} 
-                    opponentRoster={opponentRoster}
-                    useCris={useCris} 
-                    matchupData={matchupData}
-                    weeklyMatchups={weeklyMatchups}
-                    leagueTeams={leagueTeams}
-                    effectiveWeights={dynamicWeights.effectiveWeights}
-                    gamesByDate={gamesByDate}
-                  />
-                </div>
-              )}
-              <div className="flex-1">
-                <MatchupProjection 
-                  persistedMatchup={matchupData} 
-                  onMatchupChange={handleMatchupChange}
-                  weeklyMatchups={weeklyMatchups}
-                  roster={rosterWithCRI}
-                  opponentRoster={opponentRoster}
-                  onUpdateMatchupContext={dynamicWeights.updateMatchupContext}
-                />
-              </div>
-            </div>
+              <MatchupProjection 
+                persistedMatchup={matchupData} 
+                onMatchupChange={handleMatchupChange}
+                weeklyMatchups={weeklyMatchups}
+                roster={rosterWithCRI}
+                opponentRoster={opponentRoster}
+                onUpdateMatchupContext={dynamicWeights.updateMatchupContext}
+              />
           </TabsContent>
 
           <TabsContent value="playoffs">
