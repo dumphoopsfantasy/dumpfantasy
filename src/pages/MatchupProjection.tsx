@@ -1472,7 +1472,7 @@ export const MatchupProjection = ({
   // =====================================================
   if (!persistedMatchup) {
     return (
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="space-y-6">
         <h2 className="font-display font-bold text-2xl text-center">Matchup Projection</h2>
         <p className="text-center text-muted-foreground">
           Paste the full ESPN team page for each team (Your Team & Opponent)
