@@ -49,6 +49,10 @@ export function clearPersistedData() {
     'dumphoops-standings',
     'dumphoops-matchup',
     'dumphoops-weights',
+    'dumphoops-schedule.v2',
+    'dumphoops-schedule-aliases.v2',
+    'dumphoops-schedule-currentWeekCutoff.v2',
+    'dumphoops-schedule-lastRegularWeek.v2',
   ];
   keys.forEach(key => localStorage.removeItem(key));
 }
