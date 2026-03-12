@@ -590,12 +590,19 @@ export const MatchupProjection = ({
     // Validate input
     validateParseInput(data);
     
-    const lines = data
-      .trim()
-      .replace(/\t/g, '\n')  // Split tab-separated content (ESPN headers) into separate lines
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l);
+    const rawLines = data.trim().split("\n").map(l => l.trim()).filter(l => l);
+    const lines: string[] = [];
+    let inStatsSection = false;
+    for (const raw of rawLines) {
+      if (!inStatsSection && /\bMIN\b/.test(raw) && /\b(FGM|FG%|3PM|REB)\b/.test(raw)) {
+        inStatsSection = true;
+      }
+      if (inStatsSection && raw.includes('\t')) {
+        lines.push(...raw.split('\t').map(s => s.trim()).filter(s => s));
+      } else {
+        lines.push(raw);
+      }
+    }
     
     const loopGuard = createLoopGuard();
 

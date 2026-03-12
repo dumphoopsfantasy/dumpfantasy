@@ -1,52 +1,77 @@
 
+# Fix: Forecast Engine Doesn't Recognize Playoffs
 
-# Fix: Parse Failed — Global Tab-Split Causing Stat Misalignment
+## Problem
 
-## Root Cause
+The schedule parser (`scheduleParser.ts` line 209) explicitly **stops parsing at "Playoff Round"** lines. This means:
 
-The recent fix on **line 595 of `MatchupProjection.tsx`** added `.replace(/\t/g, '\n')` to split tab-separated stat headers so the parser could find `MIN`. However, this **globally** converts ALL tabs to newlines across the entire ESPN page, including the lineup section.
+1. Playoff weeks (19, 20, 21) are never imported into the schedule data
+2. The forecast engine only knows about regular season weeks 1-18
+3. The `PlayoffBracket` component guesses playoff weeks by taking the **last N weeks of the parsed schedule** -- which are actually the last regular season weeks, not real playoff weeks
+4. The current week cutoff (auto-detected as week 18) doesn't know the season is over and playoffs have started
 
-The ESPN page has tab-separated content in the **lineup section** too:
+From your ESPN paste, the structure is:
+- Matchups 1-18: Regular season
+- Playoff Round 1 (Mar 2-8): Week 19
+- Playoff Round 2 (Mar 9-15): Week 20
+- Playoff Round 3 (Mar 16-22): Week 21
+
+## Solution
+
+Add a **"Last Regular Season Week"** setting that tells the system where the regular season ends, and update the parser to also import playoff round matchups.
+
+### Changes
+
+**1. Update Schedule Parser (`src/lib/scheduleParser.ts`)**
+- Instead of breaking at "Playoff Round" lines, continue parsing them as additional weeks
+- Tag parsed matchups with an `isPlayoff` flag so the rest of the system can distinguish them
+- Auto-detect "Playoff Round N" headers as week numbers (e.g., week = lastRegularWeek + roundNumber)
+
+**2. Add `lastRegularSeasonWeek` to persisted settings**
+- New persisted state key: `dumphoops-schedule-lastRegularWeek.v2`
+- Auto-detect from schedule data: the highest "Matchup N" week before the first "Playoff Round" header
+- Allow manual override in the Schedule Forecast settings panel
+
+**3. Update Forecast Engine (`src/lib/forecastEngine.ts`)**
+- Add `lastRegularSeasonWeek` to `ForecastSettings`
+- In `projectFinalStandings`, only simulate weeks up to `lastRegularSeasonWeek` for standings projection (playoff results don't affect regular season standings)
+- Keep `forecastTeamMatchups` able to show playoff week predictions too
+
+**4. Update PlayoffBracket (`src/components/PlayoffBracket.tsx`)**
+- Use `lastRegularSeasonWeek` to correctly identify which weeks are playoff weeks (any week > lastRegularSeasonWeek)
+- Use actual playoff matchups from the parsed schedule (seeds 1/2 get byes in round 1, 3v6 and 4v5 play) instead of simulating from scratch
+- When actual playoff matchups exist in the schedule, use them for the bracket; only simulate outcomes
+
+**5. Update ScheduleForecast (`src/components/ScheduleForecast.tsx`)**
+- Read and persist the new `lastRegularSeasonWeek` value
+- Add a small dropdown or input in the settings panel: "Last regular season week" (auto-detected, editable)
+- Pass it through to both the forecast engine and the PlayoffBracket
+
+**6. Update LeagueStandings (`src/components/LeagueStandings.tsx`)**
+- Pass `lastRegularSeasonWeek` to the PlayoffBracket component
+
+### Technical Details
+
+**Schedule Parser change (key logic):**
+```text
+Current: if isPlayoffSection(line) → break
+New:     if isPlayoffSection(line) → set isPlayoffRound = true, 
+         parse "Playoff Round N" as week = lastMatchupWeek + N,
+         tag matchups with isPlayoff = true
 ```
-Set Lineup:\tMar 5\tThu\tMar 6\tFri\t...
-```
 
-After global tab-to-newline conversion, standalone numbers like `5`, `6`, `7`, `8`, `12`, `13`, `1`, `3` (from dates and acquisition limits) become individual lines. These get collected as stat tokens BEFORE the actual stat data, poisoning the alignment.
+**New type additions:**
+- `ScheduleMatchup.isPlayoff?: boolean` -- flag on parsed matchups
+- `ForecastSettings.lastRegularSeasonWeek?: number` -- cutoff for standings sim
 
-**Evidence from console logs:** Row 0 shows `min=5` (from "Mar 5"), `steals=0.485` (a FG%), `points=0.792` (a FT%). The entire token stream is shifted. The starter mean produces `blocks > 250`, triggering the sanity check → `return null` → "Parse failed" toast.
+**Auto-detection logic:**
+- When parsing, track the highest "Matchup N" week number
+- When a "Playoff Round" header appears, record that the previous matchup week was the last regular season week
+- Store this alongside the schedule data
 
-## Fix
+### What the user sees after this change
 
-**File:** `src/pages/MatchupProjection.tsx` (lines 593-598)
-
-Replace the global `\t` → `\n` with a targeted approach: only split tabs for lines at or after the stat section header (the line containing `MIN` + stat column names like `FGM`, `FG%`, `REB`).
-
-```typescript
-// Before (broken):
-const lines = data
-  .trim()
-  .replace(/\t/g, '\n')
-  .split("\n")
-  .map((l) => l.trim())
-  .filter((l) => l);
-
-// After (targeted):
-const rawLines = data.trim().split("\n").map(l => l.trim()).filter(l => l);
-const lines: string[] = [];
-let inStatsSection = false;
-for (const raw of rawLines) {
-  if (!inStatsSection && /\bMIN\b/.test(raw) && /\b(FGM|FG%|3PM|REB)\b/.test(raw)) {
-    inStatsSection = true;
-  }
-  if (inStatsSection && raw.includes('\t')) {
-    lines.push(...raw.split('\t').map(s => s.trim()).filter(s => s));
-  } else {
-    lines.push(raw);
-  }
-}
-```
-
-This preserves the lineup section intact (no junk numeric tokens from dates), while correctly splitting tab-separated stat headers and stat data rows. The stat alignment will match the expected 17-column layout and sanity checks will pass.
-
-No other files need changes. No UI changes.
-
+- The forecast will correctly show that we're now in **Playoff Round 1** (not matchup 18)
+- Projected standings will be based only on regular season weeks (1-18)
+- The playoff bracket will show the **actual playoff matchups** from ESPN (not simulated seedings)
+- A small "Last regular season week: 18" indicator in settings confirms the boundary
