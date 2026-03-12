@@ -1,77 +1,43 @@
 
-# Fix: Forecast Engine Doesn't Recognize Playoffs
 
-## Problem
+# Fix: "Today" showing as October 21st — Season String Parsing Bug
 
-The schedule parser (`scheduleParser.ts` line 209) explicitly **stops parsing at "Playoff Round"** lines. This means:
+## Root Cause
 
-1. Playoff weeks (19, 20, 21) are never imported into the schedule data
-2. The forecast engine only knows about regular season weeks 1-18
-3. The `PlayoffBracket` component guesses playoff weeks by taking the **last N weeks of the parsed schedule** -- which are actually the last regular season weeks, not real playoff weeks
-4. The current week cutoff (auto-detected as week 18) doesn't know the season is over and playoffs have started
+Two chained bugs in season string detection:
 
-From your ESPN paste, the structure is:
-- Matchups 1-18: Regular season
-- Playoff Round 1 (Mar 2-8): Week 19
-- Playoff Round 2 (Mar 9-15): Week 20
-- Playoff Round 3 (Mar 16-22): Week 21
+1. **`scheduleParser.ts` line 161**: The regex `/20\d{2}(?:-\d{2})?/` incorrectly matches "2025-2026" as `"2025-20"` (captures only 2 digits after the dash). If the pasted ESPN schedule text contains a 4-digit end year like "2025-2026", the stored season string becomes `"2025-20"`.
 
-## Solution
+2. **`matchupWeekDates.ts` `parseSeasonYears()`**: When given `"2025-20"`, it computes `endYear = parseInt("20" + "20") = 2020`. This makes Oct dates → year 2019, Jan-Aug dates → year 2020. Today (March 12, 2026) matches nothing, so `getCurrentMatchupWeekFromSchedule` falls back to the first week — **Matchup 1 (Oct 21)**.
 
-Add a **"Last Regular Season Week"** setting that tells the system where the regular season ends, and update the parser to also import playoff round matchups.
+   Alternatively, if the pasted text has a bare "2026" before any "2025-26" string, the regex captures just `"2026"`. Then `parseSeasonYears("2026")` returns `{startYear: 2026, endYear: 2027}`, making March dates → 2027. Same result: today doesn't match, falls back to Oct 21.
 
-### Changes
+## Changes
 
-**1. Update Schedule Parser (`src/lib/scheduleParser.ts`)**
-- Instead of breaking at "Playoff Round" lines, continue parsing them as additional weeks
-- Tag parsed matchups with an `isPlayoff` flag so the rest of the system can distinguish them
-- Auto-detect "Playoff Round N" headers as week numbers (e.g., week = lastRegularWeek + roundNumber)
+### 1. Fix season regex in `src/lib/scheduleParser.ts` (line 161)
 
-**2. Add `lastRegularSeasonWeek` to persisted settings**
-- New persisted state key: `dumphoops-schedule-lastRegularWeek.v2`
-- Auto-detect from schedule data: the highest "Matchup N" week before the first "Playoff Round" header
-- Allow manual override in the Schedule Forecast settings panel
+Replace the regex with one that handles all ESPN formats: "2025-26", "2025-2026", bare "2025" or "2026".
 
-**3. Update Forecast Engine (`src/lib/forecastEngine.ts`)**
-- Add `lastRegularSeasonWeek` to `ForecastSettings`
-- In `projectFinalStandings`, only simulate weeks up to `lastRegularSeasonWeek` for standings projection (playoff results don't affect regular season standings)
-- Keep `forecastTeamMatchups` able to show playoff week predictions too
+```
+// Before:
+const seasonMatch = data.match(/20\d{2}(?:-\d{2})?/);
 
-**4. Update PlayoffBracket (`src/components/PlayoffBracket.tsx`)**
-- Use `lastRegularSeasonWeek` to correctly identify which weeks are playoff weeks (any week > lastRegularSeasonWeek)
-- Use actual playoff matchups from the parsed schedule (seeds 1/2 get byes in round 1, 3v6 and 4v5 play) instead of simulating from scratch
-- When actual playoff matchups exist in the schedule, use them for the bracket; only simulate outcomes
-
-**5. Update ScheduleForecast (`src/components/ScheduleForecast.tsx`)**
-- Read and persist the new `lastRegularSeasonWeek` value
-- Add a small dropdown or input in the settings panel: "Last regular season week" (auto-detected, editable)
-- Pass it through to both the forecast engine and the PlayoffBracket
-
-**6. Update LeagueStandings (`src/components/LeagueStandings.tsx`)**
-- Pass `lastRegularSeasonWeek` to the PlayoffBracket component
-
-### Technical Details
-
-**Schedule Parser change (key logic):**
-```text
-Current: if isPlayoffSection(line) → break
-New:     if isPlayoffSection(line) → set isPlayoffRound = true, 
-         parse "Playoff Round N" as week = lastMatchupWeek + N,
-         tag matchups with isPlayoff = true
+// After — prefer YYYY-YYYY, then YYYY-YY, then bare YYYY:
+const seasonMatch = data.match(/20\d{2}-20\d{2}/) 
+  || data.match(/20\d{2}-\d{2}/) 
+  || data.match(/20\d{2}/);
 ```
 
-**New type additions:**
-- `ScheduleMatchup.isPlayoff?: boolean` -- flag on parsed matchups
-- `ForecastSettings.lastRegularSeasonWeek?: number` -- cutoff for standings sim
+Also normalize "2025-2026" → "2025-26" before storing.
 
-**Auto-detection logic:**
-- When parsing, track the highest "Matchup N" week number
-- When a "Playoff Round" header appears, record that the previous matchup week was the last regular season week
-- Store this alongside the schedule data
+### 2. Harden `parseSeasonYears()` in `src/lib/matchupWeekDates.ts`
 
-### What the user sees after this change
+Handle the `"2025-2026"` 4-digit end year properly and add a sanity check that `endYear` is reasonable (within 1 of `startYear`).
 
-- The forecast will correctly show that we're now in **Playoff Round 1** (not matchup 18)
-- Projected standings will be based only on regular season weeks (1-18)
-- The playoff bracket will show the **actual playoff matchups** from ESPN (not simulated seedings)
-- A small "Last regular season week: 18" indicator in settings confirms the boundary
+### Files to edit
+
+| File | Change |
+|------|--------|
+| `src/lib/scheduleParser.ts` | Fix season detection regex to handle "2025-2026" format |
+| `src/lib/matchupWeekDates.ts` | Harden `parseSeasonYears` for edge cases |
+
