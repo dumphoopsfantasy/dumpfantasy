@@ -19,16 +19,21 @@ const MONTH_INDEX: Record<string, number> = {
  * The NBA fantasy season spans Oct of startYear through Apr+ of endYear.
  */
 export function parseSeasonYears(seasonStr: string): { startYear: number; endYear: number } {
-  // Try "YYYY-YY" or "YYYY-YYYY" format
+  // Try "YYYY-YYYY" or "YYYY-YY" format
   const m = seasonStr.match(/^(\d{4})-(\d{2,4})$/);
   if (m) {
     const startYear = parseInt(m[1]);
     const endSuffix = m[2];
-    // "2025-26" → endYear=2026; "2025-2026" → endYear=2026
-    const endYear = endSuffix.length === 2
-      ? parseInt(m[1].slice(0, 2) + endSuffix)
-      : parseInt(endSuffix);
-    return { startYear, endYear };
+    const endYear = endSuffix.length === 4
+      ? parseInt(endSuffix)
+      : parseInt(m[1].slice(0, 2) + endSuffix);
+
+    // Sanity check: endYear should be startYear + 1
+    if (endYear >= startYear && endYear <= startYear + 1) {
+      return { startYear, endYear };
+    }
+    // Bad parse (e.g. "2025-20" → 2020); recover by assuming +1
+    return { startYear, endYear: startYear + 1 };
   }
   // Single year: assume it's the start year
   const year = parseInt(seasonStr) || new Date().getFullYear();

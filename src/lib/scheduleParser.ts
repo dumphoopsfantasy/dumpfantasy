@@ -158,8 +158,16 @@ export function parseScheduleData(
   }
 
   // Detect season from year mention
-  const seasonMatch = data.match(/20\d{2}(?:-\d{2})?/);
-  const season = seasonMatch ? seasonMatch[0] : new Date().getFullYear().toString();
+  // Prefer YYYY-YYYY, then YYYY-YY, then bare YYYY to avoid partial captures
+  const seasonMatch = data.match(/20\d{2}-20\d{2}/)
+    || data.match(/20\d{2}-\d{2}/)
+    || data.match(/20\d{2}/);
+  let season = seasonMatch ? seasonMatch[0] : new Date().getFullYear().toString();
+  // Normalize "2025-2026" → "2025-26"
+  const fullYearMatch = season.match(/^(\d{4})-(\d{4})$/);
+  if (fullYearMatch) {
+    season = `${fullYearMatch[1]}-${fullYearMatch[2].slice(2)}`;
+  }
 
   // Split into lines
   const lines = data
