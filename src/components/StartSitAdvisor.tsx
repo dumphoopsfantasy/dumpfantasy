@@ -7,7 +7,8 @@ import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { RestOfWeekPlanner } from "@/components/RestOfWeekPlanner";
 import { RosterSlot, Player, CategoryStats, SlotType } from "@/types/fantasy";
 import { NBAGame, formatDateForAPI } from "@/lib/nbaApi";
-import { normalizeNbaTeamCode, getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
+import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
+import { getMatchupWeekDatesFromSchedule } from "@/lib/matchupWeekDates";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, XCircle, AlertCircle, Calendar, TrendingUp, Lock, AlertTriangle, Target, Settings2 } from "lucide-react";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
@@ -179,9 +180,13 @@ function getOpponentFromSchedule(
   return game.homeTeam === normalizedTeam ? game.awayTeam : game.homeTeam;
 }
 
-// Generate matchup week dates
+/**
+ * Generate matchup week dates from the shared schedule-aware matchup date source.
+ * Uses getMatchupWeekDatesFromSchedule (same source as all matchup widgets)
+ * to ensure Start/Sit, Rest of Week, and projection cards all agree on dates.
+ */
 function generateMatchupWeekDates(): MatchupWeekDate[] {
-  const weekDateStrs = getMatchupWeekDates();
+  const weekDateStrs = getMatchupWeekDatesFromSchedule();
   const now = new Date();
   const todayStr = formatDateForAPI(now);
   
