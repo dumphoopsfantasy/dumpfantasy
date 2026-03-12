@@ -53,12 +53,18 @@ export function parseDateRangeText(
   // NBA fantasy seasons span year boundary:
   //   Oct-Dec (months 9-11) → startYear (e.g. 2025)
   //   Jan-Aug (months 0-8)  → endYear   (e.g. 2026)
-  // When seasonEndYear is provided, use it for Jan-Aug; otherwise fall back
-  // to legacy behavior (seasonYear for Jan-Aug, seasonYear-1 for Oct-Dec).
-  const sYear = seasonEndYear ?? seasonYear;
-  const eYear = seasonEndYear ?? seasonYear;
-  const startYear = startMonth >= 9 ? (seasonEndYear ? seasonEndYear - 1 : seasonYear - 1) : sYear;
-  const endYear2 = endMonth >= 9 ? (seasonEndYear ? seasonEndYear - 1 : seasonYear - 1) : eYear;
+  // Use yearForMonth from seasonUtils when we have both years; otherwise legacy fallback.
+  if (seasonEndYear) {
+    const season: SeasonYears = { startYear: seasonEndYear - 1, endYear: seasonEndYear };
+    const startYear = yearForMonth(startMonth, season);
+    const endYear2 = yearForMonth(endMonth, season);
+    const start = new Date(startYear, startMonth, startDay);
+    const end = new Date(endYear2, endMonth, endDay);
+    return { start, end };
+  }
+  // Legacy path (no seasonEndYear provided)
+  const startYear = startMonth >= 9 ? seasonYear - 1 : seasonYear;
+  const endYear2 = endMonth >= 9 ? seasonYear - 1 : seasonYear;
 
   const start = new Date(startYear, startMonth, startDay);
   const end = new Date(endYear2, endMonth, endDay);
