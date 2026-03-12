@@ -27,6 +27,7 @@ import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 import { getCurrentMatchupWeekFromSchedule, getRemainingMatchupDatesFromSchedule, getMatchupWeekDatesFromSchedule } from "@/lib/matchupWeekDates";
+import { STANDARD_LINEUP_SLOTS as _STANDARD_LINEUP_SLOTS_UNUSED } from "@/lib/scheduleAwareProjection";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -539,7 +540,8 @@ export const MatchupProjection = ({
     // FIXED: Use schedule-aware remaining dates instead of hardcoded day-of-week math.
     // Previously: `dayOfWeek === 0 ? 0 : 7 - dayOfWeek` which ignored imported schedule.
     const matchupWeekDates = getMatchupWeekDates();
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const daysRemaining = matchupWeekDates.filter(d => d >= todayStr).length;
     
     onUpdateMatchupContext(projectedMy, projectedOpp, currentMy, currentOpp, daysRemaining);
@@ -1774,7 +1776,8 @@ Navigate to their team page and copy the whole page.`}
               const currentWeek = getCurrentMatchupWeekFromSchedule();
               const allDates = getMatchupWeekDatesFromSchedule();
               const remaining = getRemainingMatchupDatesFromSchedule();
-              const todayStr = new Date().toISOString().slice(0, 10);
+              const now = new Date();
+              const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
               const schedRaw = localStorage.getItem('dumphoops-schedule.v2');
               const sched = schedRaw ? JSON.parse(schedRaw) : null;
               return (
@@ -1814,17 +1817,41 @@ Navigate to their team page and copy the whole page.`}
         />
 
         {/* Card 2: Schedule-Aware (Current → Final) */}
-        <ScheduleAwareCard
-          myTeamName={persistedMatchup.myTeam.name}
-          opponentName={persistedMatchup.opponent.name}
-          myCurrentTotals={myCurrentTotalsWithPct}
-          oppCurrentTotals={oppCurrentTotalsWithPct}
-          myRemainingTotals={myRemainingTotalsWithPct}
-          oppRemainingTotals={oppRemainingTotalsWithPct}
-          myFinalTotals={myFinalTotalsWithPct}
-          oppFinalTotals={oppFinalTotalsWithPct}
-          remainingDays={remainingDates.length}
-        />
+        {(() => {
+          // Compute remaining starts for ScheduleAwareCard
+          const matchupWeekDates = getMatchupWeekDatesFromSchedule();
+          const myROW = (persistedMatchup?.myRoster ?? roster).length > 0
+            ? computeRestOfWeekStarts({
+                rosterPlayers: persistedMatchup?.myRoster ?? roster,
+                matchupDates: matchupWeekDates,
+                gamesByDate,
+                lineupSlots: undefined,
+              })
+            : null;
+          const oppROW = (persistedMatchup?.opponentRoster ?? []).length > 0
+            ? computeRestOfWeekStarts({
+                rosterPlayers: persistedMatchup.opponentRoster!,
+                matchupDates: matchupWeekDates,
+                gamesByDate,
+                lineupSlots: undefined,
+              })
+            : null;
+          return (
+            <ScheduleAwareCard
+              myTeamName={persistedMatchup.myTeam.name}
+              opponentName={persistedMatchup.opponent.name}
+              myCurrentTotals={myCurrentTotalsWithPct}
+              oppCurrentTotals={oppCurrentTotalsWithPct}
+              myRemainingTotals={myRemainingTotalsWithPct}
+              oppRemainingTotals={oppRemainingTotalsWithPct}
+              myFinalTotals={myFinalTotalsWithPct}
+              oppFinalTotals={oppFinalTotalsWithPct}
+              myRemainingStarts={myROW?.remainingStarts ?? 0}
+              oppRemainingStarts={oppROW?.remainingStarts ?? 0}
+              remainingDays={myROW?.remainingDays ?? remainingDates.length}
+            />
+          );
+        })()}
 
         {/* Card 3: Today Impact (Current → After Today) */}
         <TodayImpactCard
