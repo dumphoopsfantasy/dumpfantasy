@@ -1791,7 +1791,7 @@ Navigate to their team page and copy the whole page.`}
                   <p><span className="text-muted-foreground">remainingDates (hook):</span> {remainingDates.length} — [{remainingDates.join(', ')}]</p>
                   <p><span className="text-muted-foreground">myStarts:</span> {slateMyProjection?.totalStartedGames ?? 'N/A'} started / {slateMyProjection?.totalPossibleGames ?? 'N/A'} possible</p>
                   <p><span className="text-muted-foreground">oppStarts:</span> {slateOppProjection?.totalStartedGames ?? 'N/A'} started / {slateOppProjection?.totalPossibleGames ?? 'N/A'} possible</p>
-                  <p><span className="text-muted-foreground">slateStatus:</span> {slateStatus ? `${slateStatus.notStarted} not started, ${slateStatus.inProgress} live, ${slateStatus.completed} final` : 'N/A'}</p>
+                  <p><span className="text-muted-foreground">slateStatus:</span> {slateStatus ? `${slateStatus.notStarted} not started, ${slateStatus.inProgress} live, ${slateStatus.final} final` : 'N/A'}</p>
                   <p><span className="text-muted-foreground">projectionMode:</span> {projectionModeState.mode}</p>
                   <p><span className="text-muted-foreground">hasCurrentTotals:</span> {String(hasCurrentTotals)}</p>
                   <p><span className="text-muted-foreground">hasRemainingTotals:</span> {String(hasRemainingTotals)}</p>
