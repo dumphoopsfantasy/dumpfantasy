@@ -27,7 +27,7 @@ import type { RosterSlot, Player } from '@/types/fantasy';
 import type { LeagueSchedule } from '@/lib/scheduleParser';
 import { makeScheduleTeamKey, normalizeName, fuzzyNameMatch } from '@/lib/nameNormalization';
 import { projectFinalStandings, type ForecastSettings } from '@/lib/forecastEngine';
-import { parseDateRangeText } from '@/lib/matchupWeekDates';
+import { parseDateRangeText, parseSeasonYears } from '@/lib/matchupWeekDates';
 import {
   getLikelyOpponents,
   buildOpponentScenario,
