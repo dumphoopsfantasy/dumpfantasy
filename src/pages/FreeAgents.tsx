@@ -1954,13 +1954,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </Card>
       )}
 
-      {/* Filters - simplified in trade analyzer mode */}
-      <Card className="gradient-card border-border p-4">
-        <div className="flex flex-col md:flex-row gap-4">
+      {/* Filters - compact horizontal toolbar for desktop-first wide layout */}
+      <Card className="gradient-card border-border p-3">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Only Available checkbox + Owner dropdown - hidden in trade mode */}
           {!tradeAnalyzerMode && (
             <>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border h-10">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border h-9">
                 <Checkbox
                   id="only-available"
                   checked={onlyAvailableFilter}
@@ -1972,13 +1972,12 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </div>
               
               <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-                <SelectTrigger className="w-full md:w-[150px]">
+                <SelectTrigger className="w-[130px] h-9">
                   <SelectValue placeholder="Owner" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Owners</SelectItem>
                   <SelectItem value="FA">FA Only</SelectItem>
-                  {/* Dynamic owner options from parsed data */}
                   {Array.from(new Set(rawPlayers.map(p => (p as any).ownerKey).filter((k: string) => k && k !== 'FA'))).map((ownerKey: string) => {
                     const teamName = getTeamNameFromOwnerKey(ownerKey);
                     return (
@@ -1992,17 +1991,18 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             </>
           )}
 
-          <div className="relative flex-1">
+          <div className="relative w-[200px] min-w-[140px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search players..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 bg-background"
+              className="pl-10 bg-background h-9"
             />
           </div>
+
           <Select value={positionFilter} onValueChange={setPositionFilter}>
-            <SelectTrigger className="w-full md:w-[140px]">
+            <SelectTrigger className="w-[110px] h-9">
               <SelectValue placeholder="Position" />
             </SelectTrigger>
             <SelectContent>
@@ -2017,15 +2017,15 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               <SelectItem value="C/F">C/F</SelectItem>
             </SelectContent>
           </Select>
+
           {/* Advanced filters - collapsed in trade mode */}
           {!tradeAnalyzerMode && (
             <>
-              {/* Schedule Date Picker Toggle */}
               <Button
                 variant={showSchedulePicker || hasScheduleSelection ? "default" : "outline"}
                 size="sm"
                 onClick={() => setShowSchedulePicker(!showSchedulePicker)}
-                className="gap-1"
+                className="gap-1 h-9"
               >
                 <Calendar className="w-4 h-4" />
                 <span className="hidden md:inline">
@@ -2041,7 +2041,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 )}
               </Button>
               <Select value={healthFilter} onValueChange={setHealthFilter}>
-                <SelectTrigger className="w-full md:w-[140px]">
+                <SelectTrigger className="w-[120px] h-9">
                   <SelectValue placeholder="Health" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2051,7 +2051,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                 </SelectContent>
               </Select>
               <Select value={statsFilter} onValueChange={(v) => setStatsFilter(v as "all" | "with-stats" | "missing-stats")}>
-                <SelectTrigger className="w-full md:w-[160px]">
+                <SelectTrigger className="w-[130px] h-9">
                   <SelectValue placeholder="Stats" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2062,7 +2062,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               </Select>
             </>
           )}
-          <Button variant="outline" size="icon" onClick={handleReset}>
+          <Button variant="outline" size="icon" onClick={handleReset} className="h-9 w-9">
             <RefreshCw className="w-4 h-4" />
           </Button>
           {!tradeAnalyzerMode && (
@@ -2070,7 +2070,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
               variant={tableOnlyMode ? "default" : "outline"} 
               size="sm"
               onClick={() => setTableOnlyMode(!tableOnlyMode)}
-              className="gap-1"
+              className="gap-1 h-9"
             >
               <TableIcon className="w-4 h-4" />
               <span className="hidden md:inline">Table Only</span>
