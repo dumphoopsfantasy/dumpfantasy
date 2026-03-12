@@ -215,11 +215,13 @@ export const StartSitAdvisor = ({
   // Use effective weights if provided, otherwise fall back to default CRIS_WEIGHTS
   const weights = effectiveWeights || (CRIS_WEIGHTS as CustomWeights);
   
-  // Generate matchup week dates
-  const matchupWeekDates = useMemo(() => generateMatchupWeekDates(), []);
+  // FIXED: Generate matchup week dates reactively based on gamesByDate changes,
+  // so dates update when schedule refreshes or the day rolls over.
+  // Previously had empty deps [] which froze dates at initial render.
+  const matchupWeekDates = useMemo(() => generateMatchupWeekDates(), [gamesByDate]);
   
-  // Get today's date string
-  const todayStr = useMemo(() => formatDateForAPI(new Date()), []);
+  // Get today's date string (recomputes on schedule refresh)
+  const todayStr = useMemo(() => formatDateForAPI(new Date()), [gamesByDate]);
   
   // State for selected day
   const [selectedDateStr, setSelectedDateStr] = useState<string>(todayStr);
