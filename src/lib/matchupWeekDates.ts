@@ -17,6 +17,33 @@ const MONTH_INDEX: Record<string, number> = {
  * Parse a date range text like "Feb 9 - 22" or "Dec 29 - Jan 4"
  * into start/end Date objects.
  */
+/**
+ * Extract the end year of an NBA season from a season string.
+ * "2025-26" → 2026, "2025-2026" → 2026, "2026" → 2026 (assumed end year).
+ */
+export function getSeasonEndYear(season: string): number {
+  const parts = season.match(/^(\d{4})(?:-(\d{2,4}))?/);
+  if (!parts) return new Date().getFullYear();
+  
+  const firstYear = parseInt(parts[1]);
+  if (parts[2]) {
+    // Has a second part: "2025-26" or "2025-2026"
+    const endPart = parts[2];
+    return endPart.length === 2
+      ? parseInt(parts[1].slice(0, 2) + endPart)
+      : parseInt(endPart);
+  }
+  // Single year — treat as end year (e.g., "2026" means 2025-26 season)
+  return firstYear;
+}
+
+/**
+ * Parse a date range text like "Feb 9 - 22" or "Dec 29 - Jan 4"
+ * into start/end Date objects.
+ * 
+ * seasonYear is the END year of the NBA season (e.g., 2026 for 2025-26).
+ * Oct-Dec dates belong to seasonYear - 1, Jan-Aug dates belong to seasonYear.
+ */
 export function parseDateRangeText(
   dateRangeText: string,
   seasonYear: number
@@ -31,7 +58,7 @@ export function parseDateRangeText(
 
   if (startMonth === undefined || endMonth === undefined) return {};
 
-  // NBA fantasy seasons span year boundary; Oct-Dec use seasonYear-1
+  // NBA seasons span year boundary: Oct-Dec = seasonYear - 1, Jan-Aug = seasonYear
   const startYear = startMonth >= 9 ? seasonYear - 1 : seasonYear;
   const endYear = endMonth >= 9 ? seasonYear - 1 : seasonYear;
 
