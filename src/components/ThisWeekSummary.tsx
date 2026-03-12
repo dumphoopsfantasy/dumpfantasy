@@ -164,8 +164,9 @@ export function ThisWeekSummary({
     return !currentScheduledMatchup;
   }, [currentWeek, currentScheduledMatchup, matchupData?.myTeam?.name]);
 
-  const weekDates = useMemo(() => getMatchupWeekDatesFromSchedule(), []);
-  const remainingDates = useMemo(() => getRemainingMatchupDatesFromSchedule(), []);
+  // FIXED: Include gamesByDate in deps so dates recompute when schedule changes or day rolls over
+  const weekDates = useMemo(() => getMatchupWeekDatesFromSchedule(), [gamesByDate]);
+  const remainingDates = useMemo(() => getRemainingMatchupDatesFromSchedule(), [gamesByDate]);
 
   const todayStr = useMemo(() => {
     const d = new Date();

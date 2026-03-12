@@ -540,7 +540,8 @@ export const MatchupProjection = ({
     // FIXED: Use schedule-aware remaining dates instead of hardcoded day-of-week math.
     // Previously: `dayOfWeek === 0 ? 0 : 7 - dayOfWeek` which ignored imported schedule.
     const matchupWeekDates = getMatchupWeekDates();
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const daysRemaining = matchupWeekDates.filter(d => d >= todayStr).length;
     
     onUpdateMatchupContext(projectedMy, projectedOpp, currentMy, currentOpp, daysRemaining);

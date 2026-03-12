@@ -56,13 +56,16 @@ export function hasTodayStarted(todayGames: NBAGame[]): boolean {
   
   if (hasStartedGame) return true;
   
-  // If no started game by status, check if current time >= earliest game time
+  // If no started game by status, check if current time >= earliest VALID game time.
+  // Only parse ISO-8601 or full date strings — skip partial strings like "7:00 PM ET"
+  // which `new Date(...)` interprets incorrectly, causing today to be marked elapsed
+  // before games actually start (Bug fix: fragile gameTime parsing).
   const now = new Date();
   for (const g of todayGames) {
-    if (g.gameTime) {
+    if (g.gameTime && g.gameTime.includes('T')) {
       try {
         const gameDate = new Date(g.gameTime);
-        if (now >= gameDate) return true;
+        if (!isNaN(gameDate.getTime()) && now >= gameDate) return true;
       } catch {
         // Invalid date, ignore
       }
