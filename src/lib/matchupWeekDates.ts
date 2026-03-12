@@ -119,19 +119,23 @@ export function getCurrentMatchupWeekFromSchedule(
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
-  const seasonYear = parseInt(sched.season.slice(0, 4)) || new Date().getFullYear();
+  // FIXED: Use parseSeasonYears to correctly derive end year for Jan-Aug months.
+  // Previously: parseInt(sched.season.slice(0, 4)) gave 2025 for "2025-26",
+  // causing all Jan-Aug dates (including playoff weeks) to parse as 2025 instead of 2026.
+  const { startYear, endYear } = parseSeasonYears(sched.season);
+  const seasonYear = endYear; // Legacy compat: seasonYear = endYear for the existing API
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   // Build unique weeks with parsed date ranges
-  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string }> = [];
+  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean }> = [];
   const seenWeeks = new Set<number>();
 
   for (const m of sched.matchups) {
     if (seenWeeks.has(m.week)) continue;
     seenWeeks.add(m.week);
 
-    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear);
+    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear, endYear);
     if (!start || !end) continue;
 
     start.setHours(0, 0, 0, 0);
