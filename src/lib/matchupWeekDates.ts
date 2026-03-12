@@ -44,13 +44,26 @@ export function parseSeasonYears(seasonStr: string): { startYear: number; endYea
  * for "2025-26", causing Jan-Aug dates to parse as 2025 instead of 2026.
  * Now accepts { startYear, endYear } so Oct-Dec → startYear, Jan-Aug → endYear.
  */
+/**
+ * Normalize a date range string: replace non-breaking spaces, en/em dashes.
+ */
+function normalizeDateRange(text: string): string {
+  return text
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function parseDateRangeText(
   dateRangeText: string,
   seasonYear: number,
   /** End year of the season (e.g. 2026 for "2025-26"). If provided, Jan-Aug use this. */
   seasonEndYear?: number
 ): { start?: Date; end?: Date } {
-  const m = dateRangeText.match(/^(\w{3})\s+(\d{1,2})\s*-\s*(?:(\w{3})\s+)?(\d{1,2})/);
+  const normalized = normalizeDateRange(dateRangeText);
+  // Accept full or abbreviated month names (3+ chars)
+  const m = normalized.match(/^([A-Za-z]{3,})\s+(\d{1,2})\s*-\s*(?:([A-Za-z]{3,})\s+)?(\d{1,2})/);
   if (!m) return {};
 
   const startMonth = MONTH_INDEX[m[1].toLowerCase()];
