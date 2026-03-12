@@ -1766,8 +1766,6 @@ Navigate to their team page and copy the whole page.`}
           oppRemainingTotals={oppRemainingTotalsWithPct}
           myFinalTotals={myFinalTotalsWithPct}
           oppFinalTotals={oppFinalTotalsWithPct}
-          myRemainingStarts={scheduleMyProjection?.totalStartedGames ?? 0}
-          oppRemainingStarts={scheduleOppProjection?.totalStartedGames ?? 0}
           remainingDays={remainingDates.length}
         />
 
