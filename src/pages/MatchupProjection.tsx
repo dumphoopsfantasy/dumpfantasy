@@ -26,6 +26,7 @@ import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
+import { getCurrentMatchupWeekFromSchedule, getRemainingMatchupDatesFromSchedule, getMatchupWeekDatesFromSchedule } from "@/lib/matchupWeekDates";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -1758,6 +1759,49 @@ Navigate to their team page and copy the whole page.`}
           </Button>
         </div>
       </div>
+
+      {/* Debug Panel: Matchup Period State */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-[10px] text-muted-foreground gap-1 h-6 px-2">
+            <ChevronDown className="w-3 h-3" />
+            Debug: Matchup Period State
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Card className="p-3 text-[11px] font-mono bg-muted/30 border-border space-y-1">
+            {(() => {
+              const currentWeek = getCurrentMatchupWeekFromSchedule();
+              const allDates = getMatchupWeekDatesFromSchedule();
+              const remaining = getRemainingMatchupDatesFromSchedule();
+              const todayStr = new Date().toISOString().slice(0, 10);
+              const schedRaw = localStorage.getItem('dumphoops-schedule.v2');
+              const sched = schedRaw ? JSON.parse(schedRaw) : null;
+              return (
+                <div className="space-y-1">
+                  <p><span className="text-muted-foreground">season:</span> {sched?.season ?? 'N/A'}</p>
+                  <p><span className="text-muted-foreground">today:</span> {todayStr}</p>
+                  <p><span className="text-muted-foreground">matchup week:</span> {currentWeek?.week ?? 'none'}</p>
+                  <p><span className="text-muted-foreground">isPlayoff:</span> {currentWeek ? (sched?.matchups?.find((m: any) => m.week === currentWeek.week)?.isPlayoff ? 'true' : 'false') : 'N/A'}</p>
+                  <p><span className="text-muted-foreground">matchupStart:</span> {currentWeek?.start?.toISOString().slice(0, 10) ?? 'N/A'}</p>
+                  <p><span className="text-muted-foreground">matchupEnd:</span> {currentWeek?.end?.toISOString().slice(0, 10) ?? 'N/A'}</p>
+                  <p><span className="text-muted-foreground">dateRange:</span> {currentWeek?.dateRangeText ?? 'N/A'}</p>
+                  <p><span className="text-muted-foreground">allDates ({allDates.length}):</span> {allDates.join(', ') || 'empty'}</p>
+                  <p><span className="text-muted-foreground">remainingDates ({remaining.length}):</span> {remaining.join(', ') || 'empty'}</p>
+                  <p><span className="text-muted-foreground">remainingDates (hook):</span> {remainingDates.length} — [{remainingDates.join(', ')}]</p>
+                  <p><span className="text-muted-foreground">myStarts:</span> {slateMyProjection?.totalStartedGames ?? 'N/A'} started / {slateMyProjection?.totalPossibleGames ?? 'N/A'} possible</p>
+                  <p><span className="text-muted-foreground">oppStarts:</span> {slateOppProjection?.totalStartedGames ?? 'N/A'} started / {slateOppProjection?.totalPossibleGames ?? 'N/A'} possible</p>
+                  <p><span className="text-muted-foreground">slateStatus:</span> {slateStatus ? `${slateStatus.notStarted} not started, ${slateStatus.inProgress} live, ${slateStatus.final} final` : 'N/A'}</p>
+                  <p><span className="text-muted-foreground">projectionMode:</span> {projectionModeState.mode}</p>
+                  <p><span className="text-muted-foreground">hasCurrentTotals:</span> {String(hasCurrentTotals)}</p>
+                  <p><span className="text-muted-foreground">hasRemainingTotals:</span> {String(hasRemainingTotals)}</p>
+                  {slateExplanation && <p><span className="text-muted-foreground">explanation:</span> {slateExplanation}</p>}
+                </div>
+              );
+            })()}
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* 3 OUTCOME CARDS */}
       <div className="space-y-4">

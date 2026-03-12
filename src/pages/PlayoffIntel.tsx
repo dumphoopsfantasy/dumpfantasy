@@ -27,7 +27,7 @@ import type { RosterSlot, Player } from '@/types/fantasy';
 import type { LeagueSchedule } from '@/lib/scheduleParser';
 import { makeScheduleTeamKey, normalizeName, fuzzyNameMatch } from '@/lib/nameNormalization';
 import { projectFinalStandings, type ForecastSettings } from '@/lib/forecastEngine';
-import { parseDateRangeText } from '@/lib/matchupWeekDates';
+import { parseDateRangeText, parseSeasonYears } from '@/lib/matchupWeekDates';
 import {
   getLikelyOpponents,
   buildOpponentScenario,
@@ -66,12 +66,14 @@ function parseRecordParts(record?: string): { wins: number; losses: number; ties
 }
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
+  // FIXED: Use parseSeasonYears for correct end year
+  const { endYear } = parseSeasonYears(schedule.season);
+  const seasonYear = endYear;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
   for (const m of schedule.matchups) {
-    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear);
+    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear, endYear);
     if (!start || !end) continue;
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);
