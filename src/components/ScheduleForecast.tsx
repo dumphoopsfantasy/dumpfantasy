@@ -73,7 +73,7 @@ type ResolvedScheduleResult = {
 };
 
 // Re-use shared parseDateRangeText utility
-import { parseDateRangeText } from "@/lib/matchupWeekDates";
+import { parseDateRangeText, parseSeasonYears } from "@/lib/matchupWeekDates";
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
   const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
