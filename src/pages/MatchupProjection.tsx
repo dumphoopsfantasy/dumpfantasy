@@ -27,6 +27,7 @@ import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 import { getCurrentMatchupWeekFromSchedule, getRemainingMatchupDatesFromSchedule, getMatchupWeekDatesFromSchedule } from "@/lib/matchupWeekDates";
+import { STANDARD_LINEUP_SLOTS as _STANDARD_LINEUP_SLOTS_UNUSED } from "@/lib/scheduleAwareProjection";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
