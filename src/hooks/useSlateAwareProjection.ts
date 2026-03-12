@@ -60,16 +60,13 @@ export function useSlateAwareProjection({
   opponentRoster,
 }: UseSlateAwareProjectionProps): SlateAwareProjectionResult {
   const { gamesByDate, isLoading, error } = useNBAUpcomingSchedule(21); // 21 days to cover extended weeks (All-Star break)
+  const remainingDates = useMemo(() => getRemainingMatchupDatesFromSchedule(), []);
   
-  // FIXED: remainingDates and todayDate recompute when gamesByDate changes,
-  // ensuring projections update as schedule data refreshes and dates roll over.
-  // Previously these had empty deps [] which froze them at initial render.
-  const remainingDates = useMemo(() => getRemainingMatchupDatesFromSchedule(), [gamesByDate]);
-  
+  // Get today's date
   const todayDate = useMemo(() => {
     const today = new Date();
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  }, [gamesByDate]); // recalculate when schedule refreshes (handles date rollover)
+  }, []);
   
   // Build slate status from today's games
   const slateStatus = useMemo(() => {

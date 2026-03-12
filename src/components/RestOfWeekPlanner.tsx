@@ -86,9 +86,7 @@ export const RestOfWeekPlanner = ({
 }: RestOfWeekPlannerProps) => {
   const [showDebug, setShowDebug] = useState(false);
   const hasOpponent = opponentRoster.length > 0;
-  // FIXED: Recompute today when gamesByDate changes (schedule refresh / date rollover).
-  // Previously had empty deps [] which froze today at initial render.
-  const todayStr = useMemo(() => getTodayDateStr(), [gamesByDate]);
+  const todayStr = useMemo(() => getTodayDateStr(), []);
 
   const dateStrings = useMemo(() => weekDates.map((wd) => wd.dateStr), [weekDates]);
 

@@ -158,8 +158,8 @@ const Index = () => {
   // NBA Schedule for Start/Sit Advisor
   const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(21);
   
-  // FIXED: Matchup week dates recompute when schedule refreshes
-  const matchupDates = useMemo(() => getMatchupWeekDates(), [gamesByDate]);
+  // Matchup week dates for Position Breakdown
+  const matchupDates = useMemo(() => getMatchupWeekDates(), []);
 
   // Player detail sheet state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);

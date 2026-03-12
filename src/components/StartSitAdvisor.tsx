@@ -7,8 +7,7 @@ import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { RestOfWeekPlanner } from "@/components/RestOfWeekPlanner";
 import { RosterSlot, Player, CategoryStats, SlotType } from "@/types/fantasy";
 import { NBAGame, formatDateForAPI } from "@/lib/nbaApi";
-import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
-import { getMatchupWeekDatesFromSchedule } from "@/lib/matchupWeekDates";
+import { normalizeNbaTeamCode, getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, XCircle, AlertCircle, Calendar, TrendingUp, Lock, AlertTriangle, Target, Settings2 } from "lucide-react";
 import { CRIS_WEIGHTS } from "@/lib/crisUtils";
@@ -180,13 +179,9 @@ function getOpponentFromSchedule(
   return game.homeTeam === normalizedTeam ? game.awayTeam : game.homeTeam;
 }
 
-/**
- * Generate matchup week dates from the shared schedule-aware matchup date source.
- * Uses getMatchupWeekDatesFromSchedule (same source as all matchup widgets)
- * to ensure Start/Sit, Rest of Week, and projection cards all agree on dates.
- */
+// Generate matchup week dates
 function generateMatchupWeekDates(): MatchupWeekDate[] {
-  const weekDateStrs = getMatchupWeekDatesFromSchedule();
+  const weekDateStrs = getMatchupWeekDates();
   const now = new Date();
   const todayStr = formatDateForAPI(now);
   
@@ -220,13 +215,11 @@ export const StartSitAdvisor = ({
   // Use effective weights if provided, otherwise fall back to default CRIS_WEIGHTS
   const weights = effectiveWeights || (CRIS_WEIGHTS as CustomWeights);
   
-  // FIXED: Generate matchup week dates reactively based on gamesByDate changes,
-  // so dates update when schedule refreshes or the day rolls over.
-  // Previously had empty deps [] which froze dates at initial render.
-  const matchupWeekDates = useMemo(() => generateMatchupWeekDates(), [gamesByDate]);
+  // Generate matchup week dates
+  const matchupWeekDates = useMemo(() => generateMatchupWeekDates(), []);
   
-  // Get today's date string (recomputes on schedule refresh)
-  const todayStr = useMemo(() => formatDateForAPI(new Date()), [gamesByDate]);
+  // Get today's date string
+  const todayStr = useMemo(() => formatDateForAPI(new Date()), []);
   
   // State for selected day
   const [selectedDateStr, setSelectedDateStr] = useState<string>(todayStr);

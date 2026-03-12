@@ -26,8 +26,6 @@ import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
-import { getCurrentMatchupWeekFromSchedule, getRemainingMatchupDatesFromSchedule, getMatchupWeekDatesFromSchedule } from "@/lib/matchupWeekDates";
-import { STANDARD_LINEUP_SLOTS as _STANDARD_LINEUP_SLOTS_UNUSED } from "@/lib/scheduleAwareProjection";
 
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
@@ -365,50 +363,32 @@ export const MatchupProjection = ({
   // =========================
   // CURRENT TOTALS (derived from Weekly Scoreboard OR explicit import)
   // =========================
-  // First, try to derive from weeklyMatchups (Weekly tab scoreboard data).
-  //
-  // FIXED: The weekly scoreboard only provides FG%/FT% (not makes/attempts).
-  // Previously fgm/fga/ftm/fta were set to 0, which caused addTotals + withDerivedPct
-  // to produce incorrect combined final percentages (the current FG%/FT% contribution
-  // was lost because 0 makes / 0 attempts contributed nothing to the combined ratio).
-  //
-  // Fix: Estimate FGM/FGA and FTM/FTA from available counting stats and percentages.
-  // Formula: PTS = 2*(FGM - 3PM) + 3*3PM + FTM → FGM = (PTS - 3PM - FTM) / 2
-  // We estimate FTA first from a typical FTA/PTS ratio (~0.25), then derive FTM = FT% * FTA.
-  // Then FGM = (PTS - 3PM - FTM) / 2, FGA = FGM / FG%.
+  // First, try to derive from weeklyMatchups (Weekly tab scoreboard data)
   const weeklyDerivedCurrentTotals = useMemo(() => {
     if (!myWeeklyData) return null;
     
-    const estimateMakesAttempts = (stats: WeeklyTeamStats): TeamTotalsWithPct => {
-      // Estimate FTA from points (typical NBA FTA/PTS ratio ~0.25)
-      const estimatedFTA = Math.max(1, Math.round(stats.points * 0.25));
-      const estimatedFTM = stats.ftPct * estimatedFTA;
-      
-      // PTS = 2*(FGM - 3PM) + 3*3PM + FTM = 2*FGM + 3PM + FTM
-      // → FGM = (PTS - 3PM - FTM) / 2
-      const estimatedFGM = Math.max(0, (stats.points - stats.threepm - estimatedFTM) / 2);
-      const estimatedFGA = stats.fgPct > 0 ? estimatedFGM / stats.fgPct : Math.max(1, estimatedFGM * 2.2);
-      
-      return {
-        fgm: estimatedFGM,
-        fga: estimatedFGA,
-        ftm: estimatedFTM,
-        fta: estimatedFTA,
-        threepm: stats.threepm,
-        rebounds: stats.rebounds,
-        assists: stats.assists,
-        steals: stats.steals,
-        blocks: stats.blocks,
-        turnovers: stats.turnovers,
-        points: stats.points,
-        fgPct: stats.fgPct,
-        ftPct: stats.ftPct,
-      };
-    };
+    // Convert WeeklyTeamStats to TeamTotalsWithPct
+    // Note: Weekly scoreboard has FG%/FT% directly but not makes/attempts
+    // We'll set fgm/fga/ftm/fta to 0 and use the percentage directly
+    const convertToTotals = (stats: WeeklyTeamStats): TeamTotalsWithPct => ({
+      fgm: 0,
+      fga: 0,
+      ftm: 0,
+      fta: 0,
+      threepm: stats.threepm,
+      rebounds: stats.rebounds,
+      assists: stats.assists,
+      steals: stats.steals,
+      blocks: stats.blocks,
+      turnovers: stats.turnovers,
+      points: stats.points,
+      fgPct: stats.fgPct,
+      ftPct: stats.ftPct,
+    });
     
     return {
-      myTotals: estimateMakesAttempts(myWeeklyData.myTeam.stats),
-      oppTotals: estimateMakesAttempts(myWeeklyData.opponent.stats),
+      myTotals: convertToTotals(myWeeklyData.myTeam.stats),
+      oppTotals: convertToTotals(myWeeklyData.opponent.stats),
     };
   }, [myWeeklyData]);
 
@@ -537,12 +517,9 @@ export const MatchupProjection = ({
       };
     }
     
-    // FIXED: Use schedule-aware remaining dates instead of hardcoded day-of-week math.
-    // Previously: `dayOfWeek === 0 ? 0 : 7 - dayOfWeek` which ignored imported schedule.
-    const matchupWeekDates = getMatchupWeekDates();
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const daysRemaining = matchupWeekDates.filter(d => d >= todayStr).length;
+    // Calculate days remaining (Sun = 0 = final day, so 0 remaining)
+    const dayOfWeek = new Date().getDay();
+    const daysRemaining = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
     
     onUpdateMatchupContext(projectedMy, projectedOpp, currentMy, currentOpp, daysRemaining);
   }, [persistedMatchup, myWeeklyData, onUpdateMatchupContext]);
@@ -590,19 +567,11 @@ export const MatchupProjection = ({
     // Validate input
     validateParseInput(data);
     
-    const rawLines = data.trim().split("\n").map(l => l.trim()).filter(l => l);
-    const lines: string[] = [];
-    let inStatsSection = false;
-    for (const raw of rawLines) {
-      if (!inStatsSection && /\bMIN\b/.test(raw) && /\b(FGM|FG%|3PM|REB)\b/.test(raw)) {
-        inStatsSection = true;
-      }
-      if (inStatsSection && raw.includes('\t')) {
-        lines.push(...raw.split('\t').map(s => s.trim()).filter(s => s));
-      } else {
-        lines.push(raw);
-      }
-    }
+    const lines = data
+      .trim()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l);
     
     const loopGuard = createLoopGuard();
 
@@ -1770,50 +1739,6 @@ Navigate to their team page and copy the whole page.`}
         </div>
       </div>
 
-      {/* Debug Panel: Matchup Period State */}
-      <Collapsible>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="text-[10px] text-muted-foreground gap-1 h-6 px-2">
-            <ChevronDown className="w-3 h-3" />
-            Debug: Matchup Period State
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <Card className="p-3 text-[11px] font-mono bg-muted/30 border-border space-y-1">
-            {(() => {
-              const currentWeek = getCurrentMatchupWeekFromSchedule();
-              const allDates = getMatchupWeekDatesFromSchedule();
-              const remaining = getRemainingMatchupDatesFromSchedule();
-              const now = new Date();
-              const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-              const schedRaw = localStorage.getItem('dumphoops-schedule.v2');
-              const sched = schedRaw ? JSON.parse(schedRaw) : null;
-              return (
-                <div className="space-y-1">
-                  <p><span className="text-muted-foreground">season:</span> {sched?.season ?? 'N/A'}</p>
-                  <p><span className="text-muted-foreground">today:</span> {todayStr}</p>
-                  <p><span className="text-muted-foreground">matchup week:</span> {currentWeek?.week ?? 'none'}</p>
-                  <p><span className="text-muted-foreground">isPlayoff:</span> {currentWeek ? (sched?.matchups?.find((m: any) => m.week === currentWeek.week)?.isPlayoff ? 'true' : 'false') : 'N/A'}</p>
-                  <p><span className="text-muted-foreground">matchupStart:</span> {currentWeek?.start?.toISOString().slice(0, 10) ?? 'N/A'}</p>
-                  <p><span className="text-muted-foreground">matchupEnd:</span> {currentWeek?.end?.toISOString().slice(0, 10) ?? 'N/A'}</p>
-                  <p><span className="text-muted-foreground">dateRange:</span> {currentWeek?.dateRangeText ?? 'N/A'}</p>
-                  <p><span className="text-muted-foreground">allDates ({allDates.length}):</span> {allDates.join(', ') || 'empty'}</p>
-                  <p><span className="text-muted-foreground">remainingDates ({remaining.length}):</span> {remaining.join(', ') || 'empty'}</p>
-                  <p><span className="text-muted-foreground">remainingDates (hook):</span> {remainingDates.length} — [{remainingDates.join(', ')}]</p>
-                  <p><span className="text-muted-foreground">myStarts:</span> {slateMyProjection?.totalStartedGames ?? 'N/A'} started / {slateMyProjection?.totalPossibleGames ?? 'N/A'} possible</p>
-                  <p><span className="text-muted-foreground">oppStarts:</span> {slateOppProjection?.totalStartedGames ?? 'N/A'} started / {slateOppProjection?.totalPossibleGames ?? 'N/A'} possible</p>
-                  <p><span className="text-muted-foreground">slateStatus:</span> {slateStatus ? `${slateStatus.notStarted} not started, ${slateStatus.inProgress} live, ${slateStatus.final} final` : 'N/A'}</p>
-                  <p><span className="text-muted-foreground">projectionMode:</span> {projectionModeState.mode}</p>
-                  <p><span className="text-muted-foreground">hasCurrentTotals:</span> {String(hasCurrentTotals)}</p>
-                  <p><span className="text-muted-foreground">hasRemainingTotals:</span> {String(hasRemainingTotals)}</p>
-                  {slateExplanation && <p><span className="text-muted-foreground">explanation:</span> {slateExplanation}</p>}
-                </div>
-              );
-            })()}
-          </Card>
-        </CollapsibleContent>
-      </Collapsible>
-
       {/* 3 OUTCOME CARDS */}
       <div className="space-y-4">
         {/* Card 1: Baseline Strength (X40) */}
@@ -1825,41 +1750,17 @@ Navigate to their team page and copy the whole page.`}
         />
 
         {/* Card 2: Schedule-Aware (Current → Final) */}
-        {(() => {
-          // Compute remaining starts for ScheduleAwareCard
-          const matchupWeekDates = getMatchupWeekDatesFromSchedule();
-          const myROW = (persistedMatchup?.myRoster ?? roster).length > 0
-            ? computeRestOfWeekStarts({
-                rosterPlayers: persistedMatchup?.myRoster ?? roster,
-                matchupDates: matchupWeekDates,
-                gamesByDate,
-                lineupSlots: undefined,
-              })
-            : null;
-          const oppROW = (persistedMatchup?.opponentRoster ?? []).length > 0
-            ? computeRestOfWeekStarts({
-                rosterPlayers: persistedMatchup.opponentRoster!,
-                matchupDates: matchupWeekDates,
-                gamesByDate,
-                lineupSlots: undefined,
-              })
-            : null;
-          return (
-            <ScheduleAwareCard
-              myTeamName={persistedMatchup.myTeam.name}
-              opponentName={persistedMatchup.opponent.name}
-              myCurrentTotals={myCurrentTotalsWithPct}
-              oppCurrentTotals={oppCurrentTotalsWithPct}
-              myRemainingTotals={myRemainingTotalsWithPct}
-              oppRemainingTotals={oppRemainingTotalsWithPct}
-              myFinalTotals={myFinalTotalsWithPct}
-              oppFinalTotals={oppFinalTotalsWithPct}
-              myRemainingStarts={myROW?.remainingStarts ?? 0}
-              oppRemainingStarts={oppROW?.remainingStarts ?? 0}
-              remainingDays={myROW?.remainingDays ?? remainingDates.length}
-            />
-          );
-        })()}
+        <ScheduleAwareCard
+          myTeamName={persistedMatchup.myTeam.name}
+          opponentName={persistedMatchup.opponent.name}
+          myCurrentTotals={myCurrentTotalsWithPct}
+          oppCurrentTotals={oppCurrentTotalsWithPct}
+          myRemainingTotals={myRemainingTotalsWithPct}
+          oppRemainingTotals={oppRemainingTotalsWithPct}
+          myFinalTotals={myFinalTotalsWithPct}
+          oppFinalTotals={oppFinalTotalsWithPct}
+          remainingDays={remainingDates.length}
+        />
 
         {/* Card 3: Today Impact (Current → After Today) */}
         <TodayImpactCard

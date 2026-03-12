@@ -11,7 +11,7 @@ import type { ForecastSettings } from "@/lib/forecastEngine";
 import { projectFinalStandings, predictMatchup } from "@/lib/forecastEngine";
 import type { LeagueSchedule } from "@/lib/scheduleParser";
 import { makeScheduleTeamKey, normalizeName, fuzzyNameMatch } from "@/lib/nameNormalization";
-import { parseDateRangeText, parseSeasonYears } from "@/lib/matchupWeekDates";
+import { parseDateRangeText } from "@/lib/matchupWeekDates";
 
 type TeamAliasMap = Record<string, string>;
 
@@ -32,14 +32,12 @@ interface BracketMatchup {
 }
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  // FIXED: Use parseSeasonYears for correct end year
-  const { endYear } = parseSeasonYears(schedule.season);
-  const seasonYear = endYear;
+  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
   for (const m of schedule.matchups) {
-    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear, endYear);
+    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear);
     if (!start || !end) continue;
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);

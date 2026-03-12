@@ -3,9 +3,6 @@
  *
  * Deterministic, integer-only start optimization used for BOTH user and opponent.
  *
- * All matchup widgets now use one shared schedule-aware remaining-date engine.
- * Game status parsing is shared with slateAwareProjection via parseGameStatus().
- *
  * Rules (per user requirements):
  * - NO injury weighting and NO expected-value logic (no decimals)
  * - DTD/Q/O statuses are NOT filtered (we can add injury modeling later)
@@ -20,7 +17,6 @@ import {
   STANDARD_LINEUP_SLOTS,
   type LineupSlotConfig,
 } from "@/lib/scheduleAwareProjection";
-import { parseGameStatus } from "@/lib/slateAwareProjection";
 
 // ============================================================================
 // DATE/TIME UTILITIES
@@ -36,36 +32,27 @@ export function getTodayDateStr(): string {
 
 /**
  * Determines whether "today" should be considered elapsed (started/in-progress).
- * 
- * Uses the SAME parseGameStatus() from slateAwareProjection to ensure all matchup
- * widgets interpret game statuses identically (Bug 3 fix: unified status parsing).
- * 
- * Handles: scheduled, live, in progress, Q1-Q4, halftime, OT, final, postponed.
- * 
- * - If ANY game today is IN_PROGRESS or FINAL → today is elapsed.
+ * - If ANY game today has status 'live' or 'final', treat today as elapsed.
  * - Otherwise, check if current time >= earliest game time.
  */
 export function hasTodayStarted(todayGames: NBAGame[]): boolean {
   if (!todayGames || todayGames.length === 0) return false;
   
-  // Use shared parseGameStatus from slateAwareProjection for consistent interpretation
-  const hasStartedGame = todayGames.some((g) => {
-    const status = parseGameStatus(g.status || "");
-    return status === 'IN_PROGRESS' || status === 'FINAL';
+  // Check if any game is live or final
+  const hasLiveOrFinal = todayGames.some((g) => {
+    const status = (g.status || "").toLowerCase();
+    return status === "live" || status === "final" || status.includes("in progress");
   });
   
-  if (hasStartedGame) return true;
+  if (hasLiveOrFinal) return true;
   
-  // If no started game by status, check if current time >= earliest VALID game time.
-  // Only parse ISO-8601 or full date strings — skip partial strings like "7:00 PM ET"
-  // which `new Date(...)` interprets incorrectly, causing today to be marked elapsed
-  // before games actually start (Bug fix: fragile gameTime parsing).
+  // If no live/final, check if current time >= earliest game time
   const now = new Date();
   for (const g of todayGames) {
-    if (g.gameTime && g.gameTime.includes('T')) {
+    if (g.gameTime) {
       try {
         const gameDate = new Date(g.gameTime);
-        if (!isNaN(gameDate.getTime()) && now >= gameDate) return true;
+        if (now >= gameDate) return true;
       } catch {
         // Invalid date, ignore
       }

@@ -73,12 +73,10 @@ type ResolvedScheduleResult = {
 };
 
 // Re-use shared parseDateRangeText utility
-import { parseDateRangeText, parseSeasonYears } from "@/lib/matchupWeekDates";
+import { parseDateRangeText } from "@/lib/matchupWeekDates";
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  // FIXED: Use parseSeasonYears to get correct end year for Jan-Aug playoff dates
-  const { endYear } = parseSeasonYears(schedule.season);
-  const seasonYear = endYear;
+  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
   const today = new Date();
   // Normalize to start of day to avoid timezone edge cases
   today.setHours(0, 0, 0, 0);
@@ -86,7 +84,7 @@ function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
   // Build list of all weeks with their parsed date ranges
   const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
   for (const m of schedule.matchups) {
-    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear, endYear);
+    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear);
     if (!start || !end) continue;
     // Normalize dates to start of day
     start.setHours(0, 0, 0, 0);
