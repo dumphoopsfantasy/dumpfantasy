@@ -82,27 +82,95 @@ export function normalizeTeamName(input: string): string {
 }
 
 /**
- * Check if a line looks like a week header
- * Example: "Matchup 1 (Oct 21 - 26)" or "Matchup 11 (Dec 29 - Jan 4)"
+ * Normalize dashes and whitespace in a line for tolerant matching.
+ */
+function normalizeLine(line: string): string {
+  return line
+    .replace(/\u00a0/g, ' ')        // non-breaking space
+    .replace(/[\u2013\u2014]/g, '-') // en/em dash → hyphen
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Named playoff round mapping
+ */
+const NAMED_PLAYOFF_ROUNDS: Record<string, number> = {
+  quarterfinals: 1,
+  'quarter finals': 1,
+  semifinals: 2,
+  'semi finals': 2,
+  finals: 3,
+};
+
+/**
+ * Extract a date range from a header line.
+ * Accepts "(Oct 21 - 26)", "Oct 21 - 26", "(March 9 - 15)", etc.
+ */
+function extractDateRange(line: string): string | null {
+  // Try parenthesized first
+  const parenMatch = line.match(/\(([^)]+)\)/);
+  if (parenMatch) return parenMatch[1].trim();
+  // Try bare date range: month day - [month] day at end of line
+  const bareMatch = line.match(/([A-Za-z]+\s+\d{1,2}\s*-\s*(?:[A-Za-z]+\s+)?\d{1,2})\s*$/);
+  if (bareMatch) return bareMatch[1].trim();
+  return null;
+}
+
+/**
+ * Check if a line looks like a week header.
+ * Supports multiple ESPN formats:
+ *   Matchup 1 (Oct 21 - 26)
+ *   Matchup 19 Mar 9 - 15
+ *   Playoff Round 1 (Mar 2 - 8)
+ *   Playoff Round 2 Mar 9 - 15
+ *   Quarterfinals (Mar 9 - 15)
+ *   Semifinals (Mar 16 - 22)
+ *   Finals (Mar 23 - 29)
  */
 function parseWeekHeader(line: string): { week: number; dateRange: string; isPlayoff?: boolean } | null {
-  // Regular matchup header
-  const matchupMatch = line.match(/^Matchup\s+(\d+)\s*\(([^)]+)\)/i);
+  const norm = normalizeLine(line);
+
+  // Regular matchup: "Matchup N ..."
+  const matchupMatch = norm.match(/^Matchup\s+(\d+)/i);
   if (matchupMatch) {
-    return {
-      week: parseInt(matchupMatch[1], 10),
-      dateRange: matchupMatch[2].trim(),
-    };
+    const dateRange = extractDateRange(norm);
+    if (dateRange) {
+      return {
+        week: parseInt(matchupMatch[1], 10),
+        dateRange,
+      };
+    }
   }
-  // Playoff round header: "Playoff Round 1 (Mar 2 - 8)"
-  const playoffMatch = line.match(/^Playoff\s+Round\s+(\d+)\s*\(([^)]+)\)/i);
+
+  // Playoff Round N ...
+  const playoffMatch = norm.match(/^Playoff\s+Round\s+(\d+)/i);
   if (playoffMatch) {
-    return {
-      week: parseInt(playoffMatch[1], 10), // temporary; will be adjusted to lastRegular + N
-      dateRange: playoffMatch[2].trim(),
-      isPlayoff: true,
-    };
+    const dateRange = extractDateRange(norm);
+    if (dateRange) {
+      return {
+        week: parseInt(playoffMatch[1], 10),
+        dateRange,
+        isPlayoff: true,
+      };
+    }
   }
+
+  // Named playoff rounds: Quarterfinals, Semifinals, Finals
+  const normLower = norm.toLowerCase();
+  for (const [name, round] of Object.entries(NAMED_PLAYOFF_ROUNDS)) {
+    if (normLower.startsWith(name)) {
+      const dateRange = extractDateRange(norm);
+      if (dateRange) {
+        return {
+          week: round,
+          dateRange,
+          isPlayoff: true,
+        };
+      }
+    }
+  }
+
   return null;
 }
 
@@ -246,6 +314,11 @@ export function parseScheduleData(
     // Skip "View/Edit Playoff Bracket" links
     if (/view\/edit\s+playoff\s+bracket/i.test(line)) continue;
 
+    // Debug logging for header candidates
+    if (/matchup|playoff|quarterfinal|semifinal|final/i.test(line)) {
+      console.log("[scheduleParser] header candidate:", line, parseWeekHeader(line));
+    }
+
     // Check for week header (regular or playoff)
     const weekHeader = parseWeekHeader(line);
     if (weekHeader) {
@@ -293,20 +366,27 @@ export function parseScheduleData(
     // Check for exact match
     const matchedTeam = knownTeamMap.get(normalized);
     if (matchedTeam) {
-      // Avoid consecutive duplicates
       if (teamsFoundInWeek[teamsFoundInWeek.length - 1] !== matchedTeam) {
         teamsFoundInWeek.push(matchedTeam);
       }
       continue;
     }
 
-    // Check for partial/fuzzy match (team name might have extra suffix)
+    // Check for partial/fuzzy match: starts-with, or contains
+    let found = false;
     for (const [knownNorm, canonicalName] of knownTeamMap.entries()) {
-      // Check if line starts with known team name
-      if (normalized.startsWith(knownNorm) || knownNorm.startsWith(normalized)) {
+      if (
+        normalized.startsWith(knownNorm) ||
+        knownNorm.startsWith(normalized) ||
+        (knownNorm.length >= 4 && normalized.includes(` ${knownNorm} `)) ||
+        (knownNorm.length >= 4 && normalized.startsWith(`${knownNorm} `)) ||
+        (knownNorm.length >= 4 && normalized.endsWith(` ${knownNorm}`)) ||
+        (knownNorm.length >= 4 && normalized === knownNorm)
+      ) {
         if (teamsFoundInWeek[teamsFoundInWeek.length - 1] !== canonicalName) {
           teamsFoundInWeek.push(canonicalName);
         }
+        found = true;
         break;
       }
     }

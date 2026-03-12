@@ -11,8 +11,18 @@ import { normalizeSeasonString, inferSeasonFromMonths, yearForMonth, type Season
 import { devLog, devWarn } from '@/lib/devLog';
 
 const MONTH_INDEX: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11,
 };
 
 /**
@@ -34,13 +44,26 @@ export function parseSeasonYears(seasonStr: string): { startYear: number; endYea
  * for "2025-26", causing Jan-Aug dates to parse as 2025 instead of 2026.
  * Now accepts { startYear, endYear } so Oct-Dec → startYear, Jan-Aug → endYear.
  */
+/**
+ * Normalize a date range string: replace non-breaking spaces, en/em dashes.
+ */
+function normalizeDateRange(text: string): string {
+  return text
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function parseDateRangeText(
   dateRangeText: string,
   seasonYear: number,
   /** End year of the season (e.g. 2026 for "2025-26"). If provided, Jan-Aug use this. */
   seasonEndYear?: number
 ): { start?: Date; end?: Date } {
-  const m = dateRangeText.match(/^(\w{3})\s+(\d{1,2})\s*-\s*(?:(\w{3})\s+)?(\d{1,2})/);
+  const normalized = normalizeDateRange(dateRangeText);
+  // Accept full or abbreviated month names (3+ chars)
+  const m = normalized.match(/^([A-Za-z]{3,})\s+(\d{1,2})\s*-\s*(?:([A-Za-z]{3,})\s+)?(\d{1,2})/);
   if (!m) return {};
 
   const startMonth = MONTH_INDEX[m[1].toLowerCase()];
