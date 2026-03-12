@@ -11,7 +11,7 @@ import type { ForecastSettings } from "@/lib/forecastEngine";
 import { projectFinalStandings, predictMatchup } from "@/lib/forecastEngine";
 import type { LeagueSchedule } from "@/lib/scheduleParser";
 import { makeScheduleTeamKey, normalizeName, fuzzyNameMatch } from "@/lib/nameNormalization";
-import { parseDateRangeText } from "@/lib/matchupWeekDates";
+import { parseDateRangeText, parseSeasonYears } from "@/lib/matchupWeekDates";
 
 type TeamAliasMap = Record<string, string>;
 
