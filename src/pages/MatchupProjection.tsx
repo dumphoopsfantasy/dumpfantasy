@@ -1814,17 +1814,41 @@ Navigate to their team page and copy the whole page.`}
         />
 
         {/* Card 2: Schedule-Aware (Current → Final) */}
-        <ScheduleAwareCard
-          myTeamName={persistedMatchup.myTeam.name}
-          opponentName={persistedMatchup.opponent.name}
-          myCurrentTotals={myCurrentTotalsWithPct}
-          oppCurrentTotals={oppCurrentTotalsWithPct}
-          myRemainingTotals={myRemainingTotalsWithPct}
-          oppRemainingTotals={oppRemainingTotalsWithPct}
-          myFinalTotals={myFinalTotalsWithPct}
-          oppFinalTotals={oppFinalTotalsWithPct}
-          remainingDays={remainingDates.length}
-        />
+        {(() => {
+          // Compute remaining starts for ScheduleAwareCard
+          const matchupWeekDates = getMatchupWeekDatesFromSchedule();
+          const myROW = (persistedMatchup?.myRoster ?? roster).length > 0
+            ? computeRestOfWeekStarts({
+                rosterPlayers: persistedMatchup?.myRoster ?? roster,
+                matchupDates: matchupWeekDates,
+                gamesByDate,
+                lineupSlots: undefined,
+              })
+            : null;
+          const oppROW = (persistedMatchup?.opponentRoster ?? []).length > 0
+            ? computeRestOfWeekStarts({
+                rosterPlayers: persistedMatchup.opponentRoster!,
+                matchupDates: matchupWeekDates,
+                gamesByDate,
+                lineupSlots: undefined,
+              })
+            : null;
+          return (
+            <ScheduleAwareCard
+              myTeamName={persistedMatchup.myTeam.name}
+              opponentName={persistedMatchup.opponent.name}
+              myCurrentTotals={myCurrentTotalsWithPct}
+              oppCurrentTotals={oppCurrentTotalsWithPct}
+              myRemainingTotals={myRemainingTotalsWithPct}
+              oppRemainingTotals={oppRemainingTotalsWithPct}
+              myFinalTotals={myFinalTotalsWithPct}
+              oppFinalTotals={oppFinalTotalsWithPct}
+              myRemainingStarts={myROW?.remainingStarts ?? 0}
+              oppRemainingStarts={oppROW?.remainingStarts ?? 0}
+              remainingDays={myROW?.remainingDays ?? remainingDates.length}
+            />
+          );
+        })()}
 
         {/* Card 3: Today Impact (Current → After Today) */}
         <TodayImpactCard
