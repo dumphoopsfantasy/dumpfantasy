@@ -113,48 +113,78 @@ function loadPersistedSchedule(): LeagueSchedule | null {
 export function getCurrentMatchupWeekFromSchedule(
   schedule?: LeagueSchedule | null
 ): { week: number; start: Date; end: Date; dateRangeText: string } | null {
-  const sched = schedule ?? loadPersistedSchedule();
-  if (!sched || sched.matchups.length === 0) return null;
+  try {
+    const sched = schedule ?? loadPersistedSchedule();
+    if (!sched || sched.matchups.length === 0) return null;
 
-  // FIXED: Use parseSeasonYears to correctly derive end year for Jan-Aug months.
-  // Previously: parseInt(sched.season.slice(0, 4)) gave 2025 for "2025-26",
-  // causing all Jan-Aug dates (including playoff weeks) to parse as 2025 instead of 2026.
-  const { startYear, endYear } = parseSeasonYears(sched.season);
-  const seasonYear = endYear; // Legacy compat: seasonYear = endYear for the existing API
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+    // Use centralized season parsing — never fatal
+    const { startYear, endYear } = parseSeasonYears(sched.season);
+    const seasonYear = endYear;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  // Build unique weeks with parsed date ranges
-  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean }> = [];
-  const seenWeeks = new Set<number>();
+    devLog('[matchupWeekDates] Season parsed:', { raw: sched.season, startYear, endYear });
 
-  for (const m of sched.matchups) {
-    if (seenWeeks.has(m.week)) continue;
-    seenWeeks.add(m.week);
+    // Build unique weeks with parsed date ranges — skip bad weeks instead of failing
+    const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean }> = [];
+    const seenWeeks = new Set<number>();
+    let skippedWeeks = 0;
 
-    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear, endYear);
-    if (!start || !end) continue;
+    for (const m of sched.matchups) {
+      if (seenWeeks.has(m.week)) continue;
+      seenWeeks.add(m.week);
 
-    start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
+      try {
+        const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear, endYear);
+        if (!start || !end) {
+          skippedWeeks++;
+          devWarn(`[matchupWeekDates] Skipping week ${m.week}: could not parse "${m.dateRangeText}"`);
+          continue;
+        }
 
-    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText });
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+
+        weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText });
+      } catch (e) {
+        skippedWeeks++;
+        devWarn(`[matchupWeekDates] Error parsing week ${m.week}:`, e);
+      }
+    }
+
+    if (skippedWeeks > 0) {
+      devWarn(`[matchupWeekDates] Skipped ${skippedWeeks} malformed weeks, ${weeksWithDates.length} valid`);
+    }
+
+    if (weeksWithDates.length === 0) return null;
+
+    weeksWithDates.sort((a, b) => a.week - b.week);
+
+    devLog('[matchupWeekDates] Parsed weeks:', weeksWithDates.map(w => ({
+      week: w.week,
+      range: `${w.start.toLocaleDateString()} - ${w.end.toLocaleDateString()}`,
+    })));
+
+    // Find the week containing today
+    for (const w of weeksWithDates) {
+      if (today >= w.start && today <= w.end) {
+        devLog('[matchupWeekDates] Active week:', w.week, w.dateRangeText);
+        return w;
+      }
+    }
+
+    // If today is between two weeks (gap), return the next upcoming week
+    for (const w of weeksWithDates) {
+      if (w.start > today) return w;
+    }
+
+    // Return last week as fallback
+    return weeksWithDates[weeksWithDates.length - 1] ?? null;
+  } catch (e) {
+    // Total parser failure — never crash, just return null
+    devWarn('[matchupWeekDates] getCurrentMatchupWeekFromSchedule failed:', e);
+    return null;
   }
-
-  weeksWithDates.sort((a, b) => a.week - b.week);
-
-  // Find the week containing today
-  for (const w of weeksWithDates) {
-    if (today >= w.start && today <= w.end) return w;
-  }
-
-  // If today is between two weeks (gap), return the next upcoming week
-  for (const w of weeksWithDates) {
-    if (w.start > today) return w;
-  }
-
-  // Return last week as fallback
-  return weeksWithDates[weeksWithDates.length - 1] ?? null;
 }
 
 /**
