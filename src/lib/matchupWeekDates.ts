@@ -14,12 +14,40 @@ const MONTH_INDEX: Record<string, number> = {
 };
 
 /**
+ * Parse a season string like "2025-26" into { startYear, endYear }.
+ * Handles formats: "2025-26", "2025-2026", "2025", "2026".
+ * The NBA fantasy season spans Oct of startYear through Apr+ of endYear.
+ */
+export function parseSeasonYears(seasonStr: string): { startYear: number; endYear: number } {
+  // Try "YYYY-YY" or "YYYY-YYYY" format
+  const m = seasonStr.match(/^(\d{4})-(\d{2,4})$/);
+  if (m) {
+    const startYear = parseInt(m[1]);
+    const endSuffix = m[2];
+    // "2025-26" → endYear=2026; "2025-2026" → endYear=2026
+    const endYear = endSuffix.length === 2
+      ? parseInt(m[1].slice(0, 2) + endSuffix)
+      : parseInt(endSuffix);
+    return { startYear, endYear };
+  }
+  // Single year: assume it's the start year
+  const year = parseInt(seasonStr) || new Date().getFullYear();
+  return { startYear: year, endYear: year + 1 };
+}
+
+/**
  * Parse a date range text like "Feb 9 - 22" or "Dec 29 - Jan 4"
  * into start/end Date objects.
+ *
+ * FIXED: Previously derived seasonYear from season.slice(0,4) which gave 2025
+ * for "2025-26", causing Jan-Aug dates to parse as 2025 instead of 2026.
+ * Now accepts { startYear, endYear } so Oct-Dec → startYear, Jan-Aug → endYear.
  */
 export function parseDateRangeText(
   dateRangeText: string,
-  seasonYear: number
+  seasonYear: number,
+  /** End year of the season (e.g. 2026 for "2025-26"). If provided, Jan-Aug use this. */
+  seasonEndYear?: number
 ): { start?: Date; end?: Date } {
   const m = dateRangeText.match(/^(\w{3})\s+(\d{1,2})\s*-\s*(?:(\w{3})\s+)?(\d{1,2})/);
   if (!m) return {};
@@ -31,12 +59,18 @@ export function parseDateRangeText(
 
   if (startMonth === undefined || endMonth === undefined) return {};
 
-  // NBA fantasy seasons span year boundary; Oct-Dec use seasonYear-1
-  const startYear = startMonth >= 9 ? seasonYear - 1 : seasonYear;
-  const endYear = endMonth >= 9 ? seasonYear - 1 : seasonYear;
+  // NBA fantasy seasons span year boundary:
+  //   Oct-Dec (months 9-11) → startYear (e.g. 2025)
+  //   Jan-Aug (months 0-8)  → endYear   (e.g. 2026)
+  // When seasonEndYear is provided, use it for Jan-Aug; otherwise fall back
+  // to legacy behavior (seasonYear for Jan-Aug, seasonYear-1 for Oct-Dec).
+  const sYear = seasonEndYear ?? seasonYear;
+  const eYear = seasonEndYear ?? seasonYear;
+  const startYear = startMonth >= 9 ? (seasonEndYear ? seasonEndYear - 1 : seasonYear - 1) : sYear;
+  const endYear2 = endMonth >= 9 ? (seasonEndYear ? seasonEndYear - 1 : seasonYear - 1) : eYear;
 
   const start = new Date(startYear, startMonth, startDay);
-  const end = new Date(endYear, endMonth, endDay);
+  const end = new Date(endYear2, endMonth, endDay);
 
   return { start, end };
 }
