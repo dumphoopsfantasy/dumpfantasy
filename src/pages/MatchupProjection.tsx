@@ -1776,7 +1776,8 @@ Navigate to their team page and copy the whole page.`}
               const currentWeek = getCurrentMatchupWeekFromSchedule();
               const allDates = getMatchupWeekDatesFromSchedule();
               const remaining = getRemainingMatchupDatesFromSchedule();
-              const todayStr = new Date().toISOString().slice(0, 10);
+              const now = new Date();
+              const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
               const schedRaw = localStorage.getItem('dumphoops-schedule.v2');
               const sched = schedRaw ? JSON.parse(schedRaw) : null;
               return (
