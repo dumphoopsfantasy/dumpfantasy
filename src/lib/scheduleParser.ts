@@ -158,16 +158,26 @@ export function parseScheduleData(
     );
   }
 
-  // Detect season from year mention
-  // Prefer YYYY-YYYY, then YYYY-YY, then bare YYYY to avoid partial captures
-  const seasonMatch = data.match(/20\d{2}-20\d{2}/)
-    || data.match(/20\d{2}-\d{2}/)
-    || data.match(/20\d{2}/);
-  let season = seasonMatch ? seasonMatch[0] : new Date().getFullYear().toString();
-  // Normalize "2025-2026" → "2025-26"
-  const fullYearMatch = season.match(/^(\d{4})-(\d{4})$/);
-  if (fullYearMatch) {
-    season = `${fullYearMatch[1]}-${fullYearMatch[2].slice(2)}`;
+  // Season extraction — non-fatal: malformed season never blocks matchup parsing
+  let season: string;
+  try {
+    const rawSeason = extractSeasonFromText(data);
+    const parsed = normalizeSeasonString(rawSeason);
+    if (parsed) {
+      season = formatSeasonDisplay(parsed);
+    } else {
+      // No season found in text — infer from current date
+      const inferred = inferSeasonFromMonths([]);
+      season = formatSeasonDisplay(inferred);
+      warnings.push("Could not detect season from pasted text; inferred from current date.");
+    }
+  } catch (e) {
+    // Season parsing should NEVER throw, but if it does, recover gracefully
+    const now = new Date();
+    const m = now.getMonth();
+    const y = now.getFullYear();
+    season = m >= 9 ? `${y}-${String(y + 1).slice(2)}` : `${y - 1}-${String(y).slice(2)}`;
+    warnings.push("Season detection encountered an error; using inferred season.");
   }
 
   // Split into lines
