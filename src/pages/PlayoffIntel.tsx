@@ -66,12 +66,14 @@ function parseRecordParts(record?: string): { wins: number; losses: number; ties
 }
 
 function getSuggestedCurrentWeek(schedule: LeagueSchedule): number {
-  const seasonYear = parseInt(schedule.season.slice(0, 4)) || new Date().getFullYear();
+  // FIXED: Use parseSeasonYears for correct end year
+  const { endYear } = parseSeasonYears(schedule.season);
+  const seasonYear = endYear;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weeksWithDates: Array<{ week: number; start: Date; end: Date }> = [];
   for (const m of schedule.matchups) {
-    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear);
+    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear, endYear);
     if (!start || !end) continue;
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);
