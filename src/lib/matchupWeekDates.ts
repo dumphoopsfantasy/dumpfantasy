@@ -7,6 +7,8 @@
  */
 
 import { LeagueSchedule, normalizeTeamName } from '@/lib/scheduleParser';
+import { normalizeSeasonString, inferSeasonFromMonths, yearForMonth, type SeasonYears } from '@/lib/seasonUtils';
+import { devLog, devWarn } from '@/lib/devLog';
 
 const MONTH_INDEX: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -15,29 +17,13 @@ const MONTH_INDEX: Record<string, number> = {
 
 /**
  * Parse a season string like "2025-26" into { startYear, endYear }.
- * Handles formats: "2025-26", "2025-2026", "2025", "2026".
- * The NBA fantasy season spans Oct of startYear through Apr+ of endYear.
+ * Now delegates to centralised normalizeSeasonString with safe fallback.
  */
 export function parseSeasonYears(seasonStr: string): { startYear: number; endYear: number } {
-  // Try "YYYY-YYYY" or "YYYY-YY" format
-  const m = seasonStr.match(/^(\d{4})-(\d{2,4})$/);
-  if (m) {
-    const startYear = parseInt(m[1]);
-    const endSuffix = m[2];
-    const endYear = endSuffix.length === 4
-      ? parseInt(endSuffix)
-      : parseInt(m[1].slice(0, 2) + endSuffix);
-
-    // Sanity check: endYear should be startYear + 1
-    if (endYear >= startYear && endYear <= startYear + 1) {
-      return { startYear, endYear };
-    }
-    // Bad parse (e.g. "2025-20" → 2020); recover by assuming +1
-    return { startYear, endYear: startYear + 1 };
-  }
-  // Single year: assume it's the start year
-  const year = parseInt(seasonStr) || new Date().getFullYear();
-  return { startYear: year, endYear: year + 1 };
+  const result = normalizeSeasonString(seasonStr);
+  if (result) return result;
+  // Fallback: infer from current date
+  return inferSeasonFromMonths([]);
 }
 
 /**
