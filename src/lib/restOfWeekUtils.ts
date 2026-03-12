@@ -3,6 +3,9 @@
  *
  * Deterministic, integer-only start optimization used for BOTH user and opponent.
  *
+ * All matchup widgets now use one shared schedule-aware remaining-date engine.
+ * Game status parsing is shared with slateAwareProjection via parseGameStatus().
+ *
  * Rules (per user requirements):
  * - NO injury weighting and NO expected-value logic (no decimals)
  * - DTD/Q/O statuses are NOT filtered (we can add injury modeling later)
