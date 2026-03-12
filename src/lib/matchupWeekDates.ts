@@ -135,7 +135,7 @@ export function getCurrentMatchupWeekFromSchedule(
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
-  const seasonYear = parseInt(sched.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonYear = getSeasonEndYear(sched.season);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
