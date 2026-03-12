@@ -314,6 +314,11 @@ export function parseScheduleData(
     // Skip "View/Edit Playoff Bracket" links
     if (/view\/edit\s+playoff\s+bracket/i.test(line)) continue;
 
+    // Debug logging for header candidates
+    if (/matchup|playoff|quarterfinal|semifinal|final/i.test(line)) {
+      console.log("[scheduleParser] header candidate:", line, parseWeekHeader(line));
+    }
+
     // Check for week header (regular or playoff)
     const weekHeader = parseWeekHeader(line);
     if (weekHeader) {
@@ -361,20 +366,27 @@ export function parseScheduleData(
     // Check for exact match
     const matchedTeam = knownTeamMap.get(normalized);
     if (matchedTeam) {
-      // Avoid consecutive duplicates
       if (teamsFoundInWeek[teamsFoundInWeek.length - 1] !== matchedTeam) {
         teamsFoundInWeek.push(matchedTeam);
       }
       continue;
     }
 
-    // Check for partial/fuzzy match (team name might have extra suffix)
+    // Check for partial/fuzzy match: starts-with, or contains
+    let found = false;
     for (const [knownNorm, canonicalName] of knownTeamMap.entries()) {
-      // Check if line starts with known team name
-      if (normalized.startsWith(knownNorm) || knownNorm.startsWith(normalized)) {
+      if (
+        normalized.startsWith(knownNorm) ||
+        knownNorm.startsWith(normalized) ||
+        (knownNorm.length >= 4 && normalized.includes(` ${knownNorm} `)) ||
+        (knownNorm.length >= 4 && normalized.startsWith(`${knownNorm} `)) ||
+        (knownNorm.length >= 4 && normalized.endsWith(` ${knownNorm}`)) ||
+        (knownNorm.length >= 4 && normalized === knownNorm)
+      ) {
         if (teamsFoundInWeek[teamsFoundInWeek.length - 1] !== canonicalName) {
           teamsFoundInWeek.push(canonicalName);
         }
+        found = true;
         break;
       }
     }
