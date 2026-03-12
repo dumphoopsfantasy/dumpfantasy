@@ -32,21 +32,36 @@ export function getTodayDateStr(): string {
 
 /**
  * Determines whether "today" should be considered elapsed (started/in-progress).
- * - If ANY game today has status 'live' or 'final', treat today as elapsed.
+ * 
+ * Uses shared game status interpretation to handle all real-world statuses:
+ * live, final, Q1-Q4, halftime, OT, postponed, in progress, etc.
+ * 
+ * - If ANY game today is in-progress or final → today is elapsed.
  * - Otherwise, check if current time >= earliest game time.
  */
 export function hasTodayStarted(todayGames: NBAGame[]): boolean {
   if (!todayGames || todayGames.length === 0) return false;
   
-  // Check if any game is live or final
-  const hasLiveOrFinal = todayGames.some((g) => {
-    const status = (g.status || "").toLowerCase();
-    return status === "live" || status === "final" || status.includes("in progress");
+  // Check if any game has started using comprehensive status matching
+  const hasStartedGame = todayGames.some((g) => {
+    const status = (g.status || "").toLowerCase().trim();
+    // Final / postponed
+    if (status === "final" || status.includes("final") || status === "postponed") return true;
+    // Live / in progress / quarter / halftime / OT
+    if (status === "live" || status === "in progress" ||
+        status === "halftime" || status === "half" ||
+        /^q[1-4]$/i.test(status) || status.includes("qtr") ||
+        status.includes("1st") || status.includes("2nd") || status.includes("3rd") || status.includes("4th") ||
+        status.includes("ot") || status.includes("overtime") ||
+        /^\d+:\d+/.test(status)) {
+      return true;
+    }
+    return false;
   });
   
-  if (hasLiveOrFinal) return true;
+  if (hasStartedGame) return true;
   
-  // If no live/final, check if current time >= earliest game time
+  // If no started game, check if current time >= earliest game time
   const now = new Date();
   for (const g of todayGames) {
     if (g.gameTime) {

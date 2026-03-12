@@ -131,8 +131,9 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     gamesByDate,
   } = useNBAUpcomingSchedule(21);
   
-  // Get matchup week dates for badges
-  const matchupWeekDates = useMemo(() => getMatchupWeekDates(), []);
+  // FIXED: Recompute matchup week dates when schedule refreshes.
+  // Previously had empty deps [] which froze dates at initial render.
+  const matchupWeekDates = useMemo(() => getMatchupWeekDates(), [gamesByDate]);
   
   // Enhanced streaming schedule hook
   const {

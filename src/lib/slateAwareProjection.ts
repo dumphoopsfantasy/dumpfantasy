@@ -62,24 +62,34 @@ export interface PlayerGameStatus {
 // ============================================================================
 
 /**
- * Parse game status from ESPN API status string
+ * Parse game status from ESPN API status string.
+ * 
+ * Handles all common real-world status values:
+ * - scheduled / not started → NOT_STARTED
+ * - live / in progress / Q1-Q4 / halftime / OT → IN_PROGRESS
+ * - final → FINAL
+ * - postponed → FINAL (treat as resolved for projection purposes)
  */
 export function parseGameStatus(espnStatus: string): GameStatus {
   if (!espnStatus) return 'NOT_STARTED';
   
-  const s = espnStatus.toLowerCase();
+  const s = espnStatus.toLowerCase().trim();
   
-  // Final states
-  if (s === 'final' || s.includes('final')) return 'FINAL';
+  // Final / postponed states (treat postponed as resolved — no stats coming)
+  if (s === 'final' || s.includes('final') || s === 'postponed') return 'FINAL';
   
-  // In progress states
-  if (s === 'in progress' || s.includes('qtr') || s === 'halftime' || 
+  // In progress states — quarter labels, halftime, OT, live, etc.
+  if (s === 'in progress' || s === 'live' ||
+      s === 'halftime' || s === 'half' ||
+      /^q[1-4]$/i.test(s) || s.includes('qtr') ||
       s.includes('1st') || s.includes('2nd') || s.includes('3rd') || s.includes('4th') ||
-      s.includes('ot') || s.includes('overtime')) {
+      s.includes('ot') || s.includes('overtime') ||
+      /^\d+:\d+/.test(s) /* clock-style like "3:42 Q2" */) {
     return 'IN_PROGRESS';
   }
   
-  // Default to not started
+  // Explicitly scheduled / not started
+  // Default: treat unknown statuses as not started
   return 'NOT_STARTED';
 }
 
