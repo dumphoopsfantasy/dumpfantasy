@@ -699,6 +699,8 @@ export const MatchupProjection = ({
       return map;
     };
 
+    const parseWarnings: string[] = [];
+
     // Find the stats section - look for "MIN" followed by stat headers
     let statsStartIdx = -1;
     for (let i = 0; i < lines.length; i++) {
@@ -727,7 +729,7 @@ export const MatchupProjection = ({
 
     // Extract headers from statsStartIdx
     const headers: string[] = [];
-    let dataStartIdx = statsStartIdx;
+    let dataStartIdx = statsStartIdx > -1 ? statsStartIdx : 0;
     if (statsStartIdx > -1) {
       dataStartIdx = statsStartIdx;
       while (
@@ -740,6 +742,13 @@ export const MatchupProjection = ({
         dataStartIdx++;
       }
     }
+
+    // Fallback for ESPN format drift: keep parser resilient if header detection misses.
+    if (headers.length === 0) {
+      headers.push('MIN', 'FGM/FGA', 'FG%', 'FTM/FTA', 'FT%', '3PM', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PTS', 'PR15', '%ROST', '+/-');
+      parseWarnings.push('Stats header not found; used fallback column mapping.');
+      devWarn('[parseESPNTeamPage] Stats header not found, using fallback column mapping.');
+    }
     
     const indexMap = buildHeaderIndexMap(headers);
     devLog('[parseESPNTeamPage] Headers:', headers);
@@ -747,8 +756,6 @@ export const MatchupProjection = ({
     
     // Columns after split: MIN, FGM, FGA, FG%, FTM, FTA, FT%, 3PM, REB, AST, STL, BLK, TO, PTS, PR15, %ROST, +/- = 17 tokens
     const COLS = 17;
-
-    const parseWarnings: string[] = [];
 
     const statTokens: string[] = [];
     for (let i = dataStartIdx; i < lines.length; i++) {
