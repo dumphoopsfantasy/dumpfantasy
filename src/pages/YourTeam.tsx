@@ -28,7 +28,8 @@ export const YourTeam = () => {
 
   // Fetch NBA schedule for position breakdown
   const { gamesByDate, isLoading: scheduleLoading } = useNBAUpcomingSchedule(21);
-  const matchupDates = useMemo(() => getMatchupWeekDates(), []);
+  // FIXED: Recompute when schedule refreshes
+  const matchupDates = useMemo(() => getMatchupWeekDates(), [gamesByDate]);
 
   // Calculate CRI/wCRI using exact logic from user spec
   const { enhancedRoster, categoryRanks, activePlayerCount } = useMemo(() => {
