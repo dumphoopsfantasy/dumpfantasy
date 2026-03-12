@@ -180,9 +180,13 @@ function getOpponentFromSchedule(
   return game.homeTeam === normalizedTeam ? game.awayTeam : game.homeTeam;
 }
 
-// Generate matchup week dates
+/**
+ * Generate matchup week dates from the shared schedule-aware matchup date source.
+ * Uses getMatchupWeekDatesFromSchedule (same source as all matchup widgets)
+ * to ensure Start/Sit, Rest of Week, and projection cards all agree on dates.
+ */
 function generateMatchupWeekDates(): MatchupWeekDate[] {
-  const weekDateStrs = getMatchupWeekDates();
+  const weekDateStrs = getMatchupWeekDatesFromSchedule();
   const now = new Date();
   const todayStr = formatDateForAPI(now);
   

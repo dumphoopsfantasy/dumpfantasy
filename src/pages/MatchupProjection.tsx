@@ -363,32 +363,50 @@ export const MatchupProjection = ({
   // =========================
   // CURRENT TOTALS (derived from Weekly Scoreboard OR explicit import)
   // =========================
-  // First, try to derive from weeklyMatchups (Weekly tab scoreboard data)
+  // First, try to derive from weeklyMatchups (Weekly tab scoreboard data).
+  //
+  // FIXED: The weekly scoreboard only provides FG%/FT% (not makes/attempts).
+  // Previously fgm/fga/ftm/fta were set to 0, which caused addTotals + withDerivedPct
+  // to produce incorrect combined final percentages (the current FG%/FT% contribution
+  // was lost because 0 makes / 0 attempts contributed nothing to the combined ratio).
+  //
+  // Fix: Estimate FGM/FGA and FTM/FTA from available counting stats and percentages.
+  // Formula: PTS = 2*(FGM - 3PM) + 3*3PM + FTM → FGM = (PTS - 3PM - FTM) / 2
+  // We estimate FTA first from a typical FTA/PTS ratio (~0.25), then derive FTM = FT% * FTA.
+  // Then FGM = (PTS - 3PM - FTM) / 2, FGA = FGM / FG%.
   const weeklyDerivedCurrentTotals = useMemo(() => {
     if (!myWeeklyData) return null;
     
-    // Convert WeeklyTeamStats to TeamTotalsWithPct
-    // Note: Weekly scoreboard has FG%/FT% directly but not makes/attempts
-    // We'll set fgm/fga/ftm/fta to 0 and use the percentage directly
-    const convertToTotals = (stats: WeeklyTeamStats): TeamTotalsWithPct => ({
-      fgm: 0,
-      fga: 0,
-      ftm: 0,
-      fta: 0,
-      threepm: stats.threepm,
-      rebounds: stats.rebounds,
-      assists: stats.assists,
-      steals: stats.steals,
-      blocks: stats.blocks,
-      turnovers: stats.turnovers,
-      points: stats.points,
-      fgPct: stats.fgPct,
-      ftPct: stats.ftPct,
-    });
+    const estimateMakesAttempts = (stats: WeeklyTeamStats): TeamTotalsWithPct => {
+      // Estimate FTA from points (typical NBA FTA/PTS ratio ~0.25)
+      const estimatedFTA = Math.max(1, Math.round(stats.points * 0.25));
+      const estimatedFTM = stats.ftPct * estimatedFTA;
+      
+      // PTS = 2*(FGM - 3PM) + 3*3PM + FTM = 2*FGM + 3PM + FTM
+      // → FGM = (PTS - 3PM - FTM) / 2
+      const estimatedFGM = Math.max(0, (stats.points - stats.threepm - estimatedFTM) / 2);
+      const estimatedFGA = stats.fgPct > 0 ? estimatedFGM / stats.fgPct : Math.max(1, estimatedFGM * 2.2);
+      
+      return {
+        fgm: estimatedFGM,
+        fga: estimatedFGA,
+        ftm: estimatedFTM,
+        fta: estimatedFTA,
+        threepm: stats.threepm,
+        rebounds: stats.rebounds,
+        assists: stats.assists,
+        steals: stats.steals,
+        blocks: stats.blocks,
+        turnovers: stats.turnovers,
+        points: stats.points,
+        fgPct: stats.fgPct,
+        ftPct: stats.ftPct,
+      };
+    };
     
     return {
-      myTotals: convertToTotals(myWeeklyData.myTeam.stats),
-      oppTotals: convertToTotals(myWeeklyData.opponent.stats),
+      myTotals: estimateMakesAttempts(myWeeklyData.myTeam.stats),
+      oppTotals: estimateMakesAttempts(myWeeklyData.opponent.stats),
     };
   }, [myWeeklyData]);
 
