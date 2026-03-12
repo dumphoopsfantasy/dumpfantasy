@@ -402,6 +402,14 @@ export const ScheduleForecast = ({
       const knownTeamNames = leagueTeams.map((t) => t.name);
       const result = parseScheduleData(rawScheduleData, knownTeamNames);
       
+      // Guard: only persist if at least one valid matchup was parsed
+      if (result.schedule.matchups.length === 0) {
+        setParseWarnings(result.warnings.length > 0 ? result.warnings : ["No valid matchups found. Check your paste and try again."]);
+        setDebugInfo(result.debugInfo || null);
+        toast({ title: "Parse failed", description: "No matchups could be extracted. Schedule was NOT saved.", variant: "destructive" });
+        return;
+      }
+
       setSchedule(result.schedule);
       setParseWarnings(result.warnings);
       setDebugInfo(result.debugInfo || null);

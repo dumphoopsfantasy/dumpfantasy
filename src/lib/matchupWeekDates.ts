@@ -63,14 +63,37 @@ function generateDateRange(start: Date, end: Date): string[] {
 }
 
 /**
+ * Validate that a parsed schedule object is structurally sound.
+ * Rejects schedules with no matchups or missing required fields.
+ */
+export function isValidSchedule(schedule: unknown): schedule is LeagueSchedule {
+  if (!schedule || typeof schedule !== 'object') return false;
+  const s = schedule as Partial<LeagueSchedule>;
+  if (!Array.isArray(s.matchups) || s.matchups.length === 0) return false;
+  // Every matchup must have a week number and date range
+  return s.matchups.every(
+    m => typeof m.week === 'number' && m.week > 0 && typeof m.dateRangeText === 'string' && m.dateRangeText.length > 0
+  );
+}
+
+/**
  * Try to load the persisted league schedule from localStorage.
+ * Auto-clears corrupted or invalid data to prevent downstream poisoning.
  */
 function loadPersistedSchedule(): LeagueSchedule | null {
   try {
     const raw = localStorage.getItem('dumphoops-schedule.v2');
     if (!raw) return null;
-    return JSON.parse(raw) as LeagueSchedule;
+    const parsed = JSON.parse(raw);
+    if (!isValidSchedule(parsed)) {
+      console.warn('[matchupWeekDates] Corrupted schedule data detected, clearing.');
+      localStorage.removeItem('dumphoops-schedule.v2');
+      return null;
+    }
+    return parsed;
   } catch {
+    console.warn('[matchupWeekDates] Failed to parse schedule data, clearing.');
+    localStorage.removeItem('dumphoops-schedule.v2');
     return null;
   }
 }
