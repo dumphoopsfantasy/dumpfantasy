@@ -592,6 +592,7 @@ export const MatchupProjection = ({
     
     const lines = data
       .trim()
+      .replace(/\t/g, '\n')  // Split tab-separated content (ESPN headers) into separate lines
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l);
