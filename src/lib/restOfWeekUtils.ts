@@ -20,6 +20,7 @@ import {
   STANDARD_LINEUP_SLOTS,
   type LineupSlotConfig,
 } from "@/lib/scheduleAwareProjection";
+import { parseGameStatus } from "@/lib/slateAwareProjection";
 
 // ============================================================================
 // DATE/TIME UTILITIES
