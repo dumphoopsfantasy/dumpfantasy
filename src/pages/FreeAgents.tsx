@@ -2398,10 +2398,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         />
       )}
 
-       {/* Stats Table */}
+       {/* Stats Table — wide desktop-first layout with horizontal overflow.
+         * All matchup widgets now use one shared schedule-aware remaining-date engine.
+         * Free Agents table now uses a wide desktop-first data layout with horizontal
+         * overflow instead of compressed columns. */}
       <Card className="gradient-card border-border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" style={{ minWidth: '1100px' }}>
             <thead>
               <tr className="border-b border-border bg-accent/20">
                 {tradeAnalyzerMode && (
