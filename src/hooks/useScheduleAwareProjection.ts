@@ -41,8 +41,9 @@ export function useScheduleAwareProjection({
   // Get schedule for the full week (7 days from today to cover remaining week)
   const { gamesByDate, isLoading, error } = useNBAUpcomingSchedule(7);
   
-  const weekDates = useMemo(() => getMatchupWeekDates(), []);
-  const remainingDates = useMemo(() => getRemainingMatchupDates(), []);
+  // FIXED: Recompute dates when schedule refreshes (handles date rollover)
+  const weekDates = useMemo(() => getMatchupWeekDates(), [gamesByDate]);
+  const remainingDates = useMemo(() => getRemainingMatchupDates(), [gamesByDate]);
   
   // Debug log inputs
   useMemo(() => {
