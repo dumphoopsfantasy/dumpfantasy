@@ -316,7 +316,13 @@ export const MatchupProjection = ({
   const [showBreakdown, setShowBreakdown] = useState(false); // Dynamic projection collapsed by default
   // projectionMode removed - schedule-aware is now the only mode
 
-  const dayInfo = getMatchupDayInfo();
+  const activeMatchupPeriod = resolveActiveMatchupPeriod();
+  const scheduleDiagnostics = getPersistedScheduleDiagnostics();
+  const isScheduleUnresolved = scheduleDiagnostics.hasSchedule && !activeMatchupPeriod;
+  const unresolvedMatchupMessage = scheduleDiagnostics.playoffMatchups > 0
+    ? "Unable to resolve active playoff matchup from imported schedule"
+    : "Unable to resolve active matchup period from schedule data";
+  const dayInfo = getMatchupDayInfo(activeMatchupPeriod);
   
   // NBA schedule for Start/Sit Advisor
   const { gamesByDate } = useNBAUpcomingSchedule(14);
