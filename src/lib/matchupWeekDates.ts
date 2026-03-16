@@ -233,22 +233,39 @@ export function getMatchupWeekDatesFromSchedule(): string[] {
   const currentWeek = getCurrentMatchupWeekFromSchedule();
 
   if (currentWeek) {
-    return generateDateRange(currentWeek.start, currentWeek.end);
+    const dates = generateDateRange(currentWeek.start, currentWeek.end);
+    devLog('[matchupWeekDates] Active matchup window:', {
+      week: currentWeek.week,
+      dateRangeText: currentWeek.dateRangeText,
+      isPlayoff: currentWeek.isPlayoff ?? false,
+      startDate: currentWeek.start.toISOString().slice(0, 10),
+      endDate: currentWeek.end.toISOString().slice(0, 10),
+      totalDays: dates.length,
+    });
+    return dates;
   }
 
+  devWarn('[matchupWeekDates] No schedule found, falling back to Mon-Sun.');
   // Fallback: standard Mon-Sun week
   return getDefaultMonSunDates();
 }
 
 /**
- * Get remaining dates in the current matchup week (from today onward).
+ * Get remaining dates in the current matchup week (from today onward, inclusive).
  */
 export function getRemainingMatchupDatesFromSchedule(): string[] {
   const allDates = getMatchupWeekDatesFromSchedule();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  return allDates.filter(d => d >= todayStr);
+  const remaining = allDates.filter(d => d >= todayStr);
+  devLog('[matchupWeekDates] Remaining dates:', {
+    today: todayStr,
+    totalInWeek: allDates.length,
+    remaining: remaining.length,
+    dates: remaining,
+  });
+  return remaining;
 }
 
 /**
