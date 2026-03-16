@@ -24,9 +24,11 @@ import { getProjectionExplanation } from "@/lib/slateAwareProjection";
 import { BaselineCard, ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
 import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
-import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
-import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
-import { getCurrentMatchupWeekFromSchedule } from "@/lib/matchupWeekDates";
+import {
+  ActiveMatchupPeriod,
+  getPersistedScheduleDiagnostics,
+  resolveActiveMatchupPeriod,
+} from "@/lib/matchupWeekDates";
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
   // Look for stat window patterns in the Stats section specifically
