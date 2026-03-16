@@ -221,20 +221,39 @@ function computeTodayExpectedFromRoster(roster: RosterSlot[]): TeamStats & { has
   };
 }
 
-// Get day info for America/New_York timezone
-function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string } {
+// Get day info using actual matchup week dates (not hardcoded Mon-Sun)
+function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string; isPlayoff: boolean; playoffRound?: number } {
   const now = new Date();
-  // Get current day in Eastern Time
   const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'America/New_York' };
   const dayName = new Intl.DateTimeFormat('en-US', options).format(now);
   const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(dayName);
   
-  // Fantasy weeks typically run Mon-Sun, so Sunday is day 7
-  const isFinalDay = dayOfWeek === 0; // Sunday
-  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek; // Convert to 1-7 (Mon=1, Sun=7)
+  // Use actual matchup week dates for day counting
+  const currentWeek = getCurrentMatchupWeekFromSchedule();
+  if (currentWeek) {
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const startStr = `${currentWeek.start.getFullYear()}-${String(currentWeek.start.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.start.getDate()).padStart(2, '0')}`;
+    const endStr = `${currentWeek.end.getFullYear()}-${String(currentWeek.end.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.end.getDate()).padStart(2, '0')}`;
+    
+    // Calculate total days and current day index
+    const msPerDay = 86400000;
+    const totalDays = Math.round((currentWeek.end.getTime() - currentWeek.start.getTime()) / msPerDay) + 1;
+    const dayIndex = Math.max(1, Math.round((now.getTime() - currentWeek.start.getTime()) / msPerDay) + 1);
+    const isFinalDay = todayStr === endStr;
+    const prefix = currentWeek.isPlayoff ? `Playoff R${(currentWeek.week - (currentWeek.week > 100 ? 100 : 18))} · ` : '';
+    const dayLabel = isFinalDay 
+      ? `${prefix}Day ${totalDays}/${totalDays} (${dayName}) — Final day`
+      : `${prefix}Day ${dayIndex}/${totalDays} (${dayName})`;
+    
+    return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: !!currentWeek.isPlayoff, playoffRound: currentWeek.isPlayoff ? currentWeek.week : undefined };
+  }
+  
+  // Fallback: Mon-Sun
+  const isFinalDay = dayOfWeek === 0;
+  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek;
   const dayLabel = isFinalDay ? "Day 7/7 (Sunday) — Final day" : `Day ${dayNumber}/7 (${dayName})`;
   
-  return { dayOfWeek, dayName, isFinalDay, dayLabel };
+  return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: false };
 }
 
 // Check if a player is OUT
