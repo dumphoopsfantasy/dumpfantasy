@@ -3,10 +3,12 @@
  * 
  * Determines the actual date range for the current fantasy matchup week.
  * Uses the imported league schedule when available (supports extended weeks
- * like All-Star break), falling back to Mon-Sun when no schedule is imported.
+ * like All-Star break AND playoff rounds), falling back to Mon-Sun when
+ * no schedule is imported.
  */
 
 import { LeagueSchedule, normalizeTeamName } from '@/lib/scheduleParser';
+import { devLog, devWarn } from '@/lib/devLog';
 
 const MONTH_INDEX: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -99,21 +101,41 @@ function loadPersistedSchedule(): LeagueSchedule | null {
 }
 
 /**
+ * Extract the "spring half" year from a season string.
+ * "2025-26" → 2026, "2026" → 2026.
+ * NBA seasons span Oct-Apr: Oct-Dec uses firstYear, Jan-Sep uses secondYear.
+ */
+export function resolveSeasonYear(season: string): number {
+  const parts = season.match(/^(\d{4})(?:-(\d{2,4}))?/);
+  if (!parts) return new Date().getFullYear();
+  const firstYear = parseInt(parts[1]);
+  if (parts[2]) {
+    // "2025-26" → secondYear = 2026
+    const raw = parseInt(parts[2]);
+    const secondYear = raw < 100
+      ? Math.floor(firstYear / 100) * 100 + raw
+      : raw;
+    return secondYear;
+  }
+  return firstYear;
+}
+
+/**
  * Find the current matchup week from the league schedule based on today's date.
  * Returns the week's date range or null if no matching week found.
  */
 export function getCurrentMatchupWeekFromSchedule(
   schedule?: LeagueSchedule | null
-): { week: number; start: Date; end: Date; dateRangeText: string } | null {
+): { week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean } | null {
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
-  const seasonYear = parseInt(sched.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonYear = resolveSeasonYear(sched.season);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   // Build unique weeks with parsed date ranges
-  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string }> = [];
+  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean }> = [];
   const seenWeeks = new Set<number>();
 
   for (const m of sched.matchups) {
@@ -126,7 +148,7 @@ export function getCurrentMatchupWeekFromSchedule(
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);
 
-    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText });
+    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText, isPlayoff: m.isPlayoff });
   }
 
   weeksWithDates.sort((a, b) => a.week - b.week);
@@ -211,22 +233,39 @@ export function getMatchupWeekDatesFromSchedule(): string[] {
   const currentWeek = getCurrentMatchupWeekFromSchedule();
 
   if (currentWeek) {
-    return generateDateRange(currentWeek.start, currentWeek.end);
+    const dates = generateDateRange(currentWeek.start, currentWeek.end);
+    devLog('[matchupWeekDates] Active matchup window:', {
+      week: currentWeek.week,
+      dateRangeText: currentWeek.dateRangeText,
+      isPlayoff: currentWeek.isPlayoff ?? false,
+      startDate: currentWeek.start.toISOString().slice(0, 10),
+      endDate: currentWeek.end.toISOString().slice(0, 10),
+      totalDays: dates.length,
+    });
+    return dates;
   }
 
+  devWarn('[matchupWeekDates] No schedule found, falling back to Mon-Sun.');
   // Fallback: standard Mon-Sun week
   return getDefaultMonSunDates();
 }
 
 /**
- * Get remaining dates in the current matchup week (from today onward).
+ * Get remaining dates in the current matchup week (from today onward, inclusive).
  */
 export function getRemainingMatchupDatesFromSchedule(): string[] {
   const allDates = getMatchupWeekDatesFromSchedule();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  return allDates.filter(d => d >= todayStr);
+  const remaining = allDates.filter(d => d >= todayStr);
+  devLog('[matchupWeekDates] Remaining dates:', {
+    today: todayStr,
+    totalInWeek: allDates.length,
+    remaining: remaining.length,
+    dates: remaining,
+  });
+  return remaining;
 }
 
 /**

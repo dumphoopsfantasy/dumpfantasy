@@ -26,7 +26,7 @@ import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
-
+import { getCurrentMatchupWeekFromSchedule } from "@/lib/matchupWeekDates";
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
   // Look for stat window patterns in the Stats section specifically
@@ -221,20 +221,39 @@ function computeTodayExpectedFromRoster(roster: RosterSlot[]): TeamStats & { has
   };
 }
 
-// Get day info for America/New_York timezone
-function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string } {
+// Get day info using actual matchup week dates (not hardcoded Mon-Sun)
+function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string; isPlayoff: boolean; playoffRound?: number } {
   const now = new Date();
-  // Get current day in Eastern Time
   const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'America/New_York' };
   const dayName = new Intl.DateTimeFormat('en-US', options).format(now);
   const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(dayName);
   
-  // Fantasy weeks typically run Mon-Sun, so Sunday is day 7
-  const isFinalDay = dayOfWeek === 0; // Sunday
-  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek; // Convert to 1-7 (Mon=1, Sun=7)
+  // Use actual matchup week dates for day counting
+  const currentWeek = getCurrentMatchupWeekFromSchedule();
+  if (currentWeek) {
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const startStr = `${currentWeek.start.getFullYear()}-${String(currentWeek.start.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.start.getDate()).padStart(2, '0')}`;
+    const endStr = `${currentWeek.end.getFullYear()}-${String(currentWeek.end.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.end.getDate()).padStart(2, '0')}`;
+    
+    // Calculate total days and current day index
+    const msPerDay = 86400000;
+    const totalDays = Math.round((currentWeek.end.getTime() - currentWeek.start.getTime()) / msPerDay) + 1;
+    const dayIndex = Math.max(1, Math.round((now.getTime() - currentWeek.start.getTime()) / msPerDay) + 1);
+    const isFinalDay = todayStr === endStr;
+    const prefix = currentWeek.isPlayoff ? `Playoff R${(currentWeek.week - (currentWeek.week > 100 ? 100 : 18))} · ` : '';
+    const dayLabel = isFinalDay 
+      ? `${prefix}Day ${totalDays}/${totalDays} (${dayName}) — Final day`
+      : `${prefix}Day ${dayIndex}/${totalDays} (${dayName})`;
+    
+    return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: !!currentWeek.isPlayoff, playoffRound: currentWeek.isPlayoff ? currentWeek.week : undefined };
+  }
+  
+  // Fallback: Mon-Sun
+  const isFinalDay = dayOfWeek === 0;
+  const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek;
   const dayLabel = isFinalDay ? "Day 7/7 (Sunday) — Final day" : `Day ${dayNumber}/7 (${dayName})`;
   
-  return { dayOfWeek, dayName, isFinalDay, dayLabel };
+  return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: false };
 }
 
 // Check if a player is OUT
@@ -517,9 +536,8 @@ export const MatchupProjection = ({
       };
     }
     
-    // Calculate days remaining (Sun = 0 = final day, so 0 remaining)
-    const dayOfWeek = new Date().getDay();
-    const daysRemaining = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    // Calculate days remaining from actual matchup dates (not hardcoded Mon-Sun)
+    const daysRemaining = remainingDates.length;
     
     onUpdateMatchupContext(projectedMy, projectedOpp, currentMy, currentOpp, daysRemaining);
   }, [persistedMatchup, myWeeklyData, onUpdateMatchupContext]);
@@ -1715,10 +1733,24 @@ Navigate to their team page and copy the whole page.`}
               <Calendar className="w-3 h-3" />
               {dayInfo.dayLabel}
             </Badge>
+            {dayInfo.isPlayoff && (
+              <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30">
+                🏆 Playoffs
+              </Badge>
+            )}
             <Badge variant="secondary" className="text-[10px]">
               {remainingDates.length} days remaining
             </Badge>
           </div>
+          {/* Warning when matchup window resolution fails */}
+          {remainingDates.length === 0 && (
+            <Alert className="mt-2 border-amber-400/50 bg-amber-400/10">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              <AlertDescription className="ml-2 text-xs">
+                Unable to resolve active matchup period from schedule data. Try re-importing your league schedule, or clear browser data and re-import.
+              </AlertDescription>
+            </Alert>
+          )}
           {((persistedMatchup.myParseInfo?.alignmentOffset ?? 0) !== 0 || (persistedMatchup.oppParseInfo?.alignmentOffset ?? 0) !== 0) && (
             <p className="mt-1 text-[11px] text-muted-foreground">
               Parse warnings:{' '}
