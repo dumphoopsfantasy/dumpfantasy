@@ -1733,10 +1733,24 @@ Navigate to their team page and copy the whole page.`}
               <Calendar className="w-3 h-3" />
               {dayInfo.dayLabel}
             </Badge>
+            {dayInfo.isPlayoff && (
+              <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30">
+                🏆 Playoffs
+              </Badge>
+            )}
             <Badge variant="secondary" className="text-[10px]">
               {remainingDates.length} days remaining
             </Badge>
           </div>
+          {/* Warning when matchup window resolution fails */}
+          {remainingDates.length === 0 && (
+            <Alert className="mt-2 border-amber-400/50 bg-amber-400/10">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              <AlertDescription className="ml-2 text-xs">
+                Unable to resolve active matchup period from schedule data. Try re-importing your league schedule, or clear browser data and re-import.
+              </AlertDescription>
+            </Alert>
+          )}
           {((persistedMatchup.myParseInfo?.alignmentOffset ?? 0) !== 0 || (persistedMatchup.oppParseInfo?.alignmentOffset ?? 0) !== 0) && (
             <p className="mt-1 text-[11px] text-muted-foreground">
               Parse warnings:{' '}
