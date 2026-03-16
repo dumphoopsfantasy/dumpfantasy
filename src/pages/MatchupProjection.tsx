@@ -24,11 +24,9 @@ import { getProjectionExplanation } from "@/lib/slateAwareProjection";
 import { BaselineCard, ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
 import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
-import {
-  ActiveMatchupPeriod,
-  getPersistedScheduleDiagnostics,
-  resolveActiveMatchupPeriod,
-} from "@/lib/matchupWeekDates";
+import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
+import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
+import { getCurrentMatchupWeekFromSchedule } from "@/lib/matchupWeekDates";
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
   // Look for stat window patterns in the Stats section specifically
@@ -223,38 +221,38 @@ function computeTodayExpectedFromRoster(roster: RosterSlot[]): TeamStats & { has
   };
 }
 
-// Get day info using resolved active matchup period (regular or playoff)
-function getMatchupDayInfo(
-  activePeriod: ActiveMatchupPeriod | null
-): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string; isPlayoff: boolean; playoffRound?: number } {
+// Get day info using actual matchup week dates (not hardcoded Mon-Sun)
+function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string; isPlayoff: boolean; playoffRound?: number } {
   const now = new Date();
   const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'America/New_York' };
   const dayName = new Intl.DateTimeFormat('en-US', options).format(now);
   const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(dayName);
-
-  if (activePeriod) {
-    const isFinalDay = activePeriod.currentDayIndex >= activePeriod.totalDays;
-    const prefix = activePeriod.isPlayoff
-      ? `Playoff R${activePeriod.playoffRound ?? activePeriod.week} · `
-      : '';
-    const dayLabel = isFinalDay
-      ? `${prefix}Day ${activePeriod.totalDays}/${activePeriod.totalDays} (${dayName}) — Final day`
-      : `${prefix}Day ${activePeriod.currentDayIndex}/${activePeriod.totalDays} (${dayName})`;
-
-    return {
-      dayOfWeek,
-      dayName,
-      isFinalDay,
-      dayLabel,
-      isPlayoff: activePeriod.isPlayoff,
-      playoffRound: activePeriod.playoffRound,
-    };
+  
+  // Use actual matchup week dates for day counting
+  const currentWeek = getCurrentMatchupWeekFromSchedule();
+  if (currentWeek) {
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const startStr = `${currentWeek.start.getFullYear()}-${String(currentWeek.start.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.start.getDate()).padStart(2, '0')}`;
+    const endStr = `${currentWeek.end.getFullYear()}-${String(currentWeek.end.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.end.getDate()).padStart(2, '0')}`;
+    
+    // Calculate total days and current day index
+    const msPerDay = 86400000;
+    const totalDays = Math.round((currentWeek.end.getTime() - currentWeek.start.getTime()) / msPerDay) + 1;
+    const dayIndex = Math.max(1, Math.round((now.getTime() - currentWeek.start.getTime()) / msPerDay) + 1);
+    const isFinalDay = todayStr === endStr;
+    const prefix = currentWeek.isPlayoff ? `Playoff R${(currentWeek.week - (currentWeek.week > 100 ? 100 : 18))} · ` : '';
+    const dayLabel = isFinalDay 
+      ? `${prefix}Day ${totalDays}/${totalDays} (${dayName}) — Final day`
+      : `${prefix}Day ${dayIndex}/${totalDays} (${dayName})`;
+    
+    return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: !!currentWeek.isPlayoff, playoffRound: currentWeek.isPlayoff ? currentWeek.week : undefined };
   }
-
+  
+  // Fallback: Mon-Sun
   const isFinalDay = dayOfWeek === 0;
   const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek;
   const dayLabel = isFinalDay ? "Day 7/7 (Sunday) — Final day" : `Day ${dayNumber}/7 (${dayName})`;
-
+  
   return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: false };
 }
 
@@ -316,13 +314,7 @@ export const MatchupProjection = ({
   const [showBreakdown, setShowBreakdown] = useState(false); // Dynamic projection collapsed by default
   // projectionMode removed - schedule-aware is now the only mode
 
-  const activeMatchupPeriod = resolveActiveMatchupPeriod();
-  const scheduleDiagnostics = getPersistedScheduleDiagnostics();
-  const isScheduleUnresolved = scheduleDiagnostics.hasSchedule && !activeMatchupPeriod;
-  const unresolvedMatchupMessage = scheduleDiagnostics.playoffMatchups > 0
-    ? "Unable to resolve active playoff matchup from imported schedule"
-    : "Unable to resolve active matchup period from schedule data";
-  const dayInfo = getMatchupDayInfo(activeMatchupPeriod);
+  const dayInfo = getMatchupDayInfo();
   
   // NBA schedule for Start/Sit Advisor
   const { gamesByDate } = useNBAUpcomingSchedule(14);
