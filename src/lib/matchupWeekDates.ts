@@ -1,19 +1,73 @@
 /**
  * Matchup Week Date Utilities
- * 
+ *
  * Determines the actual date range for the current fantasy matchup week.
  * Uses the imported league schedule when available (supports extended weeks
  * like All-Star break AND playoff rounds), falling back to Mon-Sun when
  * no schedule is imported.
  */
 
-import { LeagueSchedule, normalizeTeamName } from '@/lib/scheduleParser';
+import { LeagueSchedule, ScheduleMatchup, normalizeTeamName } from '@/lib/scheduleParser';
 import { devLog, devWarn } from '@/lib/devLog';
 
 const MONTH_INDEX: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
 };
+
+export interface ActiveMatchupPeriod {
+  week: number;
+  label: string;
+  type: 'regular' | 'playoff';
+  isPlayoff: boolean;
+  playoffRound?: number;
+  dateRangeText: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  daysRemainingInclusive: number;
+  currentDayIndex: number;
+  start: Date;
+  end: Date;
+}
+
+export interface PersistedScheduleDiagnostics {
+  hasSchedule: boolean;
+  regularMatchups: number;
+  playoffMatchups: number;
+  byeRows: number;
+  weeksDetected: number;
+}
+
+function normalizeMonthToken(token: string): string {
+  return token.toLowerCase().slice(0, 3);
+}
+
+function toDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function parseDateKey(dateKey: string): Date {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function dayDiffInclusive(startDateKey: string, endDateKey: string): number {
+  const msPerDay = 86400000;
+  const start = parseDateKey(startDateKey);
+  const end = parseDateKey(endDateKey);
+  return Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1;
+}
 
 /**
  * Parse a date range text like "Feb 9 - 22" or "Dec 29 - Jan 4"
@@ -23,13 +77,15 @@ export function parseDateRangeText(
   dateRangeText: string,
   seasonYear: number
 ): { start?: Date; end?: Date } {
-  const m = dateRangeText.match(/^(\w{3})\s+(\d{1,2})\s*-\s*(?:(\w{3})\s+)?(\d{1,2})/);
+  const m = dateRangeText.match(
+    /^([A-Za-z]{3,9})\s+(\d{1,2})\s*-\s*(?:([A-Za-z]{3,9})\s+)?(\d{1,2})/
+  );
   if (!m) return {};
 
-  const startMonth = MONTH_INDEX[m[1].toLowerCase()];
-  const startDay = parseInt(m[2]);
-  const endMonth = m[3] ? MONTH_INDEX[m[3].toLowerCase()] : startMonth;
-  const endDay = parseInt(m[4]);
+  const startMonth = MONTH_INDEX[normalizeMonthToken(m[1])];
+  const startDay = parseInt(m[2], 10);
+  const endMonth = m[3] ? MONTH_INDEX[normalizeMonthToken(m[3])] : startMonth;
+  const endDay = parseInt(m[4], 10);
 
   if (startMonth === undefined || endMonth === undefined) return {};
 
@@ -51,13 +107,10 @@ function generateDateRange(start: Date, end: Date): string[] {
   const cursor = new Date(start);
   cursor.setHours(0, 0, 0, 0);
   const endNorm = new Date(end);
-  endNorm.setHours(23, 59, 59, 999);
+  endNorm.setHours(0, 0, 0, 0);
 
   while (cursor <= endNorm) {
-    const year = cursor.getFullYear();
-    const month = String(cursor.getMonth() + 1).padStart(2, '0');
-    const day = String(cursor.getDate()).padStart(2, '0');
-    dates.push(`${year}-${month}-${day}`);
+    dates.push(toDateKey(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
 
@@ -72,9 +125,13 @@ export function isValidSchedule(schedule: unknown): schedule is LeagueSchedule {
   if (!schedule || typeof schedule !== 'object') return false;
   const s = schedule as Partial<LeagueSchedule>;
   if (!Array.isArray(s.matchups) || s.matchups.length === 0) return false;
-  // Every matchup must have a week number and date range
+
   return s.matchups.every(
-    m => typeof m.week === 'number' && m.week > 0 && typeof m.dateRangeText === 'string' && m.dateRangeText.length > 0
+    (m) =>
+      typeof m.week === 'number' &&
+      m.week > 0 &&
+      typeof m.dateRangeText === 'string' &&
+      m.dateRangeText.length > 0
   );
 }
 
@@ -88,13 +145,13 @@ function loadPersistedSchedule(): LeagueSchedule | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!isValidSchedule(parsed)) {
-      console.warn('[matchupWeekDates] Corrupted schedule data detected, clearing.');
+      devWarn('[matchupWeekDates] Corrupted schedule data detected, clearing.');
       localStorage.removeItem('dumphoops-schedule.v2');
       return null;
     }
     return parsed;
   } catch {
-    console.warn('[matchupWeekDates] Failed to parse schedule data, clearing.');
+    devWarn('[matchupWeekDates] Failed to parse schedule data, clearing.');
     localStorage.removeItem('dumphoops-schedule.v2');
     return null;
   }
@@ -108,63 +165,192 @@ function loadPersistedSchedule(): LeagueSchedule | null {
 export function resolveSeasonYear(season: string): number {
   const parts = season.match(/^(\d{4})(?:-(\d{2,4}))?/);
   if (!parts) return new Date().getFullYear();
-  const firstYear = parseInt(parts[1]);
+  const firstYear = parseInt(parts[1], 10);
   if (parts[2]) {
-    // "2025-26" → secondYear = 2026
-    const raw = parseInt(parts[2]);
-    const secondYear = raw < 100
-      ? Math.floor(firstYear / 100) * 100 + raw
-      : raw;
+    const raw = parseInt(parts[2], 10);
+    const secondYear = raw < 100 ? Math.floor(firstYear / 100) * 100 + raw : raw;
     return secondYear;
   }
   return firstYear;
 }
 
+function resolveWeekDateRange(
+  matchup: ScheduleMatchup,
+  seasonYear: number
+): { startDate?: string; endDate?: string; start?: Date; end?: Date } {
+  if (matchup.startDate && matchup.endDate) {
+    const start = parseDateKey(matchup.startDate);
+    const end = parseDateKey(matchup.endDate);
+    return {
+      startDate: matchup.startDate,
+      endDate: matchup.endDate,
+      start,
+      end,
+    };
+  }
+
+  const { start, end } = parseDateRangeText(matchup.dateRangeText, seasonYear);
+  if (!start || !end) return {};
+
+  return {
+    startDate: toDateKey(start),
+    endDate: toDateKey(end),
+    start,
+    end,
+  };
+}
+
+function buildResolvedWeeks(schedule: LeagueSchedule): ActiveMatchupPeriod[] {
+  const seasonYear = resolveSeasonYear(schedule.season);
+  const lastRegularWeek = schedule.lastRegularSeasonWeek;
+
+  const resolvedWeeks: ActiveMatchupPeriod[] = [];
+  const seenWeeks = new Set<number>();
+
+  for (const matchup of schedule.matchups) {
+    if (seenWeeks.has(matchup.week)) continue;
+    seenWeeks.add(matchup.week);
+
+    const range = resolveWeekDateRange(matchup, seasonYear);
+    if (!range.start || !range.end || !range.startDate || !range.endDate) continue;
+
+    const isPlayoff = !!matchup.isPlayoff || matchup.type === 'playoff';
+    const playoffRound =
+      matchup.playoffRound ??
+      (isPlayoff && lastRegularWeek ? Math.max(1, matchup.week - lastRegularWeek) : undefined);
+
+    const totalDays = dayDiffInclusive(range.startDate, range.endDate);
+
+    resolvedWeeks.push({
+      week: matchup.week,
+      label:
+        matchup.label ??
+        (isPlayoff
+          ? `Playoff Round ${playoffRound ?? matchup.week}`
+          : `Matchup ${matchup.week}`),
+      type: isPlayoff ? 'playoff' : 'regular',
+      isPlayoff,
+      playoffRound,
+      dateRangeText: matchup.dateRangeText,
+      startDate: range.startDate,
+      endDate: range.endDate,
+      totalDays,
+      daysRemainingInclusive: totalDays,
+      currentDayIndex: 1,
+      start: range.start,
+      end: range.end,
+    });
+  }
+
+  resolvedWeeks.sort((a, b) => a.startDate.localeCompare(b.startDate) || a.week - b.week);
+  return resolvedWeeks;
+}
+
 /**
- * Find the current matchup week from the league schedule based on today's date.
- * Returns the week's date range or null if no matching week found.
+ * Resolve the active matchup period (regular or playoff) using local-day comparisons.
  */
-export function getCurrentMatchupWeekFromSchedule(
-  schedule?: LeagueSchedule | null
-): { week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean } | null {
+export function resolveActiveMatchupPeriod(
+  schedule?: LeagueSchedule | null,
+  todayDateKey?: string
+): ActiveMatchupPeriod | null {
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
-  const seasonYear = resolveSeasonYear(sched.season);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const weeks = buildResolvedWeeks(sched);
+  if (weeks.length === 0) return null;
 
-  // Build unique weeks with parsed date ranges
-  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean }> = [];
-  const seenWeeks = new Set<number>();
+  const today = todayDateKey ?? toDateKey(new Date());
 
-  for (const m of sched.matchups) {
-    if (seenWeeks.has(m.week)) continue;
-    seenWeeks.add(m.week);
+  const active = weeks.find((w) => today >= w.startDate && today <= w.endDate);
+  const nextUpcoming = weeks.find((w) => w.startDate > today);
+  const selected = active ?? nextUpcoming ?? weeks[weeks.length - 1] ?? null;
+  if (!selected) return null;
 
-    const { start, end } = parseDateRangeText(m.dateRangeText, seasonYear);
-    if (!start || !end) continue;
+  const currentDayIndex = today < selected.startDate
+    ? 1
+    : today > selected.endDate
+      ? selected.totalDays
+      : dayDiffInclusive(selected.startDate, today);
 
-    start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
+  const daysRemainingInclusive = today < selected.startDate
+    ? selected.totalDays
+    : today > selected.endDate
+      ? 0
+      : dayDiffInclusive(today, selected.endDate);
 
-    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText, isPlayoff: m.isPlayoff });
+  const resolved: ActiveMatchupPeriod = {
+    ...selected,
+    currentDayIndex,
+    daysRemainingInclusive,
+  };
+
+  devLog('[matchupWeekDates] Resolved active matchup period', {
+    label: resolved.label,
+    week: resolved.week,
+    isPlayoff: resolved.isPlayoff,
+    playoffRound: resolved.playoffRound,
+    startDate: resolved.startDate,
+    endDate: resolved.endDate,
+    totalDays: resolved.totalDays,
+    currentDayIndex: resolved.currentDayIndex,
+    daysRemainingInclusive: resolved.daysRemainingInclusive,
+  });
+
+  return resolved;
+}
+
+export function getPersistedScheduleDiagnostics(
+  schedule?: LeagueSchedule | null
+): PersistedScheduleDiagnostics {
+  const sched = schedule ?? loadPersistedSchedule();
+  if (!sched) {
+    return {
+      hasSchedule: false,
+      regularMatchups: 0,
+      playoffMatchups: 0,
+      byeRows: 0,
+      weeksDetected: 0,
+    };
   }
 
-  weeksWithDates.sort((a, b) => a.week - b.week);
+  const uniqueWeeks = new Set(sched.matchups.map((m) => m.week));
+  const playoffMatchups = sched.matchups.filter((m) => m.isPlayoff || m.type === 'playoff').length;
 
-  // Find the week containing today
-  for (const w of weeksWithDates) {
-    if (today >= w.start && today <= w.end) return w;
-  }
+  return {
+    hasSchedule: true,
+    regularMatchups: sched.matchups.length - playoffMatchups,
+    playoffMatchups,
+    byeRows: sched.matchups.filter((m) => !!m.isBye).length,
+    weeksDetected: uniqueWeeks.size,
+  };
+}
 
-  // If today is between two weeks (gap), return the next upcoming week
-  for (const w of weeksWithDates) {
-    if (w.start > today) return w;
-  }
+/**
+ * Find the current matchup week from the league schedule based on today's date.
+ */
+export function getCurrentMatchupWeekFromSchedule(
+  schedule?: LeagueSchedule | null
+): {
+  week: number;
+  start: Date;
+  end: Date;
+  dateRangeText: string;
+  isPlayoff?: boolean;
+  playoffRound?: number;
+  label?: string;
+} | null {
+  const resolved = resolveActiveMatchupPeriod(schedule);
+  if (!resolved) return null;
 
-  // Return last week as fallback
-  return weeksWithDates[weeksWithDates.length - 1] ?? null;
+  return {
+    week: resolved.week,
+    start: resolved.start,
+    end: resolved.end,
+    dateRangeText: resolved.dateRangeText,
+    isPlayoff: resolved.isPlayoff,
+    playoffRound: resolved.playoffRound,
+    label: resolved.label,
+  };
 }
 
 /**
@@ -180,91 +366,134 @@ export function getCurrentWeekMatchupForTeam(
   opponentTeamName: string;
   isHome: boolean;
   isPlayoff: boolean;
+  playoffRound?: number;
+  label?: string;
 } | null {
   if (!teamName) return null;
 
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
-  const currentWeek = getCurrentMatchupWeekFromSchedule(sched);
-  if (!currentWeek) return null;
+  const currentPeriod = resolveActiveMatchupPeriod(sched);
+  if (!currentPeriod) {
+    devWarn('[matchupWeekDates] Unable to resolve active matchup period for opponent lookup.');
+    return null;
+  }
 
   const normalizedTeam = normalizeTeamName(teamName);
   if (!normalizedTeam) return null;
 
-  const weekMatchups = sched.matchups.filter((m) => m.week === currentWeek.week);
+  const weekMatchups = sched.matchups.filter((m) => m.week === currentPeriod.week && !m.isBye);
 
   for (const matchup of weekMatchups) {
     const awayNorm = normalizeTeamName(matchup.awayTeamName);
     const homeNorm = normalizeTeamName(matchup.homeTeamName);
 
-    if (awayNorm === normalizedTeam) {
+    const awayMatch = awayNorm === normalizedTeam || awayNorm.includes(normalizedTeam) || normalizedTeam.includes(awayNorm);
+    const homeMatch = homeNorm === normalizedTeam || homeNorm.includes(normalizedTeam) || normalizedTeam.includes(homeNorm);
+
+    if (awayMatch) {
+      devLog('[matchupWeekDates] Active opponent resolved', {
+        team: teamName,
+        opponent: matchup.homeTeamName,
+        week: matchup.week,
+        isPlayoff: !!matchup.isPlayoff,
+        playoffRound: matchup.playoffRound,
+      });
+
       return {
         week: matchup.week,
         dateRangeText: matchup.dateRangeText,
         opponentTeamName: matchup.homeTeamName,
         isHome: false,
         isPlayoff: !!matchup.isPlayoff,
+        playoffRound: matchup.playoffRound,
+        label: matchup.label,
       };
     }
 
-    if (homeNorm === normalizedTeam) {
+    if (homeMatch) {
+      devLog('[matchupWeekDates] Active opponent resolved', {
+        team: teamName,
+        opponent: matchup.awayTeamName,
+        week: matchup.week,
+        isPlayoff: !!matchup.isPlayoff,
+        playoffRound: matchup.playoffRound,
+      });
+
       return {
         week: matchup.week,
         dateRangeText: matchup.dateRangeText,
         opponentTeamName: matchup.awayTeamName,
         isHome: true,
         isPlayoff: !!matchup.isPlayoff,
+        playoffRound: matchup.playoffRound,
+        label: matchup.label,
       };
     }
   }
+
+  devWarn('[matchupWeekDates] Active opponent could not be resolved from schedule week.', {
+    teamName,
+    week: currentPeriod.week,
+    isPlayoff: currentPeriod.isPlayoff,
+  });
 
   return null;
 }
 
 /**
- * Get the date strings (YYYY-MM-DD) for the current matchup week.
- * 
+ * Get the date strings (YYYY-MM-DD) for the active matchup week.
+ *
  * Uses the imported league schedule when available to support variable-length
- * weeks (e.g., 14-day All-Star break weeks). Falls back to Mon-Sun if no
- * schedule is imported.
+ * weeks (e.g., 14-day All-Star break weeks).
  */
 export function getMatchupWeekDatesFromSchedule(): string[] {
-  const currentWeek = getCurrentMatchupWeekFromSchedule();
-
-  if (currentWeek) {
-    const dates = generateDateRange(currentWeek.start, currentWeek.end);
-    devLog('[matchupWeekDates] Active matchup window:', {
-      week: currentWeek.week,
-      dateRangeText: currentWeek.dateRangeText,
-      isPlayoff: currentWeek.isPlayoff ?? false,
-      startDate: currentWeek.start.toISOString().slice(0, 10),
-      endDate: currentWeek.end.toISOString().slice(0, 10),
-      totalDays: dates.length,
-    });
-    return dates;
+  const sched = loadPersistedSchedule();
+  if (!sched) {
+    devWarn('[matchupWeekDates] No schedule found, falling back to Mon-Sun.');
+    return getDefaultMonSunDates();
   }
 
-  devWarn('[matchupWeekDates] No schedule found, falling back to Mon-Sun.');
-  // Fallback: standard Mon-Sun week
-  return getDefaultMonSunDates();
+  const currentPeriod = resolveActiveMatchupPeriod(sched);
+  if (!currentPeriod) {
+    devWarn('[matchupWeekDates] Unable to resolve active matchup period from imported schedule.');
+    return [];
+  }
+
+  const dates = generateDateRange(currentPeriod.start, currentPeriod.end);
+  devLog('[matchupWeekDates] Active matchup window:', {
+    label: currentPeriod.label,
+    week: currentPeriod.week,
+    dateRangeText: currentPeriod.dateRangeText,
+    isPlayoff: currentPeriod.isPlayoff,
+    playoffRound: currentPeriod.playoffRound,
+    startDate: currentPeriod.startDate,
+    endDate: currentPeriod.endDate,
+    totalDays: currentPeriod.totalDays,
+  });
+
+  return dates;
 }
 
 /**
- * Get remaining dates in the current matchup week (from today onward, inclusive).
+ * Get remaining dates in the active matchup week (from today onward, inclusive).
  */
 export function getRemainingMatchupDatesFromSchedule(): string[] {
   const allDates = getMatchupWeekDatesFromSchedule();
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  if (allDates.length === 0) return [];
 
-  const remaining = allDates.filter(d => d >= todayStr);
+  const todayKey = toDateKey(new Date());
+  const remaining = allDates.filter((d) => d >= todayKey);
+
   devLog('[matchupWeekDates] Remaining dates:', {
-    today: todayStr,
+    today: todayKey,
     totalInWeek: allDates.length,
     remaining: remaining.length,
+    totalPossibleStarts: remaining.length * 8,
     dates: remaining,
   });
+
   return remaining;
 }
 
@@ -286,10 +515,7 @@ function getDefaultMonSunDates(): string[] {
   for (let i = 0; i < 7; i++) {
     const date = new Date(monday);
     date.setDate(monday.getDate() + i);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    dates.push(`${year}-${month}-${day}`);
+    dates.push(toDateKey(date));
   }
 
   return dates;
