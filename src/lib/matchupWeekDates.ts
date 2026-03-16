@@ -3,10 +3,12 @@
  * 
  * Determines the actual date range for the current fantasy matchup week.
  * Uses the imported league schedule when available (supports extended weeks
- * like All-Star break), falling back to Mon-Sun when no schedule is imported.
+ * like All-Star break AND playoff rounds), falling back to Mon-Sun when
+ * no schedule is imported.
  */
 
 import { LeagueSchedule, normalizeTeamName } from '@/lib/scheduleParser';
+import { devLog, devWarn } from '@/lib/devLog';
 
 const MONTH_INDEX: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
