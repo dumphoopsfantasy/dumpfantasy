@@ -99,21 +99,41 @@ function loadPersistedSchedule(): LeagueSchedule | null {
 }
 
 /**
+ * Extract the "spring half" year from a season string.
+ * "2025-26" → 2026, "2026" → 2026.
+ * NBA seasons span Oct-Apr: Oct-Dec uses firstYear, Jan-Sep uses secondYear.
+ */
+export function resolveSeasonYear(season: string): number {
+  const parts = season.match(/^(\d{4})(?:-(\d{2,4}))?/);
+  if (!parts) return new Date().getFullYear();
+  const firstYear = parseInt(parts[1]);
+  if (parts[2]) {
+    // "2025-26" → secondYear = 2026
+    const raw = parseInt(parts[2]);
+    const secondYear = raw < 100
+      ? Math.floor(firstYear / 100) * 100 + raw
+      : raw;
+    return secondYear;
+  }
+  return firstYear;
+}
+
+/**
  * Find the current matchup week from the league schedule based on today's date.
  * Returns the week's date range or null if no matching week found.
  */
 export function getCurrentMatchupWeekFromSchedule(
   schedule?: LeagueSchedule | null
-): { week: number; start: Date; end: Date; dateRangeText: string } | null {
+): { week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean } | null {
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
-  const seasonYear = parseInt(sched.season.slice(0, 4)) || new Date().getFullYear();
+  const seasonYear = resolveSeasonYear(sched.season);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   // Build unique weeks with parsed date ranges
-  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string }> = [];
+  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean }> = [];
   const seenWeeks = new Set<number>();
 
   for (const m of sched.matchups) {
@@ -126,7 +146,7 @@ export function getCurrentMatchupWeekFromSchedule(
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);
 
-    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText });
+    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText, isPlayoff: m.isPlayoff });
   }
 
   weeksWithDates.sort((a, b) => a.week - b.week);

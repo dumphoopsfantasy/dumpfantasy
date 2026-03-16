@@ -517,9 +517,8 @@ export const MatchupProjection = ({
       };
     }
     
-    // Calculate days remaining (Sun = 0 = final day, so 0 remaining)
-    const dayOfWeek = new Date().getDay();
-    const daysRemaining = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    // Calculate days remaining from actual matchup dates (not hardcoded Mon-Sun)
+    const daysRemaining = remainingDates.length;
     
     onUpdateMatchupContext(projectedMy, projectedOpp, currentMy, currentOpp, daysRemaining);
   }, [persistedMatchup, myWeeklyData, onUpdateMatchupContext]);
