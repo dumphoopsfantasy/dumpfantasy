@@ -807,6 +807,7 @@ const Index = () => {
               onPlayersChange={(p: Player[]) => { setFreeAgents(p); if (p.length > 0) setImportTimestamp("freeAgents"); }}
               multiPageImportEnabled={multiPageFAImportEnabled}
               currentRoster={rosterWithCRI.map((slot) => slot.player)}
+              currentRosterSlots={rosterWithCRI}
               leagueTeams={leagueTeams}
               matchupData={matchupData}
               dynamicWeights={dynamicWeights.effectiveWeightsResult.isActive ? dynamicWeights.effectiveWeightsResult.weights : undefined}
