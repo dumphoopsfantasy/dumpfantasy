@@ -6,9 +6,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { Player } from "@/types/fantasy";
-import { Target, TrendingUp, TrendingDown, Minus, Trophy, Zap, Info, ChevronDown, ChevronRight } from "lucide-react";
+import { Target, TrendingUp, TrendingDown, Minus, Trophy, Zap, Info, ChevronDown, ChevronRight, AlertTriangle, XCircle, ShieldAlert, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, formatPct } from "@/lib/crisUtils";
+import { NBAGame } from "@/lib/nbaApi";
+import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
+import { categorizeDates } from "@/lib/restOfWeekUtils";
 
 interface MatchupStats {
   fgPct: number;
@@ -43,6 +46,8 @@ interface MatchupNeedsPanelProps {
   freeAgents: FreeAgent[];
   useCris: boolean;
   onPlayerClick?: (player: FreeAgent) => void;
+  matchupDates?: string[];
+  gamesByDate?: Map<string, NBAGame[]>;
 }
 
 type CategoryStatus = "win" | "tossup" | "loss";
@@ -66,11 +71,23 @@ const TOSSUP_THRESHOLD_COUNT = 20; // Within 20 projected points = toss-up
 // Margin thresholds for percentages
 const TOSSUP_THRESHOLD_PCT = 0.015; // Within 1.5% = toss-up
 
+function getHealthBadgeInfo(status?: string) {
+  if (!status || status === 'healthy') return null;
+  const s = status.toUpperCase();
+  if (s === 'O' || s === 'OUT') return { label: 'OUT', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: XCircle };
+  if (s === 'IR') return { label: 'IR', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: XCircle };
+  if (s === 'DTD') return { label: 'DTD', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: AlertTriangle };
+  if (s === 'SUSP') return { label: 'SUSP', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: ShieldAlert };
+  return { label: s, color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: AlertTriangle };
+}
+
 export const MatchupNeedsPanel = ({ 
   matchupData, 
   freeAgents, 
   useCris,
-  onPlayerClick 
+  onPlayerClick,
+  matchupDates = [],
+  gamesByDate = new Map(),
 }: MatchupNeedsPanelProps) => {
   
   // Calculate category needs based on matchup projections
@@ -131,6 +148,13 @@ export const MatchupNeedsPanel = ({
     return [...tossups, ...sortedLosses.slice(0, 2)];
   }, [tossups, losses]);
   
+  // Compute remaining matchup-week dates for games counting
+  const remainingDates = useMemo(() => {
+    if (matchupDates.length === 0 || gamesByDate.size === 0) return [];
+    const { remaining } = categorizeDates(matchupDates, gamesByDate);
+    return remaining;
+  }, [matchupDates, gamesByDate]);
+
   // Calculate matchup fit score for each free agent
   const scoredAgents = useMemo(() => {
     if (!freeAgents.length || !priorityCategories.length) return [];
@@ -165,28 +189,38 @@ export const MatchupNeedsPanel = ({
         
         priorityCategories.forEach(cat => {
           const rank = catRanks[cat.key]?.[player.id] || N;
-          // Invert rank: best = N points, worst = 1 point
           const invertedRank = N + 1 - rank;
-          
-          // Weight toss-ups higher than losses
           const weight = cat.status === "tossup" ? 1.5 : 1.0;
           fitScore += invertedRank * weight;
-          
-          // Track categories where this player is top 20%
           if (rank <= Math.ceil(N * 0.2)) {
             helpCategories.push(cat.label);
           }
         });
+
+        // Count remaining matchup-week games for this player
+        let gamesLeft = 0;
+        if (remainingDates.length > 0) {
+          const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
+          if (normalizedTeam) {
+            for (const dateStr of remainingDates) {
+              const games = gamesByDate.get(dateStr) || [];
+              if (games.some(g => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam)) {
+                gamesLeft++;
+              }
+            }
+          }
+        }
         
         return {
           player,
           fitScore,
           helpCategories,
           criRank: useCris ? player.criRank : player.wCriRank,
+          gamesLeft,
         };
       })
       .sort((a, b) => b.fitScore - a.fitScore);
-  }, [freeAgents, priorityCategories, useCris]);
+  }, [freeAgents, priorityCategories, useCris, remainingDates, gamesByDate]);
   
   const topRecommendations = scoredAgents.slice(0, 10);
   
@@ -290,44 +324,71 @@ export const MatchupNeedsPanel = ({
             
             <CollapsibleContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
-                {topRecommendations.map((item, idx) => (
-                  <button
-                    key={item.player.id}
-                    onClick={() => onPlayerClick?.(item.player)}
-                    className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors text-left group"
-                  >
-                    <span className="text-xs font-mono text-muted-foreground w-5">
-                      #{idx + 1}
-                    </span>
-                    <PlayerPhoto 
-                      name={item.player.name} 
-                      size="sm" 
-                      className="ring-2 ring-primary/20 group-hover:ring-primary/40"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm truncate">{item.player.name}</span>
-                        <NBATeamLogo teamCode={item.player.nbaTeam} size="xs" />
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">
-                          {item.player.positions?.join(", ")}
-                        </span>
-                        {item.helpCategories.length > 0 && (
-                          <>
-                            <span className="text-muted-foreground">•</span>
-                            <span className="text-[10px] text-primary font-medium">
-                              Boosts {item.helpCategories.slice(0, 3).join(", ")}
-                            </span>
-                          </>
+                {topRecommendations.map((item, idx) => {
+                  const hb = getHealthBadgeInfo(item.player.status);
+                  return (
+                    <button
+                      key={item.player.id}
+                      onClick={() => onPlayerClick?.(item.player)}
+                      className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors text-left group"
+                    >
+                      <span className="text-xs font-mono text-muted-foreground w-5">
+                        #{idx + 1}
+                      </span>
+                      <div className="relative">
+                        <PlayerPhoto 
+                          name={item.player.name} 
+                          size="sm" 
+                          className="ring-2 ring-primary/20 group-hover:ring-primary/40"
+                        />
+                        {hb && (
+                          <div className={cn(
+                            "absolute -bottom-1 -right-1 px-1 py-0 rounded-full text-[8px] font-bold border",
+                            hb.color
+                          )}>
+                            {hb.label}
+                          </div>
                         )}
                       </div>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {useCris ? "CRI" : "wCRI"} #{item.criRank}
-                    </Badge>
-                  </button>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm truncate">{item.player.name}</span>
+                          <NBATeamLogo teamCode={item.player.nbaTeam} size="xs" />
+                          {hb && (
+                            <Badge variant="outline" className={cn("text-[9px] px-1 py-0", hb.color)}>
+                              {hb.label}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] text-muted-foreground">
+                            {item.player.positions?.join(", ")}
+                          </span>
+                          {item.gamesLeft > 0 && (
+                            <>
+                              <span className="text-muted-foreground">•</span>
+                              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                                <CalendarDays className="w-2.5 h-2.5" />
+                                {item.gamesLeft}G left
+                              </span>
+                            </>
+                          )}
+                          {item.helpCategories.length > 0 && (
+                            <>
+                              <span className="text-muted-foreground">•</span>
+                              <span className="text-[10px] text-primary font-medium">
+                                Boosts {item.helpCategories.slice(0, 3).join(", ")}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {useCris ? "CRI" : "wCRI"} #{item.criRank}
+                      </Badge>
+                    </button>
+                  );
+                })}
               </div>
             </CollapsibleContent>
           </Card>

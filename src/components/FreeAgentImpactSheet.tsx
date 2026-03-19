@@ -1,4 +1,4 @@
-import { Player } from "@/types/fantasy";
+import { Player, RosterSlot } from "@/types/fantasy";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
 import { Badge } from "@/components/ui/badge";
@@ -12,30 +12,214 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowUp, ArrowDown, Minus, TrendingUp, Users, BarChart3, Newspaper, RefreshCw, ArrowUpRight, ArrowRightLeft, Calendar, MapPin } from "lucide-react";
+import { ArrowUp, ArrowDown, Minus, TrendingUp, TrendingDown, Users, BarChart3, Newspaper, RefreshCw, ArrowUpRight, ArrowRightLeft, Calendar, MapPin, Dice5, Loader2, CalendarDays, Heart, AlertTriangle, XCircle, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMemo, useState, useEffect } from "react";
 import { fetchPlayerNews, PlayerNews, fetchNBAGamesForDates, getUpcomingDates, NBAGame } from "@/lib/nbaApi";
 import { RosterSwapSimulator } from "@/components/RosterSwapSimulator";
 import { format } from "date-fns";
 import { devError } from "@/lib/devLog";
+import { TeamTotalsWithPct } from "@/lib/teamTotals";
+import { runMonteCarloSimulation, MonteCarloResult } from "@/lib/monteCarloEngine";
+import { computeRestOfWeekStarts, categorizeDates } from "@/lib/restOfWeekUtils";
+import { normalizeNbaTeamCode, STANDARD_LINEUP_SLOTS } from "@/lib/scheduleAwareProjection";
+import { computeBaselineStats, projectFromStarts, addToTotals } from "@/hooks/useMatchupModel";
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface MatchupStats {
+  fgPct: number;
+  ftPct: number;
+  threepm: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  points: number;
+}
+
+interface MatchupData {
+  myTeam: { name: string; stats: MatchupStats };
+  opponent: { name: string; stats: MatchupStats };
+}
 
 interface FreeAgentImpactSheetProps {
   player: Player | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentRoster: Player[];
+  currentRosterSlots?: RosterSlot[];
   allFreeAgents?: Player[];
+  matchupData?: MatchupData | null;
+  matchupDates?: string[];
+  gamesByDate?: Map<string, NBAGame[]>;
 }
 
 const WEEKLY_MULTIPLIER = 40;
+
+// ── Health Status Helpers ──────────────────────────────────────────────────
+
+function getHealthBadge(status?: string) {
+  if (!status || status === 'healthy') return null;
+  const s = status.toUpperCase();
+  if (s === 'O' || s === 'OUT') return { label: 'OUT', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: XCircle };
+  if (s === 'IR') return { label: 'IR', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: XCircle };
+  if (s === 'DTD') return { label: 'DTD', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: AlertTriangle };
+  if (s === 'SUSP') return { label: 'SUSP', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: ShieldAlert };
+  return { label: s, color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: AlertTriangle };
+}
+
+// ── Monte Carlo Single-Player Impact ──────────────────────────────────────
+
+interface SinglePlayerImpact {
+  baselineWinProb: number;
+  baselineAvgCatWins: number;
+  bestDrop: Player | null;
+  winProbWithSwap: number;
+  winProbDelta: number;
+  catWinsDelta: number;
+  mcResult: MonteCarloResult | null;
+  remainingGames: number;
+}
+
+function computeSinglePlayerImpact(
+  faPlayer: Player,
+  rosterSlots: RosterSlot[],
+  matchupDates: string[],
+  gamesByDate: Map<string, NBAGame[]>,
+  matchupData: MatchupData,
+): SinglePlayerImpact | null {
+  if (rosterSlots.length === 0 || matchupDates.length === 0 || gamesByDate.size === 0) return null;
+
+  const { remaining: remainingDates } = categorizeDates(matchupDates, gamesByDate);
+  const SIMS = 2000;
+
+  // Count remaining games for this FA
+  const normalized = normalizeNbaTeamCode(faPlayer.nbaTeam);
+  let remainingGames = 0;
+  if (normalized) {
+    for (const dateStr of remainingDates) {
+      const games = gamesByDate.get(dateStr) || [];
+      if (games.some(g => g.homeTeam === normalized || g.awayTeam === normalized)) {
+        remainingGames++;
+      }
+    }
+  }
+
+  // Compute opponent projected totals from matchup baseline (per-game × 40)
+  const oppStats = matchupData.opponent.stats;
+  const oppTotals: TeamTotalsWithPct = {
+    fgm: (oppStats.fgPct || 0) * 12 * 40,
+    fga: 12 * 40,
+    fgPct: oppStats.fgPct || 0,
+    ftm: (oppStats.ftPct || 0) * 4 * 40,
+    fta: 4 * 40,
+    ftPct: oppStats.ftPct || 0,
+    threepm: (oppStats.threepm || 0) * 40,
+    rebounds: (oppStats.rebounds || 0) * 40,
+    assists: (oppStats.assists || 0) * 40,
+    steals: (oppStats.steals || 0) * 40,
+    blocks: (oppStats.blocks || 0) * 40,
+    turnovers: (oppStats.turnovers || 0) * 40,
+    points: (oppStats.points || 0) * 40,
+  };
+
+  // My team's current scoreboard totals from baseline
+  const myStats = matchupData.myTeam.stats;
+  const myCurrentTotals: TeamTotalsWithPct = {
+    fgm: (myStats.fgPct || 0) * 12 * 40,
+    fga: 12 * 40,
+    fgPct: myStats.fgPct || 0,
+    ftm: (myStats.ftPct || 0) * 4 * 40,
+    fta: 4 * 40,
+    ftPct: myStats.ftPct || 0,
+    threepm: (myStats.threepm || 0) * 40,
+    rebounds: (myStats.rebounds || 0) * 40,
+    assists: (myStats.assists || 0) * 40,
+    steals: (myStats.steals || 0) * 40,
+    blocks: (myStats.blocks || 0) * 40,
+    turnovers: (myStats.turnovers || 0) * 40,
+    points: (myStats.points || 0) * 40,
+  };
+
+  // Helper: compute projected totals for a roster
+  function projectTotals(roster: RosterSlot[]): TeamTotalsWithPct | null {
+    const baseline = computeBaselineStats(roster);
+    if (!baseline) return myCurrentTotals;
+    const restOfWeek = computeRestOfWeekStarts({
+      rosterPlayers: roster,
+      matchupDates,
+      gamesByDate,
+      lineupSlots: STANDARD_LINEUP_SLOTS,
+    });
+    if (restOfWeek.remainingStarts <= 0) return myCurrentTotals;
+    const remainingProjection = projectFromStarts(baseline, restOfWeek.remainingStarts);
+    return addToTotals(myCurrentTotals, remainingProjection);
+  }
+
+  // Baseline: current roster, no changes
+  const baselineTotals = projectTotals(rosterSlots);
+  let baselineWinProb = 0;
+  let baselineAvgCatWins = 0;
+  if (baselineTotals) {
+    const baselineMC = runMonteCarloSimulation(baselineTotals, oppTotals, SIMS);
+    baselineWinProb = baselineMC.winProbability;
+    baselineAvgCatWins = baselineMC.avgWins;
+  }
+
+  // Droppable players
+  const droppablePlayers = rosterSlots.filter(slot => slot.slotType !== 'ir');
+
+  let bestDrop: Player | null = null;
+  let bestWinProb = -1;
+  let bestAvgCatWins = 0;
+  let bestMCResult: MonteCarloResult | null = null;
+
+  for (const dropSlot of droppablePlayers) {
+    // Build swapped roster
+    const swappedRoster = rosterSlots.map(slot =>
+      slot.player.id === dropSlot.player.id
+        ? { ...slot, player: faPlayer }
+        : slot
+    );
+
+    const swappedTotals = projectTotals(swappedRoster);
+    if (!swappedTotals) continue;
+
+    const mcResult = runMonteCarloSimulation(swappedTotals, oppTotals, SIMS);
+    if (mcResult.winProbability > bestWinProb) {
+      bestWinProb = mcResult.winProbability;
+      bestAvgCatWins = mcResult.avgWins;
+      bestDrop = dropSlot.player;
+      bestMCResult = mcResult;
+    }
+  }
+
+  return {
+    baselineWinProb,
+    baselineAvgCatWins,
+    bestDrop,
+    winProbWithSwap: bestWinProb >= 0 ? bestWinProb : baselineWinProb,
+    winProbDelta: bestWinProb >= 0 ? bestWinProb - baselineWinProb : 0,
+    catWinsDelta: bestAvgCatWins - baselineAvgCatWins,
+    mcResult: bestMCResult,
+    remainingGames,
+  };
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
 
 export const FreeAgentImpactSheet = ({
   player,
   open,
   onOpenChange,
   currentRoster,
+  currentRosterSlots = [],
   allFreeAgents = [],
+  matchupData,
+  matchupDates = [],
+  gamesByDate = new Map(),
 }: FreeAgentImpactSheetProps) => {
   const [dropPlayerId, setDropPlayerId] = useState<string | "none">("none");
   const [news, setNews] = useState<PlayerNews[]>([]);
@@ -68,13 +252,12 @@ export const FreeAgentImpactSheet = ({
   const loadPlayerSchedule = async (teamCode: string) => {
     setIsLoadingSchedule(true);
     try {
-      const upcomingDates = getUpcomingDates(14); // 2 weeks
+      const upcomingDates = getUpcomingDates(14);
       const dateStrings = upcomingDates.map(d => format(d, 'yyyy-MM-dd'));
       const gamesMap = await fetchNBAGamesForDates(dateStrings);
       
       const teamSchedule: Array<{ date: string; opponent: string; isHome: boolean; gameTime?: string }> = [];
       
-      // Comprehensive team code mapping for all NBA teams
       const teamCodeMap: Record<string, string[]> = {
         'ATL': ['ATL'], 'BOS': ['BOS'], 'BKN': ['BKN', 'BRK', 'NJN'], 'BRK': ['BKN', 'BRK', 'NJN'],
         'CHA': ['CHA', 'CHH', 'CHO'], 'CHI': ['CHI'], 'CLE': ['CLE'], 'DAL': ['DAL'],
@@ -123,6 +306,14 @@ export const FreeAgentImpactSheet = ({
     }
   };
 
+  // ── Monte Carlo Win Probability Impact ──────────────────────────────
+  const mcImpact = useMemo(() => {
+    if (!player || !matchupData || currentRosterSlots.length === 0 || matchupDates.length === 0 || gamesByDate.size === 0) {
+      return null;
+    }
+    return computeSinglePlayerImpact(player, currentRosterSlots, matchupDates, gamesByDate, matchupData);
+  }, [player, currentRosterSlots, matchupDates, gamesByDate, matchupData]);
+
   // Calculate player's rank among free agents for each category
   const playerRanks = useMemo(() => {
     if (!player || allFreeAgents.length === 0) return null;
@@ -157,11 +348,11 @@ export const FreeAgentImpactSheet = ({
     
     return ranks;
   }, [player, allFreeAgents]);
+
   // Calculate current team stats and projected stats with the free agent
   const impactData = useMemo(() => {
     if (!player) return null;
 
-    // Get active players (non-IR with stats)
     const activePlayers = currentRoster.filter(
       (p) => p.minutes > 0 && p.status !== "IR" && p.status !== "O"
     );
@@ -176,7 +367,6 @@ export const FreeAgentImpactSheet = ({
     const baseCount = basePlayers.length || 1;
     const newCount = swappedPlayers.length + 1 || 1;
 
-    // Current team averages (before any move)
     const currentAvg = {
       fgPct: basePlayers.reduce((sum, p) => sum + p.fgPct, 0) / baseCount,
       ftPct: basePlayers.reduce((sum, p) => sum + p.ftPct, 0) / baseCount,
@@ -189,7 +379,6 @@ export const FreeAgentImpactSheet = ({
       points: basePlayers.reduce((sum, p) => sum + p.points, 0) / baseCount,
     };
 
-    // New team averages with the free agent added (and optional dropped player removed)
     const newAvg = {
       fgPct: (swappedPlayers.reduce((sum, p) => sum + p.fgPct, 0) + player.fgPct) / newCount,
       ftPct: (swappedPlayers.reduce((sum, p) => sum + p.ftPct, 0) + player.ftPct) / newCount,
@@ -202,7 +391,6 @@ export const FreeAgentImpactSheet = ({
       points: (swappedPlayers.reduce((sum, p) => sum + p.points, 0) + player.points) / newCount,
     };
 
-    // Calculate differences and weekly projections
     const categories = [
       { key: "fgPct", label: "FG%", isPct: true, lowerBetter: false },
       { key: "ftPct", label: "FT%", isPct: true, lowerBetter: false },
@@ -221,12 +409,10 @@ export const FreeAgentImpactSheet = ({
       const diff = projected - current;
       const playerVal = player[cat.key as keyof Player] as number;
 
-      // Weekly projections (counting stats x40)
       const currentWeekly = cat.isPct ? current : current * WEEKLY_MULTIPLIER;
       const projectedWeekly = cat.isPct ? projected : projected * WEEKLY_MULTIPLIER;
       const weeklyDiff = projectedWeekly - currentWeekly;
 
-      // Determine if the change is positive (considering lowerBetter)
       const isPositive = cat.lowerBetter ? diff < 0 : diff > 0;
       const isNegative = cat.lowerBetter ? diff > 0 : diff < 0;
 
@@ -253,6 +439,8 @@ export const FreeAgentImpactSheet = ({
   }, [player, currentRoster, dropPlayerId]);
 
   if (!player || !impactData) return null;
+
+  const healthBadge = getHealthBadge(player.status);
 
   const formatValue = (val: number, isPct: boolean) => {
     if (isPct) return `${(val * 100).toFixed(1)}%`;
@@ -288,13 +476,25 @@ export const FreeAgentImpactSheet = ({
     return "bg-stat-negative/20 border border-stat-negative/30";
   };
 
+  const pctInt = (v: number) => `${Math.round(v * 100)}%`;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto bg-background border-border">
         <SheetHeader className="space-y-4 pb-4 border-b border-border">
-          {/* Player Header */}
+          {/* Player Header with Health Status */}
           <div className="flex items-center gap-4">
-            <PlayerPhoto name={player.name} size="lg" />
+            <div className="relative">
+              <PlayerPhoto name={player.name} size="lg" />
+              {healthBadge && (
+                <div className={cn(
+                  "absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border",
+                  healthBadge.color
+                )}>
+                  {healthBadge.label}
+                </div>
+              )}
+            </div>
             <div className="flex-1">
               <SheetTitle className="text-xl font-display">{player.name}</SheetTitle>
               <div className="flex items-center gap-2 mt-1">
@@ -303,44 +503,131 @@ export const FreeAgentImpactSheet = ({
                 <Badge variant="outline" className="text-xs">
                   {player.positions.join("/")}
                 </Badge>
+                {healthBadge && (
+                  <Badge variant="outline" className={cn("text-[10px]", healthBadge.color)}>
+                    <healthBadge.icon className="w-2.5 h-2.5 mr-0.5" />
+                    {healthBadge.label}
+                    {player.statusNote && ` — ${player.statusNote}`}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Impact Summary */}
-          <Card className="gradient-card border-primary/30 p-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-primary" />
-              <span className="font-display font-bold text-sm">Team Impact Preview</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Showing how your team's stats would change if you added this player
-              {impactData.dropPlayerName ? ` and dropped ${impactData.dropPlayerName}` : ""}.
-              Current roster: {impactData.currentCount} active players → {impactData.newCount} players
-            </p>
-            <div className="flex items-center gap-2 text-xs">
-              <Users className="w-3 h-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Compare as:</span>
-              <Select
-                value={dropPlayerId}
-                onValueChange={(value) => setDropPlayerId(value as string)}
-              >
-                <SelectTrigger className="h-7 px-2 py-1 text-xs w-full max-w-[220px]">
-                  <SelectValue placeholder="Add without dropping" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Add without dropping anyone</SelectItem>
-                  {currentRoster
-                    .filter(p => p.minutes > 0 && p.status !== "IR" && p.status !== "O")
-                    .map(p => (
-                      <SelectItem key={p.id} value={p.id}>
-                        Drop {p.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </Card>
+          {/* Monte Carlo Win Probability Card */}
+          {mcImpact && (
+            <Card className={cn(
+              "p-3 space-y-2",
+              mcImpact.winProbDelta > 0.005
+                ? "bg-stat-positive/10 border-stat-positive/30"
+                : mcImpact.winProbDelta < -0.005
+                ? "bg-stat-negative/10 border-stat-negative/30"
+                : "gradient-card border-primary/30"
+            )}>
+              <div className="flex items-center gap-2">
+                <Dice5 className="w-4 h-4 text-primary" />
+                <span className="font-display font-bold text-sm">Win Probability Impact</span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                {/* Delta */}
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "font-display font-bold text-2xl",
+                    mcImpact.winProbDelta > 0.005 ? "text-stat-positive" :
+                    mcImpact.winProbDelta < -0.005 ? "text-stat-negative" :
+                    "text-muted-foreground"
+                  )}>
+                    {mcImpact.winProbDelta > 0 ? "+" : ""}{(mcImpact.winProbDelta * 100).toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    <p>{pctInt(mcImpact.baselineWinProb)} → {pctInt(mcImpact.winProbWithSwap)}</p>
+                    <p className="text-[10px]">win probability</p>
+                  </div>
+                </div>
+
+                {/* Games + Cat wins */}
+                <div className="flex items-center gap-3 text-right">
+                  <div>
+                    <div className="flex items-center gap-1 justify-end">
+                      <CalendarDays className="w-3 h-3 text-muted-foreground" />
+                      <span className="font-display font-bold text-sm">{mcImpact.remainingGames}</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">games left</p>
+                  </div>
+                  <div>
+                    <span className={cn(
+                      "font-display font-bold text-sm",
+                      mcImpact.catWinsDelta > 0.05 ? "text-stat-positive" :
+                      mcImpact.catWinsDelta < -0.05 ? "text-stat-negative" :
+                      "text-muted-foreground"
+                    )}>
+                      {mcImpact.catWinsDelta > 0 ? "+" : ""}{mcImpact.catWinsDelta.toFixed(1)}
+                    </span>
+                    <p className="text-[10px] text-muted-foreground">cat wins</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Optimal drop suggestion */}
+              {mcImpact.bestDrop && (
+                <div className="flex items-center gap-2 pt-1 border-t border-border/50 text-xs">
+                  <ArrowRightLeft className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                  <span className="text-muted-foreground">Optimal drop:</span>
+                  <span className="font-medium">{mcImpact.bestDrop.name}</span>
+                  {getHealthBadge(mcImpact.bestDrop.status) && (
+                    <Badge variant="outline" className={cn("text-[9px] px-1 py-0", getHealthBadge(mcImpact.bestDrop.status)!.color)}>
+                      {getHealthBadge(mcImpact.bestDrop.status)!.label}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              <p className="text-[10px] text-muted-foreground">
+                Monte Carlo · 2,000 simulations · schedule-aware
+              </p>
+            </Card>
+          )}
+
+          {/* Fallback: basic impact preview when MC data not available */}
+          {!mcImpact && (
+            <Card className="gradient-card border-primary/30 p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-primary" />
+                <span className="font-display font-bold text-sm">Team Impact Preview</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Showing how your team's stats would change if you added this player
+                {impactData.dropPlayerName ? ` and dropped ${impactData.dropPlayerName}` : ""}.
+                Current roster: {impactData.currentCount} active players → {impactData.newCount} players
+              </p>
+              <div className="flex items-center gap-2 text-xs">
+                <Users className="w-3 h-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Compare as:</span>
+                <Select
+                  value={dropPlayerId}
+                  onValueChange={(value) => setDropPlayerId(value as string)}
+                >
+                  <SelectTrigger className="h-7 px-2 py-1 text-xs w-full max-w-[220px]">
+                    <SelectValue placeholder="Add without dropping" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Add without dropping anyone</SelectItem>
+                    {currentRoster
+                      .filter(p => p.minutes > 0 && p.status !== "IR" && p.status !== "O")
+                      .map(p => {
+                        const hb = getHealthBadge(p.status);
+                        return (
+                          <SelectItem key={p.id} value={p.id}>
+                            Drop {p.name}{hb ? ` (${hb.label})` : ''}
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Card>
+          )}
         </SheetHeader>
 
         {/* Tabs for Impact vs Swap vs Schedule vs News */}

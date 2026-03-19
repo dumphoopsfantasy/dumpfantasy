@@ -33,9 +33,6 @@ import { GamesRemainingBadge } from "@/components/GamesRemainingBadge";
 import { CategorySpecialistTags } from "@/components/CategorySpecialistTags";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 import { RosterSlot as RosterSlotType } from "@/types/fantasy";
-import { TeamTotalsWithPct } from "@/lib/teamTotals";
-import { usePickupImpact } from "@/hooks/usePickupImpact";
-import { PickupImpactPanel } from "@/components/PickupImpactPanel";
 
 // Extended Free Agent interface with bonus stats and ranks
 interface FreeAgent extends Player {
@@ -1332,63 +1329,6 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     setCurrentPage(1);
   }, [search, onlyAvailableFilter, ownerFilter, positionFilter, scheduleFilter, healthFilter, statsFilter, sortKey, sortAsc, hasScheduleSelection]);
 
-  // ── Pickup Win Impact Engine ─────────────────────────────────────────
-  // Reconstruct opponent projected totals from matchup baseline (per-game × 40)
-  const oppProjectedTotals: TeamTotalsWithPct | null = useMemo(() => {
-    if (!matchupData?.opponent?.stats) return null;
-    const s = matchupData.opponent.stats;
-    const fgm = (s.fgPct || 0) * 12 * 40; // approx fga=12 per-game
-    const fga = 12 * 40;
-    const ftm = (s.ftPct || 0) * 4 * 40; // approx fta=4 per-game
-    const fta = 4 * 40;
-    return {
-      fgm, fga,
-      fgPct: s.fgPct || 0,
-      ftm, fta,
-      ftPct: s.ftPct || 0,
-      threepm: (s.threepm || 0) * 40,
-      rebounds: (s.rebounds || 0) * 40,
-      assists: (s.assists || 0) * 40,
-      steals: (s.steals || 0) * 40,
-      blocks: (s.blocks || 0) * 40,
-      turnovers: (s.turnovers || 0) * 40,
-      points: (s.points || 0) * 40,
-    };
-  }, [matchupData]);
-
-  // My team's current weekly scoreboard totals (from matchup data baseline × 40)
-  const myCurrentTotals: TeamTotalsWithPct | null = useMemo(() => {
-    if (!matchupData?.myTeam?.stats) return null;
-    const s = matchupData.myTeam.stats;
-    const fgm = (s.fgPct || 0) * 12 * 40;
-    const fga = 12 * 40;
-    const ftm = (s.ftPct || 0) * 4 * 40;
-    const fta = 4 * 40;
-    return {
-      fgm, fga,
-      fgPct: s.fgPct || 0,
-      ftm, fta,
-      ftPct: s.ftPct || 0,
-      threepm: (s.threepm || 0) * 40,
-      rebounds: (s.rebounds || 0) * 40,
-      assists: (s.assists || 0) * 40,
-      steals: (s.steals || 0) * 40,
-      blocks: (s.blocks || 0) * 40,
-      turnovers: (s.turnovers || 0) * 40,
-      points: (s.points || 0) * 40,
-    };
-  }, [matchupData]);
-
-  const pickupImpact = usePickupImpact({
-    freeAgents: filteredPlayers,
-    currentRoster: currentRosterSlots,
-    matchupDates: matchupWeekDates,
-    gamesByDate,
-    myCurrentTotals,
-    oppTotals: oppProjectedTotals,
-    enabled: filteredPlayers.length > 0 && currentRosterSlots.length > 0 && !!oppProjectedTotals,
-  });
-
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
@@ -2228,17 +2168,8 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           freeAgents={filteredPlayers}
           useCris={useCris}
           onPlayerClick={(player) => setSelectedPlayer(player as FreeAgent)}
-        />
-      )}
-
-      {/* Pickup Win Impact Panel - Monte Carlo based pickup recommendations */}
-      {!tableOnlyMode && !tradeAnalyzerMode && (pickupImpact.results.length > 0 || pickupImpact.isComputing) && (
-        <PickupImpactPanel
-          results={pickupImpact.results}
-          baselineWinProb={pickupImpact.baselineWinProb}
-          isComputing={pickupImpact.isComputing}
-          error={pickupImpact.error}
-          maxDisplay={10}
+          matchupDates={matchupWeekDates}
+          gamesByDate={gamesByDate}
         />
       )}
 
@@ -2774,7 +2705,11 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           open={!!selectedPlayer}
           onOpenChange={() => setSelectedPlayer(null)}
           currentRoster={currentRoster}
+          currentRosterSlots={currentRosterSlots}
           allFreeAgents={rawPlayers}
+          matchupData={matchupData}
+          matchupDates={matchupWeekDates}
+          gamesByDate={gamesByDate}
         />
       )}
     </div>
