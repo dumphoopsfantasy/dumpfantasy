@@ -126,14 +126,24 @@ const DEFAULT_AVERAGES: ProjectedStats = {
 // INJURY STATUS HANDLING
 // ============================================================================
 
+/**
+ * Returns expected-value multiplier for a player's injury status.
+ *
+ * Uses probabilistic estimates rather than hard 0/1:
+ * - OUT/IR/SUSP: 5% chance of playing (statuses change, surprise activations)
+ * - DTD: 60% chance of playing
+ * - Questionable: 70% chance
+ * - GTD/Probable: 85% chance
+ * - Healthy: 100%
+ */
 export function getInjuryMultiplier(status?: string): number {
   if (!status) return 1.0;
   const s = status.toUpperCase().trim();
   
-  // Out / IR / Suspended = 0 games expected
+  // Out / IR / Suspended = 5% chance (statuses can flip, surprise activations)
   if (s === 'O' || s === 'OUT' || s === 'IR' || s === 'SUSP' || 
       s.includes('(O)') || s.includes('INJ (O)')) {
-    return 0;
+    return 0.05;
   }
   
   // Day-to-day = 60% expected games
@@ -155,7 +165,7 @@ export function getInjuryMultiplier(status?: string): number {
 }
 
 export function getInjuryStatusLabel(multiplier: number): string {
-  if (multiplier === 0) return 'OUT';
+  if (multiplier <= 0.05) return 'OUT (5%)';
   if (multiplier <= 0.6) return 'DTD (60%)';
   if (multiplier <= 0.7) return 'Q (70%)';
   if (multiplier <= 0.85) return 'GTD (85%)';

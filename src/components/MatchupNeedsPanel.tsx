@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PlayerPhoto } from "@/components/PlayerPhoto";
 import { NBATeamLogo } from "@/components/NBATeamLogo";
-import { Player } from "@/types/fantasy";
+import { Player, RosterSlot } from "@/types/fantasy";
 import { Target, TrendingUp, TrendingDown, Minus, Trophy, Zap, Info, ChevronDown, ChevronRight, AlertTriangle, XCircle, ShieldAlert, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, formatPct } from "@/lib/crisUtils";
 import { NBAGame } from "@/lib/nbaApi";
-import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
+import { normalizeNbaTeamCode, STANDARD_LINEUP_SLOTS, getInjuryMultiplier } from "@/lib/scheduleAwareProjection";
 import { categorizeDates } from "@/lib/restOfWeekUtils";
 
 interface MatchupStats {
@@ -48,6 +48,7 @@ interface MatchupNeedsPanelProps {
   onPlayerClick?: (player: FreeAgent) => void;
   matchupDates?: string[];
   gamesByDate?: Map<string, NBAGame[]>;
+  currentRosterSlots?: RosterSlot[];
 }
 
 type CategoryStatus = "win" | "tossup" | "loss";
@@ -88,6 +89,7 @@ export const MatchupNeedsPanel = ({
   onPlayerClick,
   matchupDates = [],
   gamesByDate = new Map(),
+  currentRosterSlots = [],
 }: MatchupNeedsPanelProps) => {
   
   // Calculate category needs based on matchup projections
@@ -155,6 +157,40 @@ export const MatchupNeedsPanel = ({
     return remaining;
   }, [matchupDates, gamesByDate]);
 
+  // Compute per-day open lineup slots: how many of the 8 slots are NOT filled
+  // by the current roster on each remaining date.
+  const openSlotsByDate = useMemo(() => {
+    const result = new Map<string, number>();
+    if (remainingDates.length === 0 || currentRosterSlots.length === 0) {
+      // No roster info — assume all slots open (graceful fallback)
+      for (const d of remainingDates) result.set(d, STANDARD_LINEUP_SLOTS.length);
+      return result;
+    }
+
+    const maxSlots = STANDARD_LINEUP_SLOTS.length; // 8
+
+    for (const dateStr of remainingDates) {
+      const games = gamesByDate.get(dateStr) || [];
+      // Count how many rostered (non-IR) players have a game on this date
+      let rosterPlayersWithGame = 0;
+      for (const slot of currentRosterSlots) {
+        if (slot.slotType === 'ir') continue;
+        const team = normalizeNbaTeamCode(slot.player.nbaTeam);
+        if (!team) continue;
+        const hasGame = games.some(g => g.homeTeam === team || g.awayTeam === team);
+        if (hasGame) {
+          // Weight by injury probability — an OUT player is unlikely to occupy the slot
+          const injMult = getInjuryMultiplier(slot.player.status);
+          rosterPlayersWithGame += injMult;
+        }
+      }
+      // Open slots = max slots minus expected occupied slots (clamped to 0)
+      const openSlots = Math.max(0, maxSlots - rosterPlayersWithGame);
+      result.set(dateStr, openSlots);
+    }
+    return result;
+  }, [remainingDates, currentRosterSlots, gamesByDate]);
+
   // Calculate matchup fit score for each free agent
   const scoredAgents = useMemo(() => {
     if (!freeAgents.length || !priorityCategories.length) return [];
@@ -197,8 +233,13 @@ export const MatchupNeedsPanel = ({
           }
         });
 
-        // Count remaining matchup-week games for this player
+        // Count remaining matchup-week games for this player (raw count)
         let gamesLeft = 0;
+        // Effective games: only games on days with open slots, weighted by
+        // the FA's own injury probability and available slot fraction.
+        let effectiveGames = 0;
+        const faInjuryMult = getInjuryMultiplier(player.status);
+
         if (remainingDates.length > 0) {
           const normalizedTeam = normalizeNbaTeamCode(player.nbaTeam);
           if (normalizedTeam) {
@@ -206,21 +247,36 @@ export const MatchupNeedsPanel = ({
               const games = gamesByDate.get(dateStr) || [];
               if (games.some(g => g.homeTeam === normalizedTeam || g.awayTeam === normalizedTeam)) {
                 gamesLeft++;
+                // How many open slots on this day? If 0, this game adds ~0 value.
+                const openSlots = openSlotsByDate.get(dateStr) ?? STANDARD_LINEUP_SLOTS.length;
+                // Fraction of a slot this player can realistically fill:
+                // min(open / 1, 1) — capped at 1 so extra open slots don't inflate.
+                const slotFraction = Math.min(openSlots, 1);
+                effectiveGames += slotFraction * faInjuryMult;
               }
             }
           }
         }
-        
+
+        // Scale fitScore by effective games. A player with 0 effective games
+        // gets fitScore driven to ~0 regardless of category rank.
+        // Baseline: 1 effective game = 1× multiplier, 3 games = 3×.
+        // If no schedule data, effectiveGames stays 0 but gamesLeft also 0,
+        // so we fall back to raw fitScore for graceful degradation.
+        const scheduleMultiplier = gamesLeft > 0 ? (effectiveGames / Math.max(gamesLeft, 1)) * gamesLeft : 1;
+        fitScore *= Math.max(scheduleMultiplier, 0.01); // floor at 0.01 so they aren't invisible
+
         return {
           player,
           fitScore,
           helpCategories,
           criRank: useCris ? player.criRank : player.wCriRank,
           gamesLeft,
+          effectiveGames,
         };
       })
       .sort((a, b) => b.fitScore - a.fitScore);
-  }, [freeAgents, priorityCategories, useCris, remainingDates, gamesByDate]);
+  }, [freeAgents, priorityCategories, useCris, remainingDates, gamesByDate, openSlotsByDate]);
   
   const topRecommendations = scoredAgents.slice(0, 10);
   
@@ -367,9 +423,17 @@ export const MatchupNeedsPanel = ({
                           {item.gamesLeft > 0 && (
                             <>
                               <span className="text-muted-foreground">•</span>
-                              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <span className={cn(
+                                "text-[10px] flex items-center gap-0.5",
+                                item.effectiveGames < item.gamesLeft * 0.5
+                                  ? "text-amber-400" // slots mostly full — limited value
+                                  : "text-muted-foreground"
+                              )}>
                                 <CalendarDays className="w-2.5 h-2.5" />
-                                {item.gamesLeft}G left
+                                {item.effectiveGames < item.gamesLeft
+                                  ? `${item.effectiveGames.toFixed(1)}/${item.gamesLeft}G usable`
+                                  : `${item.gamesLeft}G left`
+                                }
                               </span>
                             </>
                           )}
