@@ -378,9 +378,9 @@ export const StartSitAdvisor = ({
 
   // Position-aware lineup optimizer for SELECTED DAY
   const lineupRecommendation = useMemo(() => {
-    // Get players with games on selected day (not OUT)
+    // Get players with games on selected day (not OUT, not IR)
     const dayPlayers = roster.filter(slot => {
-      if (slot.slotType === "ir" || slot.player.minutes <= 0) return false;
+      if (slot.slotType === "ir") return false;
       
       // Check if player has game on selected day
       const hasGame = selectedDayGames.length > 0 
@@ -501,7 +501,7 @@ export const StartSitAdvisor = ({
     const noGame: PlayerRecommendation[] = [];
     const monitor: PlayerRecommendation[] = [];
 
-    roster.filter(slot => slot.slotType !== "ir" && slot.player.minutes > 0).forEach(slot => {
+    roster.filter(slot => slot.slotType !== "ir").forEach(slot => {
       const injuryStatus = getInjuryStatus(slot.player.status);
       const isCore = corePlayers.has(slot.player.id);
       
@@ -524,6 +524,8 @@ export const StartSitAdvisor = ({
         injuryMultiplier: getInjuryMultiplier(injuryStatus, applyInjuryMultipliers),
       };
 
+      // Skip players already in the lineup recommendation (they have games + minutes > 0)
+      // This block catches everyone else: OUT, no-game, and DTD monitors
       if (injuryStatus === "OUT") {
         out.push(rec);
       } else if (!hasGame) {
@@ -765,18 +767,13 @@ export const StartSitAdvisor = ({
                   <span className="text-[10px] text-muted-foreground">({noGamePlayers.length})</span>
                 </div>
                 <div className="space-y-1.5 opacity-60">
-                  {noGamePlayers.slice(0, 5).map((rec) => (
+                  {noGamePlayers.map((rec) => (
                     <PlayerRow
                       key={rec.slot.player.id}
                       rec={rec}
                       recommendation="none"
                     />
                   ))}
-                  {noGamePlayers.length > 5 && (
-                    <p className="text-[10px] text-muted-foreground text-center">
-                      +{noGamePlayers.length - 5} more without games
-                    </p>
-                  )}
                 </div>
               </div>
             )}
