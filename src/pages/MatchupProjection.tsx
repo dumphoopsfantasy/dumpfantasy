@@ -21,7 +21,8 @@ import { normalizeMissingToken, isMissingToken, isMissingFractionToken } from "@
 import { safeNum, fmtInt, fmtPct as fmtPctSafe, fmtDec, formatStatValue, determineProjectionMode, ProjectionDataMode, formatAsOfTime } from "@/lib/projectionFormatters";
 import { SlateStatusBadge } from "@/components/SlateStatusBadge";
 import { getProjectionExplanation } from "@/lib/slateAwareProjection";
-import { BaselineCard, ScheduleAwareCard, TodayImpactCard } from "@/components/matchup";
+import { BaselineCard, ScheduleAwareCard, TodayImpactCard, WinProbabilityCard } from "@/components/matchup";
+import { useMonteCarloSim } from "@/hooks/useMonteCarloSim";
 import { MatchupLeftRail } from "@/components/matchup/MatchupLeftRail";
 import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
@@ -1481,6 +1482,12 @@ export const MatchupProjection = ({
     return null;
   }, [projectionModeState.mode, oppFinalTotalsWithPct, oppRemainingTotalsWithPct, hasBaselineTotals, persistedMatchup]);
 
+  // Monte Carlo Win Probability simulation
+  const monteCarloResult = useMonteCarloSim({
+    myTotals: effectiveMyTotals,
+    oppTotals: effectiveOppTotals,
+  });
+
   // Safe format helpers for display
   const formatAverage = (value: unknown, format: string): string => {
     const n = safeNum(value);
@@ -1810,6 +1817,15 @@ Navigate to their team page and copy the whole page.`}
           myTodayStats={myTodayStats ?? null}
           oppTodayStats={oppTodayStats ?? null}
         />
+
+        {/* Card 4: Win Probability (Monte Carlo) */}
+        {monteCarloResult && (
+          <WinProbabilityCard
+            result={monteCarloResult}
+            myTeamName={persistedMatchup.myTeam.name}
+            opponentName={persistedMatchup.opponent.name}
+          />
+        )}
       </div>
 
       {/* Removed misleading "players playing today" count */}
