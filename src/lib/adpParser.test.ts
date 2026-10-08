@@ -16,3 +16,17 @@ describe('ADP multi-line header paste', () => {
     expect(r.errors[0]).toContain('PR7');
   });
 });
+
+import { readFileSync as _rf } from 'fs';
+import { join as _join } from 'path';
+describe('real ESPN free-agent paste', () => {
+  it('imports all 17 players with ADP before %ROST, including DTD players', () => {
+    const r = parseAdpTextWithHeaders(_rf(_join(__dirname, '__fixtures__/espnFaAdpPaste.txt'), 'utf8'));
+    expect(r.players.length).toBe(17);
+    const by = Object.fromEntries(r.players.map(p => [p.playerName, p]));
+    expect(by['James Harden'].avgPick).toBe(28.3);
+    expect(by['Stephen Curry'].avgPick).toBe(28.7);
+    expect(by['Stephen Curry'].team).toBe('GS');
+    expect(by['Kyrie Irving'].avgPick).toBe(59.5);
+  });
+});
