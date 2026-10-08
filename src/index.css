@@ -83,6 +83,39 @@
 }
 
 @layer utilities {
+  /* Fixed numeric tracks leave the remaining width for player identity. */
+  .fa-compact-table { border-collapse: collapse; }
+  .fa-compact-table th,
+  .fa-compact-table td { padding: 6px 3px; font-size: 11px; overflow-wrap: anywhere; }
+  .fa-compact-table .fa-col-select { width: 26px; }
+  .fa-compact-table .fa-col-index { width: 28px; }
+  .fa-compact-table .fa-col-context { width: 46px; }
+  .fa-compact-table .fa-col-stat { width: 44px; }
+  .fa-compact-table .fa-col-rank { width: 54px; }
+  .fa-compact-table .fa-col-value { width: 64px; }
+  .fa-compact-table .fa-col-trend { width: 56px; }
+  .fa-compact-table .fa-col-custom-rank { width: 90px; }
+  .fa-compact-table .fa-player-image { width: 24px; height: 24px; }
+  .fa-compact-table td > div { min-width: 0; max-width: 100%; }
+  .fa-compact-table th button svg { width: 10px; height: 10px; }
+  .fa-compact-table th button span { white-space: nowrap; }
+  .fa-hide-context [data-column="context"],
+  .fa-hide-stats [data-column="stats"],
+  .fa-hide-shooting [data-column="shooting"],
+  .fa-hide-ranks [data-column="ranks"],
+  .fa-hide-adp [data-column="adp"],
+  .fa-hide-trends [data-column="trends"] { display: none; }
+
+  /* At narrower widths, use equal flexible tracks and wrap instead of scrolling. */
+  @media (max-width: 1100px) {
+    .fa-compact-table col:not(.fa-col-player) { width: auto; }
+    .fa-compact-table .fa-col-player { width: 25%; }
+    .fa-compact-table .fa-player-image { display: none; }
+    .fa-compact-table th,
+    .fa-compact-table td { padding-left: 1px; padding-right: 1px; }
+    .fa-compact-table td span.inline-flex { flex-wrap: wrap; justify-content: center; }
+  }
+
   .gradient-primary {
     background: var(--gradient-primary);
   }
