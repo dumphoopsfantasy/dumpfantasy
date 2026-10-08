@@ -1,0 +1,307 @@
+hsb.accessibility.skipContent
+ESPN
+Free AgentsAll Hail Wemby
+Player Name
+Position:All PlayersPGSGSFPFCGF/C
+Filter
+Available
+Pro Team
+All
+Health
+All
+Watch List
+All
+Playing
+All
+Stat Qualifier
+Off
+At least
+Reset All
+Stats
+Trending
+Schedule
+News
+Compare Players
+TotalsAverages
+Players	Status	October 20	Trends
+Player
+type
+action
+opp
+STATUS
+PR7
+PR15
+PR30
+2027
+PRK
+ADP
+%ROST
++/-
+Nikola JokicNikola Jokic
+Nikola Jokic
+DEN
+C
+FA
+
+--
+--
+--
+--
+--
+--
+1.5
+99.9
+0
+Shai Gilgeous-AlexanderShai Gilgeous-Alexander
+Shai Gilgeous-Alexander
+OKC
+PG
+FA
+
+@SA
+9:30 PM
+--
+--
+--
+--
+--
+3.0
+99.9
+0
+Victor WembanyamaVictor Wembanyama
+Victor Wembanyama
+SA
+C
+FA
+
+OKC
+9:30 PM
+--
+--
+--
+--
+--
+3.1
+99.9
+0
+Giannis AntetokounmpoGiannis Antetokounmpo
+Giannis Antetokounmpo
+MIA
+PF, C
+FA
+
+--
+--
+--
+--
+--
+--
+5.7
+99.9
+0
+LaMelo BallLaMelo Ball
+LaMelo Ball
+MIN
+PG
+FA
+
+--
+--
+--
+--
+--
+--
+25.3
+99.5
+0
+James HardenJames Harden
+James Harden
+CLE
+PG, SG
+FA
+
+--
+--
+--
+--
+--
+--
+28.3
+99.5
+0
+Stephen CurryStephen Curry
+Stephen Curry
+DTD
+GS
+PG
+FA
+
+--
+--
+--
+--
+--
+--
+28.7
+99.5
+0
+Kawhi LeonardKawhi Leonard
+Kawhi Leonard
+DTD
+TOR
+SF, PF
+FA
+
+--
+--
+--
+--
+--
+--
+30.8
+97.5
++0.1
+Jaylen BrownJaylen Brown
+Jaylen Brown
+PHI
+SF, SG
+FA
+
+@NY
+7:00 PM
+--
+--
+--
+--
+--
+32.5
+99.7
+0
+Jalen DurenJalen Duren
+Jalen Duren
+DTD
+DET
+C
+FA
+
+BOS
+3:00 PM
+--
+--
+--
+--
+--
+33.3
+93.7
++0.2
+LeBron JamesLeBron James
+LeBron James
+DTD
+PHI
+SF, PF
+FA
+
+@NY
+7:00 PM
+--
+--
+--
+--
+--
+37.2
+99.3
+0
+Austin ReavesAustin Reaves
+Austin Reaves
+DTD
+LAL
+SG, PG
+FA
+
+--
+--
+--
+--
+--
+--
+39.9
+96.1
++0.1
+Derrick WhiteDerrick White
+Derrick White
+BOS
+SG, PG
+FA
+
+@DET
+3:00 PM
+--
+--
+--
+--
+--
+40.3
+95.2
++0.1
+Kon KnueppelKon Knueppel
+Kon Knueppel
+DTD
+CHA
+SF, SG
+FA
+
+--
+--
+--
+--
+--
+--
+43.0
+91.5
++0.2
+Desmond BaneDesmond Bane
+Desmond Bane
+ORL
+SG, SF
+FA
+
+--
+--
+--
+--
+--
+--
+49.9
+94.4
+0
+Mikal BridgesMikal Bridges
+Mikal Bridges
+NY
+SF, SG
+FA
+
+PHI
+7:00 PM
+--
+--
+--
+--
+--
+52.0
+91.5
++0.1
+Kyrie IrvingKyrie Irving
+Kyrie Irving
+DAL
+PG
+FA
+
+--
+--
+--
+--
+--
+--
+59.5
+87.1
++0.4
