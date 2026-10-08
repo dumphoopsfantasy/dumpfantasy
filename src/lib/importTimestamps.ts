@@ -11,6 +11,7 @@ export interface ImportTimestamps {
   matchup?: number;
   standings?: number;
   weekly?: number;
+  adp?: number;
 }
 
 export function getImportTimestamps(): ImportTimestamps {
