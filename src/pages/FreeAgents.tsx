@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Label } from "@/components/ui/label";
 import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon, Scale, Calendar, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -93,6 +94,19 @@ interface FreeAgentsProps {
 const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
 
 type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus' | 'adp' | 'valueVsCri' | 'valueVsWCri';
+const COLUMN_GROUPS = [
+  { key: 'context', label: 'Owner / Opp' },
+  { key: 'stats', label: 'Per-game' },
+  { key: 'shooting', label: 'Shooting %' },
+  { key: 'ranks', label: 'Ranks' },
+  { key: 'adp', label: 'ADP / Value' },
+  { key: 'trends', label: 'Trends' },
+] as const;
+type ColumnGroup = typeof COLUMN_GROUPS[number]['key'];
+const COLUMN_VISIBILITY_KEY = 'dumphoops-fa-columns.v1';
+const categoryGroup = (key: string): ColumnGroup =>
+  key === 'fgPct' || key === 'ftPct' ? 'shooting' : 'stats';
+
 type ViewMode = 'stats' | 'rankings' | 'advanced';
 
 // Multi-paste import state
@@ -107,6 +121,16 @@ interface ImportProgress {
 }
 
 export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], currentRosterSlots = [], leagueTeams = [], matchupData, multiPageImportEnabled = false, dynamicWeights, isDynamicWeightsActive = false, dynamicWeightsMode = "matchup" }: FreeAgentsProps) => {
+  const [visibleColumnGroups, setVisibleColumnGroups] = useState<ColumnGroup[]>(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(COLUMN_VISIBILITY_KEY) || 'null');
+      if (Array.isArray(saved)) return COLUMN_GROUPS.filter(group => saved.includes(group.key)).map(group => group.key);
+    } catch { /* Use all columns if saved preferences are unavailable. */ }
+    return COLUMN_GROUPS.map(group => group.key);
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COLUMN_VISIBILITY_KEY, JSON.stringify(visibleColumnGroups)); } catch { /* Storage may be disabled. */ }
+  }, [visibleColumnGroups]);
   const [rawPlayers, setRawPlayers] = useState<ImportedFreeAgent[]>(persistedPlayers as ImportedFreeAgent[]);
   const [bonusStats, setBonusStats] = useState<Map<string, { pr15: number; rosterPct: number; plusMinus: number }>>(new Map());
   const [rawData, setRawData] = useState("");
@@ -1683,19 +1707,14 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       .map((s) => s.player);
   }, [customSuggestionCategories, filteredPlayers, currentRoster]);
 
-  const SortHeader = ({ label, sortKeyProp, className }: { label: string; sortKeyProp: SortKey; className?: string }) => (
-    <th 
-      className={cn("p-2 font-display cursor-pointer hover:bg-muted/50 select-none whitespace-nowrap", className)}
-      onClick={() => handleSort(sortKeyProp)}
-    >
-      <div className="flex items-center justify-center gap-1">
-        {label}
+  const SortHeader = ({ label, sortKeyProp, className, group }: { label: string; sortKeyProp: SortKey; className?: string; group: ColumnGroup }) => (
+    <th data-column={group} aria-sort={sortKey === sortKeyProp ? (sortAsc ? 'ascending' : 'descending') : 'none'} className={cn("font-display select-none", className)}>
+      <Button variant="ghost" size="sm" title={`Sort by ${label}`} onClick={() => handleSort(sortKeyProp)} className="h-auto w-full min-w-0 rounded-sm px-0 py-1 text-[11px] gap-0.5 whitespace-normal">
+        <span>{label}</span>
         {sortKey === sortKeyProp ? (
-          sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
-        ) : (
-          <ArrowUpDown className="w-3 h-3 opacity-30" />
-        )}
-      </div>
+          sortAsc ? <ArrowUp className="h-2.5 w-2.5 shrink-0" /> : <ArrowDown className="h-2.5 w-2.5 shrink-0" />
+        ) : <ArrowUpDown className="h-2.5 w-2.5 shrink-0 opacity-30" />}
+      </Button>
     </th>
   );
 
@@ -1789,7 +1808,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
   const scoreLabel = useCris ? 'CRI' : 'wCRI';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="min-w-0 space-y-6 animate-fade-in">
       {/* Header with View Toggle */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -2542,9 +2561,33 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       )}
 
        {/* Stats Table */}
-      <Card className="gradient-card border-border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+      <div className="min-w-0 space-y-2">
+        <div className="flex flex-wrap items-center gap-2" aria-label="Table column visibility">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Settings2 className="h-3.5 w-3.5" />Columns</span>
+          <ToggleGroup type="multiple" variant="outline" size="sm" value={visibleColumnGroups} onValueChange={value => setVisibleColumnGroups(value as ColumnGroup[])} className="flex-wrap justify-start">
+            {COLUMN_GROUPS.map(group => <ToggleGroupItem key={group.key} value={group.key} aria-label={`Show ${group.label} columns`} className="h-7 px-2 text-xs">{group.label}</ToggleGroupItem>)}
+          </ToggleGroup>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setVisibleColumnGroups(COLUMN_GROUPS.map(group => group.key))}>Show all</Button>
+        </div>
+      <Card className="gradient-card border-border min-w-0">
+        <div className="min-w-0">
+          <table aria-label="Free agents stats" className={cn("fa-compact-table w-full table-fixed text-[11px] tabular-nums", ...COLUMN_GROUPS.filter(group => !visibleColumnGroups.includes(group.key)).map(group => `fa-hide-${group.key}`))}>
+            <colgroup>
+              {tradeAnalyzerMode && <col className="fa-col-select" />}
+              <col className="fa-col-index" /><col className="fa-col-player" />
+              <col data-column="context" className="fa-col-context" /><col data-column="context" className="fa-col-context" />
+              {viewMode === 'stats' && <>
+                <col data-column="stats" className="fa-col-stat" />
+                {CATEGORIES.map(cat => <col key={cat.key} data-column={categoryGroup(cat.key)} className="fa-col-stat" />)}
+                <col data-column="ranks" className="fa-col-rank" /><col data-column="ranks" className="fa-col-rank" />
+                {adpCount > 0 && <><col data-column="adp" className="fa-col-rank" /><col data-column="adp" className="fa-col-value" /><col data-column="adp" className="fa-col-value" /></>}
+                <col data-column="trends" className="fa-col-trend" /><col data-column="trends" className="fa-col-trend" /><col data-column="trends" className="fa-col-trend" />
+              </>}
+              {viewMode !== 'stats' && <>
+                {CATEGORIES.filter(cat => viewMode === 'rankings' || customCategories.includes(cat.key)).map(cat => <col key={cat.key} data-column={categoryGroup(cat.key)} className="fa-col-stat" />)}
+                <col data-column="ranks" className="fa-col-custom-rank" />
+              </>}
+            </colgroup>
             <thead>
               <tr className="border-b border-border bg-accent/20">
                 {tradeAnalyzerMode && (
@@ -2562,61 +2605,61 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                   </th>
                 )}
                 <th className="text-left p-3 font-display">#</th>
-                <th className="text-left p-3 font-display min-w-[180px]">Player</th>
-                <th className="text-center p-2 font-display">Owner</th>
-                <th className="text-center p-2 font-display">OPP</th>
+                <th className="text-left font-display">Player</th>
+                <th data-column="context" className="text-center font-display">Owner</th>
+                <th data-column="context" className="text-center font-display">OPP</th>
                 {viewMode === 'stats' && (
                   <>
                     {/* MIN first (bonus but useful) */}
-                    <SortHeader label="MIN" sortKeyProp="minutes" />
+                    <SortHeader label="MIN" group="stats" sortKeyProp="minutes" />
                     {/* Core 9-cat stats */}
-                    <SortHeader label="FG%" sortKeyProp="fgPct" className="border-l border-border" />
-                    <SortHeader label="FT%" sortKeyProp="ftPct" />
-                    <SortHeader label="3PM" sortKeyProp="threepm" />
-                    <SortHeader label="REB" sortKeyProp="rebounds" />
-                    <SortHeader label="AST" sortKeyProp="assists" />
-                    <SortHeader label="STL" sortKeyProp="steals" />
-                    <SortHeader label="BLK" sortKeyProp="blocks" />
-                    <SortHeader label="TO" sortKeyProp="turnovers" />
-                    <SortHeader label="PTS" sortKeyProp="points" />
+                    <SortHeader label="FG%" group="shooting" sortKeyProp="fgPct" className="border-l border-border" />
+                    <SortHeader label="FT%" group="shooting" sortKeyProp="ftPct" />
+                    <SortHeader label="3PM" group="stats" sortKeyProp="threepm" />
+                    <SortHeader label="REB" group="stats" sortKeyProp="rebounds" />
+                    <SortHeader label="AST" group="stats" sortKeyProp="assists" />
+                    <SortHeader label="STL" group="stats" sortKeyProp="steals" />
+                    <SortHeader label="BLK" group="stats" sortKeyProp="blocks" />
+                    <SortHeader label="TO" group="stats" sortKeyProp="turnovers" />
+                    <SortHeader label="PTS" group="stats" sortKeyProp="points" />
                     {/* CRI/wCRI Rank columns */}
-                    <SortHeader label="CRI#" sortKeyProp="cri" className="border-l-2 border-primary/50" />
-                    <SortHeader label="wCRI#" sortKeyProp="wCri" />
+                    <SortHeader label="CRI#" group="ranks" sortKeyProp="cri" className="border-l-2 border-primary/50" />
+                    <SortHeader label="wCRI#" group="ranks" sortKeyProp="wCri" />
                     {adpCount > 0 && (
                       <>
-                        <SortHeader label="ADP" sortKeyProp="adp" className="border-l border-muted-foreground/30" />
-                        <SortHeader label="vs CRI" sortKeyProp="valueVsCri" />
-                        <SortHeader label="vs wCRI" sortKeyProp="valueVsWCri" />
+                        <SortHeader label="ADP" group="adp" sortKeyProp="adp" className="border-l border-muted-foreground/30" />
+                        <SortHeader label="vs CRI" group="adp" sortKeyProp="valueVsCri" />
+                        <SortHeader label="vs wCRI" group="adp" sortKeyProp="valueVsWCri" />
                       </>
                     )}
                     {/* Bonus insight stats on right */}
-                    <SortHeader label="PR15" sortKeyProp="pr15" className="border-l border-muted-foreground/30" />
-                    <SortHeader label="%ROST" sortKeyProp="rosterPct" />
-                    <SortHeader label="+/-" sortKeyProp="plusMinus" />
+                    <SortHeader label="PR15" group="trends" sortKeyProp="pr15" className="border-l border-muted-foreground/30" />
+                    <SortHeader label="%ROST" group="trends" sortKeyProp="rosterPct" />
+                    <SortHeader label="+/-" group="trends" sortKeyProp="plusMinus" />
                   </>
                 )}
                 {viewMode === 'rankings' && (
                   <>
                     {/* Rankings view - show rank for each category, sortable */}
-                    <SortHeader label="FG%" sortKeyProp="fgPct" />
-                    <SortHeader label="FT%" sortKeyProp="ftPct" />
-                    <SortHeader label="3PM" sortKeyProp="threepm" />
-                    <SortHeader label="REB" sortKeyProp="rebounds" />
-                    <SortHeader label="AST" sortKeyProp="assists" />
-                    <SortHeader label="STL" sortKeyProp="steals" />
-                    <SortHeader label="BLK" sortKeyProp="blocks" />
-                    <SortHeader label="TO" sortKeyProp="turnovers" />
-                    <SortHeader label="PTS" sortKeyProp="points" />
-                    <SortHeader label={`${scoreLabel}#`} sortKeyProp={useCris ? "cri" : "wCri"} className="border-l-2 border-primary/50" />
+                    <SortHeader label="FG%" group="shooting" sortKeyProp="fgPct" />
+                    <SortHeader label="FT%" group="shooting" sortKeyProp="ftPct" />
+                    <SortHeader label="3PM" group="stats" sortKeyProp="threepm" />
+                    <SortHeader label="REB" group="stats" sortKeyProp="rebounds" />
+                    <SortHeader label="AST" group="stats" sortKeyProp="assists" />
+                    <SortHeader label="STL" group="stats" sortKeyProp="steals" />
+                    <SortHeader label="BLK" group="stats" sortKeyProp="blocks" />
+                    <SortHeader label="TO" group="stats" sortKeyProp="turnovers" />
+                    <SortHeader label="PTS" group="stats" sortKeyProp="points" />
+                    <SortHeader label={`${scoreLabel}#`} group="ranks" sortKeyProp={useCris ? "cri" : "wCri"} className="border-l-2 border-primary/50" />
                   </>
                 )}
                 {viewMode === 'advanced' && (
                   <>
                     {/* Advanced view - show only selected categories */}
                     {CATEGORIES.filter(cat => customCategories.includes(cat.key)).map(cat => (
-                      <SortHeader key={cat.key} label={cat.label} sortKeyProp={cat.key as SortKey} />
+                      <SortHeader key={cat.key} label={cat.label} group={categoryGroup(cat.key)} sortKeyProp={cat.key as SortKey} />
                     ))}
-                    <SortHeader label={`Custom ${scoreLabel}#`} sortKeyProp="customCri" className="border-l-2 border-primary/50" />
+                    <SortHeader label={`Custom ${scoreLabel}#`} group="ranks" sortKeyProp="customCri" className="border-l-2 border-primary/50" />
                   </>
                 )}
               </tr>
@@ -2650,14 +2693,14 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                   )}
                   <td className="p-2 font-bold text-primary">{displayIndex}</td>
                   <td className="p-2">
-                    <div className="flex items-center gap-2">
-                      <PlayerPhoto name={player.name} size="sm" />
-                      <NBATeamLogo teamCode={player.nbaTeam} size="sm" />
+                    <div className="flex items-start gap-1.5 min-w-0">
+                      <PlayerPhoto name={player.name} size="xs" className="fa-player-image shrink-0" />
+                      <NBATeamLogo teamCode={player.nbaTeam} size="xs" className="fa-player-image shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold">
+                        <div className="font-semibold break-words text-xs leading-tight">
                           {player.name}
                         </div>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
+                        <div className="flex items-center gap-1 text-[11px] text-muted-foreground flex-wrap">
                           <span>{player.nbaTeam} • {player.positions.join("/")}</span>
                           {player.status && player.status !== 'healthy' && (
                             <Badge variant="destructive" className="text-xs">{player.status}</Badge>
@@ -2686,30 +2729,30 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                               ftPct: player.ftPct,
                               positions: player.positions,
                             }}
-                            className="mt-0.5"
+                            className="mt-0.5 flex-wrap"
                           />
                         )}
                       </div>
                     </div>
                   </td>
                   {/* Owner column */}
-                  <td className="text-center p-2">
+                  <td data-column="context" className="text-center p-2">
                     {(player as any).ownerKey === 'FA' ? (
-                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0.5 bg-green-500/20 text-green-400 border-green-500/30">FA</Badge>
+                      <Badge variant="secondary" className="text-[11px] px-1.5 py-0.5 bg-stat-positive/20 text-stat-positive border-stat-positive/30">FA</Badge>
                     ) : (
                       <div className="flex flex-col items-center">
-                        <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 text-amber-400 border-amber-500/30">
+                        <Badge variant="outline" className="text-[11px] px-1.5 py-0.5 text-warning border-warning/30">
                           {(player as any).ownerKey}
                         </Badge>
                         {getTeamNameFromOwnerKey((player as any).ownerKey) && (
-                          <span className="text-[8px] text-muted-foreground mt-0.5 max-w-[80px] truncate">
+                          <span className="text-[11px] text-muted-foreground mt-0.5 max-w-[80px] truncate">
                             {getTeamNameFromOwnerKey((player as any).ownerKey)}
                           </span>
                         )}
                       </div>
                     )}
                   </td>
-                  <td className="text-center p-2 text-xs">
+                  <td data-column="context" className="text-center p-2 text-xs">
                     {player.opponent ? (
                       <div>
                         <div className="font-medium">{player.opponent}</div>
@@ -2722,41 +2765,41 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                   {viewMode === 'stats' && (
                     <>
                       {/* MIN first */}
-                      <td className="text-center p-2">{player.minutes.toFixed(1)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.minutes.toFixed(1)}</td>
                       {/* Core 9-cat stats - raw values */}
-                      <td className="text-center p-2 border-l border-border">{formatPct(player.fgPct)}</td>
-                      <td className="text-center p-2">{formatPct(player.ftPct)}</td>
-                      <td className="text-center p-2">{player.threepm.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.rebounds.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.assists.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.steals.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.blocks.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.turnovers.toFixed(1)}</td>
-                      <td className="text-center p-2">{player.points.toFixed(1)}</td>
+                      <td data-column="shooting" className="text-center p-2 border-l border-border">{formatPct(player.fgPct)}</td>
+                      <td data-column="shooting" className="text-center p-2">{formatPct(player.ftPct)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.threepm.toFixed(1)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.rebounds.toFixed(1)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.assists.toFixed(1)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.steals.toFixed(1)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.blocks.toFixed(1)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.turnovers.toFixed(1)}</td>
+                      <td data-column="stats" className="text-center p-2">{player.points.toFixed(1)}</td>
                       {/* CRI and wCRI - display RANKS not raw scores */}
-                      <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
+                      <td data-column="ranks" className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
                         #{player.criRank}
                       </td>
-                      <td className="text-center p-2 font-bold text-orange-400">
+                      <td data-column="ranks" className="text-center p-2 font-bold text-warning">
                         #{player.wCriRank}
                       </td>
                       {adpCount > 0 && (
                         <>
-                          <td className="text-center p-2 font-mono border-l border-muted-foreground/30" title={player.adpRank != null ? `ADP rank #${player.adpRank}` : undefined}>
+                          <td data-column="adp" className="text-center p-2 font-mono border-l border-muted-foreground/30" title={player.adpRank != null ? `ADP rank #${player.adpRank}` : undefined}>
                             {player.adp != null ? player.adp.toFixed(1) : <span className="text-muted-foreground">—</span>}
                           </td>
-                          <td className="text-center p-2">{renderValue(player.valueVsCri)}</td>
-                          <td className="text-center p-2">{renderValue(player.valueVsWCri)}</td>
+                          <td data-column="adp" className="text-center p-2">{renderValue(player.valueVsCri)}</td>
+                          <td data-column="adp" className="text-center p-2">{renderValue(player.valueVsWCri)}</td>
                         </>
                       )}
                       {/* Bonus insight stats on right */}
-                      <td className="text-center p-2 text-muted-foreground border-l border-muted-foreground/30">
+                      <td data-column="trends" className="text-center p-2 text-muted-foreground border-l border-muted-foreground/30">
                         {player.pr15 !== undefined && player.pr15 !== null ? player.pr15.toFixed(2) : '—'}
                       </td>
-                      <td className="text-center p-2 text-muted-foreground">
+                      <td data-column="trends" className="text-center p-2 text-muted-foreground">
                         {player.rosterPct !== undefined && player.rosterPct !== null ? `${player.rosterPct.toFixed(1)}%` : '—'}
                       </td>
-                      <td className="text-center p-2 text-muted-foreground">
+                      <td data-column="trends" className="text-center p-2 text-muted-foreground">
                         {player.plusMinus !== undefined && player.plusMinus !== null ? (player.plusMinus >= 0 ? '+' : '') + player.plusMinus.toFixed(1) : '—'}
                       </td>
                     </>
@@ -2778,13 +2821,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                                       percentile <= 0.5 ? 'text-emerald-400' : 
                                       percentile <= 0.75 ? 'text-yellow-400' : 'text-stat-negative';
                         return (
-                          <td key={cat.key} className={cn("text-center p-2 font-semibold", color)}>
+                          <td data-column={categoryGroup(cat.key)} key={cat.key} className={cn("text-center p-2 font-semibold", color)}>
                             #{rank}
                           </td>
                         );
                       })}
                       {/* CRI/wCRI rank */}
-                      <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
+                      <td data-column="ranks" className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
                         #{player[rankKey]}
                       </td>
                     </>
@@ -2806,13 +2849,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                                       percentile <= 0.5 ? 'text-emerald-400' : 
                                       percentile <= 0.75 ? 'text-yellow-400' : 'text-stat-negative';
                         return (
-                          <td key={cat.key} className={cn("text-center p-2 font-semibold", color)}>
+                          <td data-column={categoryGroup(cat.key)} key={cat.key} className={cn("text-center p-2 font-semibold", color)}>
                             #{rank}
                           </td>
                         );
                       })}
                       {/* Custom CRI rank */}
-                      <td className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
+                      <td data-column="ranks" className="text-center p-2 font-bold text-primary border-l-2 border-primary/50">
                         #{player.customCriRank || '—'}
                       </td>
                     </>
@@ -2854,6 +2897,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           </div>
         )}
       </Card>
+      </div>
 
       {selectedPlayer && (
         <FreeAgentImpactSheet
