@@ -44,6 +44,7 @@ export interface UnifiedPlayer {
   
   // Computed values
   crisRank: number | null;
+  wCriRank?: number | null;      // weighted CRI rank within the imported draft pool
   adpRank: number | null;
   lastYearRank: number | null;
   valueVsAdp: number | null;      // adpRank - crisRank (positive = undervalued)

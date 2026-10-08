@@ -22,6 +22,29 @@ import {
   getTeamForPick,
   TeamComposition,
 } from '@/types/draft';
+import { calculateCRISForAll } from '@/lib/crisUtils';
+
+/**
+ * Compute real CRI#/wCRI# ranks (1 = best) relative to the imported draft pool,
+ * using ESPN projection stats. Players without full projection stats get null.
+ */
+export function applyDraftCris(players: UnifiedPlayer[]): UnifiedPlayer[] {
+  const eligible = players.filter(p => {
+    const s = p.sources.projections?.stats;
+    return s && [s.fgPct, s.ftPct, s.threes, s.reb, s.ast, s.stl, s.blk, s.pts].every(v => typeof v === 'number');
+  });
+  const rows = eligible.map(p => {
+    const s = p.sources.projections!.stats!;
+    return { id: p.id, fgPct: s.fgPct!, ftPct: s.ftPct!, threepm: s.threes!, rebounds: s.reb!, assists: s.ast!, steals: s.stl!, blocks: s.blk!, turnovers: s.to ?? 0, points: s.pts! };
+  });
+  const scored = calculateCRISForAll(rows);
+  const criRank = new Map([...scored].sort((a, b) => b.cri - a.cri).map((r, i) => [r.id, i + 1]));
+  const wRank = new Map([...scored].sort((a, b) => b.wCri - a.wCri).map((r, i) => [r.id, i + 1]));
+  return players.map(p => {
+    const crisRank = criRank.get(p.id) ?? null;
+    return { ...p, crisRank, wCriRank: wRank.get(p.id) ?? null, valueVsAdp: calculateValueDelta(p.adpRank, crisRank) };
+  });
+}
 
 const STORAGE_KEY = 'dumphoops-draft-v2';
 const IMPORT_STORAGE_KEY = 'dumphoops-import-v2';
@@ -190,7 +213,8 @@ export function useDraftState(): UseDraftStateReturn {
           }
           
           // Update team/positions if we have new data
-          if (p.team && !updated.team) updated.team = p.team;
+          // Latest import wins for team (fixes stale teams from older imports, e.g. traded players)
+          if (p.team && (sourceType !== 'lastYear' || !updated.team)) updated.team = p.team;
           if (p.positions.length > 0) {
             updated.positions = [...new Set([...updated.positions, ...p.positions])];
           }
@@ -231,7 +255,7 @@ export function useDraftState(): UseDraftStateReturn {
       }
       
       // Convert back to array and sort by value
-      const players = Array.from(playerMap.values());
+      const players = applyDraftCris(Array.from(playerMap.values()));
       players.sort((a, b) => {
         // Sort by valueVsAdp descending (best value first)
         if (a.valueVsAdp !== null && b.valueVsAdp !== null) {
