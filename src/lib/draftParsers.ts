@@ -159,7 +159,6 @@ export function parseHtmlTable(
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
   
-  // Find the largest table (most rows)
   const tables = Array.from(doc.querySelectorAll('table'));
   if (tables.length === 0) {
     return { 
@@ -168,28 +167,42 @@ export function parseHtmlTable(
       stats: { linesProcessed: 0, playersFound: 0, duplicatesRemoved: 0 }
     };
   }
-  
-  // Sort by row count, take the largest
-  tables.sort((a, b) => b.querySelectorAll('tr').length - a.querySelectorAll('tr').length);
-  const table = tables[0];
-  
-  const rows = Array.from(table.querySelectorAll('tr'));
-  if (rows.length < 2) {
+
+  // ESPN renders the player list as SEPARATE side-by-side tables (a fixed "Players"
+  // table plus a scrolling stats table) with identical row counts. Taking only the
+  // largest table dropped every stat column. Split each table into header cells and
+  // body rows, then stitch all tables sharing the max body-row count side by side.
+  const splitTable = (t: HTMLTableElement) => {
+    const theadRows = Array.from(t.querySelectorAll('thead tr'));
+    const allRows = Array.from(t.querySelectorAll('tr'));
+    const header = theadRows.length ? theadRows[theadRows.length - 1] : allRows[0];
+    const body = theadRows.length
+      ? Array.from(t.querySelectorAll('tbody tr'))
+      : allRows.slice(1);
+    return {
+      headerCells: header ? Array.from(header.querySelectorAll('th, td')) : [],
+      bodyRows: body.map(r => Array.from(r.querySelectorAll('td'))).filter(c => c.length > 0),
+    };
+  };
+  const split = tables.map(splitTable);
+  const maxRows = Math.max(...split.map(s => s.bodyRows.length));
+  const group = split.filter(s => s.bodyRows.length === maxRows);
+  const headerCells = group.flatMap(s => s.headerCells);
+  const combinedRows: Element[][] = Array.from({ length: maxRows }, (_, i) => group.flatMap(s => s.bodyRows[i]));
+
+  if (maxRows < 1) {
     return { 
       players: [], 
       errors: ['Table has too few rows'],
-      stats: { linesProcessed: rows.length, playersFound: 0, duplicatesRemoved: 0 }
+      stats: { linesProcessed: 0, playersFound: 0, duplicatesRemoved: 0 }
     };
   }
   
-  // Build header map from first row (or thead)
   const headerMap = new Map<string, number>();
-  const headerRow = table.querySelector('thead tr') || rows[0];
-  const headerCells = Array.from(headerRow.querySelectorAll('th, td'));
   
   headerCells.forEach((cell, idx) => {
     const text = cell.textContent?.toLowerCase().trim() || '';
-    if (text) headerMap.set(text, idx);
+    if (text && !headerMap.has(text)) headerMap.set(text, idx);
     
     // Also map common variations
     if (text.includes('player')) headerMap.set('player', idx);
@@ -199,18 +212,20 @@ export function parseHtmlTable(
     if ((text.includes('avg') && text.includes('pick')) || text === 'adp') headerMap.set('avgpick', idx);
     if (text.includes('rost')) headerMap.set('rost', idx);
   });
+  // Columns that contain team abbreviations that are NOT the player's team
+  const opponentCols = new Set<number>();
+  headerCells.forEach((cell, idx) => {
+    const t = cell.textContent?.toLowerCase().trim() || '';
+    if (t === 'opp' || t.includes('opponent') || t.includes('action')) opponentCols.add(idx);
+  });
   
   const players: ParsedPlayer[] = [];
   const errors: string[] = [];
   const seenKeys = new Set<string>();
   let duplicatesRemoved = 0;
   
-  // Determine start row (skip header)
-  const startIdx = headerRow === rows[0] ? 1 : 0;
-  
-  for (let i = startIdx; i < rows.length; i++) {
-    const row = rows[i];
-    const cells = Array.from(row.querySelectorAll('td'));
+  for (let i = 0; i < combinedRows.length; i++) {
+    const cells = combinedRows[i];
     if (cells.length < 2) continue;
     
     // Get cell text content
@@ -275,10 +290,23 @@ export function parseHtmlTable(
       if (r >= 1 && r <= 300) rank = r + rankOffset;
     }
     
+    // Team first from the player cell's own sub-spans (ESPN: <a>Name</a><span>NY</span><span>PG</span>).
+    // Previously the first team-looking cell anywhere in the row won, which was often the OPP column.
+    if (playerIdx !== undefined && cells[playerIdx]) {
+      for (const sp of Array.from(cells[playerIdx].querySelectorAll('span, div'))) {
+        const t = extractTeam(sp.textContent || '');
+        if (t) { team = t; break; }
+      }
+      if (!team) {
+        const rest = (cells[playerIdx].textContent || '').replace(cells[playerIdx].querySelector('a')?.textContent || '', ' ');
+        for (const tok of rest.split(/[\s,]+/)) { const t = extractTeam(tok); if (t) { team = t; break; } }
+      }
+    }
+
     // Extract team and positions from remaining cells
     for (let j = 0; j < cells.length; j++) {
       const text = cellTexts[j];
-      if (!text || text === playerName) continue;
+      if (!text || text === playerName || opponentCols.has(j)) continue;
       
       // Team
       if (!team) {
@@ -345,7 +373,7 @@ export function parseHtmlTable(
     players,
     errors,
     stats: {
-      linesProcessed: rows.length - startIdx,
+      linesProcessed: combinedRows.length,
       playersFound: players.length,
       duplicatesRemoved,
     },

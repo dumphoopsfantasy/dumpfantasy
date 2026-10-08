@@ -25,7 +25,7 @@ interface DraftAvailableTableProps {
   onStartDraft: () => void;
 }
 
-type SortColumn = 'crisRank' | 'adpRank' | 'avgPick' | 'lastYearRank' | 'valueVsAdp' | 'valueVsLastYear' | 'name' | 'pts' | 'reb' | 'ast';
+type SortColumn = 'crisRank' | 'wCriRank' | 'espnRank' | 'adpRank' | 'avgPick' | 'lastYearRank' | 'valueVsAdp' | 'valueVsLastYear' | 'name' | 'pts' | 'reb' | 'ast';
 type SortDirection = 'asc' | 'desc';
 
 export function DraftAvailableTable({
@@ -80,6 +80,8 @@ export function DraftAvailableTable({
       
       switch (sortColumn) {
         case 'crisRank': aVal = a.crisRank ?? 999; bVal = b.crisRank ?? 999; break;
+        case 'wCriRank': aVal = a.wCriRank ?? 999; bVal = b.wCriRank ?? 999; break;
+        case 'espnRank': aVal = a.sources.projections?.rank ?? 999; bVal = b.sources.projections?.rank ?? 999; break;
         case 'adpRank': aVal = a.adpRank ?? 999; bVal = b.adpRank ?? 999; break;
         case 'avgPick': aVal = a.sources.adp?.avgPick ?? 999; bVal = b.sources.adp?.avgPick ?? 999; break;
         case 'lastYearRank': aVal = a.lastYearRank ?? 999; bVal = b.lastYearRank ?? 999; break;
@@ -171,7 +173,7 @@ export function DraftAvailableTable({
       {!hasStats && players.length > 0 && (
         <div className="flex items-center gap-2 p-2 bg-amber-500/10 border border-amber-500/20 rounded text-xs text-amber-400">
           <AlertCircle className="w-4 h-4" />
-          Stats not available for {statView}. Import the full ESPN stats table (not just names).
+          Stats not available for {statView}. On ESPN's Players page, choose the 2026 Projections stat view (columns MIN, FG%, FT%, 3PM, REB, AST, STL, BLK, TO, PTS), then select and copy the whole table, names and stat columns together, and paste it in Step 2. CRI#/wCRI# need these stats.
         </div>
       )}
 
@@ -184,8 +186,14 @@ export function DraftAvailableTable({
                 <div className="flex items-center">Player <SortIcon column="name" /></div>
               </TableHead>
               <TableHead className="w-20">Team/Pos</TableHead>
-              <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-12" onClick={() => handleSort('crisRank')}>
-                <div className="flex items-center justify-center">CRI <SortIcon column="crisRank" /></div>
+              <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-12" onClick={() => handleSort('crisRank')} title="CRI rank within this draft pool (from ESPN season projections — not identical to Free Agents ranks)">
+                <div className="flex items-center justify-center">CRI# <SortIcon column="crisRank" /></div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-12" onClick={() => handleSort('wCriRank')} title="Weighted CRI rank within this draft pool">
+                <div className="flex items-center justify-center">wCRI# <SortIcon column="wCriRank" /></div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-12" onClick={() => handleSort('espnRank')} title="ESPN Projections rank">
+                <div className="flex items-center justify-center">ESPN# <SortIcon column="espnRank" /></div>
               </TableHead>
               <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-12" onClick={() => handleSort('adpRank')}>
                 <div className="flex items-center justify-center">ADP# <SortIcon column="adpRank" /></div>
@@ -193,7 +201,7 @@ export function DraftAvailableTable({
               <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-14" onClick={() => handleSort('avgPick')} title="Average draft pick">
                 <div className="flex items-center justify-center">ADP <SortIcon column="avgPick" /></div>
               </TableHead>
-              <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-16" onClick={() => handleSort('valueVsAdp')} title="ADP minus CRI (positive = undervalued)">
+              <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-16" onClick={() => handleSort('valueVsAdp')} title="ADP# minus CRI# (positive = undervalued)">
                 <div className="flex items-center justify-center">Value <SortIcon column="valueVsAdp" /></div>
               </TableHead>
               <TableHead className="text-center w-10 text-xs">PTS</TableHead>
@@ -223,6 +231,8 @@ export function DraftAvailableTable({
                     {player.positions.length > 0 && <span className="block">{player.positions.join(', ')}</span>}
                   </TableCell>
                   <TableCell className="text-center font-mono text-sm">{player.crisRank ?? '—'}</TableCell>
+                  <TableCell className="text-center font-mono text-sm">{player.wCriRank ?? '—'}</TableCell>
+                  <TableCell className="text-center font-mono text-sm text-muted-foreground">{player.sources.projections?.rank ?? '—'}</TableCell>
                   <TableCell className="text-center font-mono text-sm">{player.adpRank ?? '—'}</TableCell>
                   <TableCell className="text-center font-mono text-sm">{player.sources.adp?.avgPick != null ? player.sources.adp.avgPick.toFixed(1) : '—'}</TableCell>
                   <TableCell className="text-center">
