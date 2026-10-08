@@ -144,6 +144,8 @@ export function useDraftState(): UseDraftStateReturn {
         if (!existing) {
           // Try by canonical key
           for (const [_, player] of playerMap) {
+            // Don't merge suffix-distinct players (e.g. "X Jr." vs "X")
+            if (player.id !== id && (player.id.startsWith(`${id}_`) || id.startsWith(`${player.id}_`))) continue;
             if (generateCanonicalKey(player.name, player.team) === canonicalKey ||
                 player.nameNormalized === normalized) {
               existing = player;
