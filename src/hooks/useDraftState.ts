@@ -339,6 +339,7 @@ export function useDraftState(): UseDraftStateReturn {
         if (sourceType === 'projections') {
           updated.sources = { ...updated.sources, projections: null };
           updated.crisRank = null;
+          updated.wCriRank = null;
         } else if (sourceType === 'adp') {
           updated.sources = { ...updated.sources, adp: null };
           updated.adpRank = null;
