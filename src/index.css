@@ -90,13 +90,15 @@
   .fa-compact-table .fa-col-select { width: 26px; }
   .fa-compact-table .fa-col-index { width: 28px; }
   .fa-compact-table .fa-col-context { width: 46px; }
-  .fa-compact-table .fa-col-stat { width: 40px; }
-  .fa-compact-table .fa-col-rank { width: 48px; }
+  .fa-compact-table .fa-col-stat { width: 44px; }
+  .fa-compact-table .fa-col-rank { width: 54px; }
   .fa-compact-table .fa-col-value { width: 64px; }
-  .fa-compact-table .fa-col-trend { width: 52px; }
+  .fa-compact-table .fa-col-trend { width: 56px; }
   .fa-compact-table .fa-col-custom-rank { width: 90px; }
   .fa-compact-table .fa-player-image { width: 24px; height: 24px; }
   .fa-compact-table td > div { min-width: 0; max-width: 100%; }
+  .fa-compact-table th button svg { width: 10px; height: 10px; }
+  .fa-compact-table th button span { white-space: nowrap; }
   .fa-hide-context [data-column="context"],
   .fa-hide-stats [data-column="stats"],
   .fa-hide-shooting [data-column="shooting"],
