@@ -126,6 +126,32 @@ function looksLikeScore(str: string): boolean {
   return /^\d+-\d+-\d+$/.test(str.trim());
 }
 
+const FOOTER_RE = /copyright|©|\(c\)|all rights reserved|privacy|terms of use|espn enterprises|disney|interest-based ads/i;
+
+/**
+ * Detect season year scoped to schedule content (ignores footer/copyright years).
+ * Prefers an explicit "20xx-xx" season, then a year near Matchup/Playoff headers.
+ */
+export function detectSeason(data: string): string {
+  const lines = data.split("\n").map((l) => l.trim()).filter(Boolean);
+  const content = lines.filter((l) => !FOOTER_RE.test(l));
+  const headerIdx = content.findIndex((l) => /^(Matchup|Playoff\s+Round)\s+\d+/i.test(l));
+
+  const seasonRange = content.map((l) => l.match(/\b20\d{2}-\d{2}\b/)).find(Boolean);
+  if (seasonRange) return seasonRange[0];
+
+  // Look for a year within header lines or the lines just above the first header
+  const windowStart = headerIdx >= 0 ? Math.max(0, headerIdx - 15) : 0;
+  const scoped = headerIdx >= 0
+    ? [...content.slice(windowStart, headerIdx + 1), ...content.filter((l) => /^(Matchup|Playoff\s+Round)\s+\d+/i.test(l))]
+    : content;
+  for (const l of scoped) {
+    const m = l.match(/\b20\d{2}\b/);
+    if (m) return m[0];
+  }
+  return new Date().getFullYear().toString();
+}
+
 /**
  * Main parser function using known-team whitelist approach
  */
@@ -157,9 +183,7 @@ export function parseScheduleData(
     );
   }
 
-  // Detect season from year mention
-  const seasonMatch = data.match(/20\d{2}(?:-\d{2})?/);
-  const season = seasonMatch ? seasonMatch[0] : new Date().getFullYear().toString();
+  const season = detectSeason(data);
 
   // Split into lines
   const lines = data
