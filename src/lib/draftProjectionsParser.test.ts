@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
 import { parseHtmlTable } from './draftParsers';
 import { applyDraftCris } from '@/hooks/useDraftState';
