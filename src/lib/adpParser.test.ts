@@ -17,11 +17,10 @@ describe('ADP multi-line header paste', () => {
   });
 });
 
-import { readFileSync as _rf } from 'fs';
-import { join as _join } from 'path';
+import realPaste from './__fixtures__/espnFaAdpPaste.txt?raw';
 describe('real ESPN free-agent paste', () => {
   it('imports all 17 players with ADP before %ROST, including DTD players', () => {
-    const r = parseAdpTextWithHeaders(_rf(_join(__dirname, '__fixtures__/espnFaAdpPaste.txt'), 'utf8'));
+    const r = parseAdpTextWithHeaders(realPaste);
     expect(r.players.length).toBe(17);
     const by = Object.fromEntries(r.players.map(p => [p.playerName, p]));
     expect(by['James Harden'].avgPick).toBe(28.3);
