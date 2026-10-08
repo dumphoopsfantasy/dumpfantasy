@@ -290,10 +290,23 @@ export function parseHtmlTable(
       if (r >= 1 && r <= 300) rank = r + rankOffset;
     }
     
+    // Team first from the player cell's own sub-spans (ESPN: <a>Name</a><span>NY</span><span>PG</span>).
+    // Previously the first team-looking cell anywhere in the row won, which was often the OPP column.
+    if (playerIdx !== undefined && cells[playerIdx]) {
+      for (const sp of Array.from(cells[playerIdx].querySelectorAll('span, div'))) {
+        const t = extractTeam(sp.textContent || '');
+        if (t) { team = t; break; }
+      }
+      if (!team) {
+        const rest = (cells[playerIdx].textContent || '').replace(cells[playerIdx].querySelector('a')?.textContent || '', ' ');
+        for (const tok of rest.split(/[\s,]+/)) { const t = extractTeam(tok); if (t) { team = t; break; } }
+      }
+    }
+
     // Extract team and positions from remaining cells
     for (let j = 0; j < cells.length; j++) {
       const text = cellTexts[j];
-      if (!text || text === playerName) continue;
+      if (!text || text === playerName || opponentCols.has(j)) continue;
       
       // Team
       if (!team) {
@@ -360,7 +373,7 @@ export function parseHtmlTable(
     players,
     errors,
     stats: {
-      linesProcessed: rows.length - startIdx,
+      linesProcessed: combinedRows.length,
       playersFound: players.length,
       duplicatesRemoved,
     },
