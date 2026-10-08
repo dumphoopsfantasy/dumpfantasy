@@ -1398,17 +1398,38 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
       });
       return;
     }
-    const next: Record<string, AdpEntry[]> = {};
+    // Merge into the existing set (multi-page accumulation). Later paste wins on duplicates.
+    const next: Record<string, AdpEntry[]> = { ...adpMap };
+    let added = 0;
+    let updated = 0;
     withAdp.forEach(p => {
       const key = normalizePlayerName(p.playerName);
-      (next[key] ||= []).push({ avgPick: p.avgPick as number, team: normalizeTeamAbbr(p.team) });
+      const entry = { avgPick: p.avgPick as number, team: normalizeTeamAbbr(p.team) };
+      const existing = next[key];
+      if (!existing || existing.length === 0) {
+        next[key] = [entry];
+        added++;
+      } else {
+        const idx = existing.findIndex(e => e.team === entry.team);
+        if (idx >= 0) {
+          existing[idx] = entry;
+          updated++;
+        } else {
+          // Same name, different team — treat as the same player traded teams; keep latest.
+          next[key] = [entry];
+          updated++;
+        }
+      }
     });
     setAdpMap(next);
     localStorage.setItem(ADP_STORAGE_KEY, JSON.stringify(next));
     setImportTimestamp('adp');
     setAdpImportedAt(Date.now());
     setShowAdpImport(false);
-    toast({ title: "ADP imported", description: `${withAdp.length} players with ADP loaded.` });
+    toast({
+      title: "ADP added",
+      description: `Added ${added} new, updated ${updated} — ${Object.keys(next).length} players loaded total.`,
+    });
   };
 
   const clearAdp = () => {
@@ -1838,13 +1859,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
             <span className="font-medium">ADP comparison</span>
             <span className="text-muted-foreground">
               {adpCount > 0
-                ? ` · ${adpCount} players · imported ${formatTimestampAge(adpImportedAt)}`
+                ? ` · ${adpCount} players loaded · updated ${formatTimestampAge(adpImportedAt)}`
                 : " · paste the ESPN table with an ADP column to compare ADP vs CRI#/wCRI#"}
             </span>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowAdpImport(v => !v)}>
-              <Upload className="w-4 h-4 mr-1" />{adpCount > 0 ? "Re-import ADP" : "Import ADP"}
+              <Upload className="w-4 h-4 mr-1" />{adpCount > 0 ? "Add ADP page" : "Import ADP"}
             </Button>
             {adpCount > 0 && (
               <Button variant="ghost" size="sm" onClick={clearAdp}>Clear</Button>
@@ -1853,7 +1874,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </div>
         {showAdpImport && (
           <Textarea
-            placeholder="Copy the ESPN table (including the header row with ADP) and paste here (Ctrl+V)..."
+            placeholder="Copy one page of the ESPN table (including the header row with ADP) and paste here (Ctrl+V). Paste each page in turn — they add up..."
             onPaste={handleAdpPaste}
             value=""
             onChange={() => {}}
