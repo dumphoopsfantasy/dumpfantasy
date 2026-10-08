@@ -488,11 +488,14 @@ export function parseAdpTextWithHeaders(text: string): ParseResult {
     const t = c.trim().toLowerCase();
     return t === 'adp' || (t.includes('avg') && t.includes('pick'));
   };
-  const headerIdx = lines.findIndex(l => l.split('\t').some(isAdpHeader));
+  const headerIdx = lines.findIndex(l => l.split('\t').length > 1 && l.split('\t').some(isAdpHeader));
   if (headerIdx < 0) {
+    // Multi-line header variant: "ADP" sits alone on its own line
+    if (lines.some(l => isAdpHeader(l))) return parseAdpMultiLine(lines);
+    const detected = lines.slice(0, 40).map(l => l.trim()).filter(l => l && l.length <= 12 && !/^[\d.\-%+]+$/.test(l));
     return {
       players: [],
-      errors: ['No ADP column header found. Copy the table including its header row (or paste from the web page so the table is kept).'],
+      errors: [`No ADP column header found. Headers detected: ${detected.slice(0, 20).join(', ') || '(none)'}. Copy the table including its header row.`],
       stats: { linesProcessed: lines.length, playersFound: 0, duplicatesRemoved: 0 },
     };
   }
