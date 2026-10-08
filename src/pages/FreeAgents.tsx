@@ -104,6 +104,10 @@ const COLUMN_GROUPS = [
 ] as const;
 type ColumnGroup = typeof COLUMN_GROUPS[number]['key'];
 const COLUMN_VISIBILITY_KEY = 'dumphoops-fa-columns.v1';
+const HIDDEN_GROUP_CLASSES: Record<ColumnGroup, string> = {
+  context: 'fa-hide-context', stats: 'fa-hide-stats', shooting: 'fa-hide-shooting',
+  ranks: 'fa-hide-ranks', adp: 'fa-hide-adp', trends: 'fa-hide-trends',
+};
 const categoryGroup = (key: string): ColumnGroup =>
   key === 'fgPct' || key === 'ftPct' ? 'shooting' : 'stats';
 
@@ -2571,7 +2575,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
         </div>
       <Card className="gradient-card border-border min-w-0">
         <div className="min-w-0">
-          <table aria-label="Free agents stats" className={cn("fa-compact-table w-full table-fixed text-[11px] tabular-nums", ...COLUMN_GROUPS.filter(group => !visibleColumnGroups.includes(group.key)).map(group => `fa-hide-${group.key}`))}>
+          <table aria-label="Free agents stats" className={cn("fa-compact-table w-full table-fixed text-[11px] tabular-nums", ...COLUMN_GROUPS.filter(group => !visibleColumnGroups.includes(group.key)).map(group => HIDDEN_GROUP_CLASSES[group.key]))}>
             <colgroup>
               {tradeAnalyzerMode && <col className="fa-col-select" />}
               <col className="fa-col-index" /><col className="fa-col-player" />
