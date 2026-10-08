@@ -65,10 +65,8 @@ function parseRecordParts(record?: string): { wins: number; losses: number; ties
 }
 
 export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracketProps) => {
-  const [playoffTeamCount, setPlayoffTeamCount] = useState("6");
+  const [playoffTeamCountOverride, setPlayoffTeamCount] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"bracket" | "table">("bracket");
-  const numPlayoffTeams = parseInt(playoffTeamCount);
-
   const [schedule] = usePersistedState<LeagueSchedule | null>("dumphoops-schedule.v2", null);
   const [aliases] = usePersistedState<TeamAliasMap>("dumphoops-schedule-aliases.v2", {});
   const [currentWeekCutoff] = usePersistedState<number>("dumphoops-schedule-currentWeekCutoff.v2", 0);
@@ -105,8 +103,8 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       const away = mapping[awayKey];
       const home = mapping[homeKey];
       if (!away || !home) return null;
-      return { week: m.week, dateRangeText: m.dateRangeText, awayTeam: away, homeTeam: home };
-    }).filter(Boolean) as Array<{ week: number; dateRangeText: string; awayTeam: string; homeTeam: string }>;
+      return { week: m.week, dateRangeText: m.dateRangeText, awayTeam: away, homeTeam: home, isPlayoff: !!m.isPlayoff };
+    }).filter(Boolean) as Array<{ week: number; dateRangeText: string; awayTeam: string; homeTeam: string; isPlayoff: boolean }>;
 
     return { season: schedule.season, matchups };
   }, [schedule, aliases, leagueTeams]);
@@ -120,6 +118,29 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
   }, [schedule]);
 
   const effectiveLastRegWeek = lastRegularSeasonWeek ?? inferredLastRegWeek ?? undefined;
+
+  // Actual parsed playoff round 1 matchups (tagged isPlayoff by the schedule parser)
+  const firstRoundPlayoffMatchups = useMemo(() => {
+    if (!resolvedSchedule) return [] as Array<{ awayTeam: string; homeTeam: string }>;
+    const tagged = resolvedSchedule.matchups.filter(m => m.isPlayoff);
+    if (tagged.length === 0) return [];
+    const firstWeek = Math.min(...tagged.map(m => m.week));
+    return tagged.filter(m => m.week === firstWeek);
+  }, [resolvedSchedule]);
+
+  // Auto-detect playoff team count: teams with a bye in playoff round 1 are top seeds of a 6-team bracket
+  const detectedPlayoffTeamCount = useMemo((): string | null => {
+    if (firstRoundPlayoffMatchups.length === 0 || leagueTeams.length === 0) return null;
+    const playing = new Set<string>();
+    firstRoundPlayoffMatchups.forEach(m => { playing.add(m.awayTeam.toLowerCase()); playing.add(m.homeTeam.toLowerCase()); });
+    const byes = leagueTeams.filter(t => !playing.has(t.name.toLowerCase())).length;
+    if (byes === 2) return "6";
+    if (byes === 0) return "4";
+    return null;
+  }, [firstRoundPlayoffMatchups, leagueTeams]);
+
+  const playoffTeamCount = playoffTeamCountOverride ?? detectedPlayoffTeamCount ?? "6";
+  const numPlayoffTeams = parseInt(playoffTeamCount);
 
   const regularSeasonWeekOptions = useMemo(() => {
     if (!schedule) return [] as number[];
@@ -260,10 +281,28 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
     const rounds: BracketMatchup[][] = [];
     const consolationRounds: BracketMatchup[][] = [];
 
+    // Use actual parsed playoff pairings among the given seeds; fall back to standard seeding
+    const seedOf = (name: string) => playoffSeeds.find(s => s.teamName.toLowerCase() === name.toLowerCase());
+    const actualPairs = (pool: typeof playoffSeeds): Array<[typeof playoffSeeds[number], typeof playoffSeeds[number]]> => {
+      const poolNames = new Set(pool.map(p => p.teamName.toLowerCase()));
+      const pairs: Array<[typeof playoffSeeds[number], typeof playoffSeeds[number]]> = [];
+      for (const m of firstRoundPlayoffMatchups) {
+        if (!poolNames.has(m.awayTeam.toLowerCase()) || !poolNames.has(m.homeTeam.toLowerCase())) continue;
+        const a = seedOf(m.awayTeam)!; const b = seedOf(m.homeTeam)!;
+        pairs.push(a.seed < b.seed ? [a, b] : [b, a]);
+      }
+      pairs.sort((x, y) => x[0].seed - y[0].seed);
+      return pairs.length * 2 === pool.length ? pairs : [];
+    };
+
     if (numPlayoffTeams === 6) {
       // Winner's bracket (ESPN 6-team structure)
-      const r1m1 = simulateMatchup(3, playoffSeeds[2].teamName, 6, playoffSeeds[5].teamName, "Round 1");
-      const r1m2 = simulateMatchup(4, playoffSeeds[3].teamName, 5, playoffSeeds[4].teamName, "Round 1");
+      const parsedR1 = actualPairs(playoffSeeds.slice(2, 6));
+      const [p1, p2] = parsedR1.length === 2
+        ? parsedR1
+        : [[playoffSeeds[2], playoffSeeds[5]], [playoffSeeds[3], playoffSeeds[4]]];
+      const r1m1 = simulateMatchup(p1[0].seed, p1[0].teamName, p1[1].seed, p1[1].teamName, "Round 1");
+      const r1m2 = simulateMatchup(p2[0].seed, p2[0].teamName, p2[1].seed, p2[1].teamName, "Round 1");
       rounds.push([r1m1, r1m2]);
 
       const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, r1m1.winnerSeed || 3, r1m1.winner || playoffSeeds[2].teamName, "Semifinal");
@@ -307,13 +346,17 @@ export const PlayoffBracket = ({ leagueTeams, userTeamName = "" }: PlayoffBracke
       return { rounds, consolationRounds, champion: finals.winner || null };
     }
 
-    const sf1 = simulateMatchup(1, playoffSeeds[0].teamName, 4, playoffSeeds[3].teamName, "Semifinal");
-    const sf2 = simulateMatchup(2, playoffSeeds[1].teamName, 3, playoffSeeds[2].teamName, "Semifinal");
+    const parsedSF = actualPairs(playoffSeeds.slice(0, 4));
+    const [s1, s2] = parsedSF.length === 2
+      ? parsedSF
+      : [[playoffSeeds[0], playoffSeeds[3]], [playoffSeeds[1], playoffSeeds[2]]];
+    const sf1 = simulateMatchup(s1[0].seed, s1[0].teamName, s1[1].seed, s1[1].teamName, "Semifinal");
+    const sf2 = simulateMatchup(s2[0].seed, s2[0].teamName, s2[1].seed, s2[1].teamName, "Semifinal");
     rounds.push([sf1, sf2]);
     const finals = simulateMatchup(sf1.winnerSeed || 1, sf1.winner || playoffSeeds[0].teamName, sf2.winnerSeed || 2, sf2.winner || playoffSeeds[1].teamName, "Finals");
     rounds.push([finals]);
     return { rounds, consolationRounds, champion: finals.winner || null };
-  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams]);
+  }, [playoffSeeds, consolationSeeds, teamStatsMap, forecastSettings, numPlayoffTeams, firstRoundPlayoffMatchups]);
 
   const isUserTeam = (name: string) => {
     if (userTeamName) return name.toLowerCase() === userTeamName.toLowerCase();
