@@ -126,7 +126,7 @@ export function resolveSeasonYear(season: string): number {
  */
 export function getCurrentMatchupWeekFromSchedule(
   schedule?: LeagueSchedule | null
-): { week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean } | null {
+): { week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean; lastRegularSeasonWeek?: number } | null {
   const sched = schedule ?? loadPersistedSchedule();
   if (!sched || sched.matchups.length === 0) return null;
 
@@ -135,7 +135,7 @@ export function getCurrentMatchupWeekFromSchedule(
   today.setHours(0, 0, 0, 0);
 
   // Build unique weeks with parsed date ranges
-  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean }> = [];
+  const weeksWithDates: Array<{ week: number; start: Date; end: Date; dateRangeText: string; isPlayoff?: boolean; lastRegularSeasonWeek?: number }> = [];
   const seenWeeks = new Set<number>();
 
   for (const m of sched.matchups) {
@@ -148,7 +148,7 @@ export function getCurrentMatchupWeekFromSchedule(
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);
 
-    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText, isPlayoff: m.isPlayoff });
+    weeksWithDates.push({ week: m.week, start, end, dateRangeText: m.dateRangeText, isPlayoff: m.isPlayoff, lastRegularSeasonWeek: sched.lastRegularSeasonWeek });
   }
 
   weeksWithDates.sort((a, b) => a.week - b.week);

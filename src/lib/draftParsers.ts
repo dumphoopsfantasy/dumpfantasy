@@ -196,7 +196,7 @@ export function parseHtmlTable(
     if (text.includes('rank') || text === '#') headerMap.set('rank', idx);
     if (text.includes('team')) headerMap.set('team', idx);
     if (text.includes('pos')) headerMap.set('pos', idx);
-    if (text.includes('avg') && text.includes('pick')) headerMap.set('avgpick', idx);
+    if ((text.includes('avg') && text.includes('pick')) || text === 'adp') headerMap.set('avgpick', idx);
     if (text.includes('rost')) headerMap.set('rost', idx);
   });
   

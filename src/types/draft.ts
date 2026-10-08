@@ -118,7 +118,7 @@ export const SEGMENT_RANGES: Array<{ label: string; range: [number, number] }> =
 ];
 
 export const SOURCE_CONFIGS: Array<{ id: SourceType; label: string; description: string }> = [
-  { id: 'projections', label: 'CRIS Projections', description: 'This year\'s projected stats from ESPN' },
+  { id: 'projections', label: 'ESPN Projections', description: 'This year\'s projected stats from ESPN' },
   { id: 'adp', label: 'ADP Trends', description: 'ESPN Live Draft Trends (average pick position)' },
   { id: 'lastYear', label: 'Last Year', description: 'Last season\'s actual stats' },
 ];
@@ -230,7 +230,10 @@ export function generateCanonicalKey(name: string, team?: string | null): string
  * Generate unique player ID
  */
 export function generatePlayerId(name: string): string {
-  return normalizePlayerName(name).replace(/\s/g, '_').replace(/-/g, '_');
+  const base = normalizePlayerName(name).replace(/\s/g, '_').replace(/-/g, '_');
+  // Keep generational suffix so "Scotty Pippen Jr." and "Scotty Pippen" stay distinct
+  const suffix = name.trim().toLowerCase().match(/\s(jr|sr|ii|iii|iv)\.?$/);
+  return suffix ? `${base}_${suffix[1]}` : base;
 }
 
 // ============ DRAFT LOGIC ============
