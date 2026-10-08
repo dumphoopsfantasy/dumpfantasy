@@ -477,6 +477,42 @@ export function normalizeTeamAbbr(team: string | null | undefined): string | nul
 }
 
 /**
+ * Multi-line ESPN layout: each header and each cell is on its own line.
+ * A player block starts at a name line followed by a team line. Within a block,
+ * the last three numeric values are ADP, %ROST, +/- (ADP = number right before %ROST).
+ */
+function parseAdpMultiLine(lines: string[]): ParseResult {
+  const cells = lines.flatMap(l => l.split('\t')).map(c => c.trim()).filter(Boolean);
+  const starts: number[] = [];
+  for (let i = 0; i < cells.length - 1; i++) {
+    if (/\d/.test(cells[i])) continue;
+    if (extractTeam(cells[i + 1]) && isValidPlayerName(fixDuplicatePlayerName(cells[i]))) starts.push(i);
+  }
+  const players: ParsedPlayer[] = [];
+  const seen = new Set<string>();
+  let dupes = 0;
+  for (let s = 0; s < starts.length; s++) {
+    const block = cells.slice(starts[s], s + 1 < starts.length ? starts[s + 1] : cells.length);
+    const nums = block.map(c => c.replace('%', '')).filter(c => /^[+-]?\d+(\.\d+)?$/.test(c)).map(Number);
+    if (nums.length < 3) continue;
+    const adp = nums[nums.length - 3];
+    const rost = nums[nums.length - 2];
+    if (!(adp > 0 && adp <= 300) || rost < 0 || rost > 100) continue;
+    const name = fixDuplicatePlayerName(block[0]);
+    const key = normalizePlayerName(name);
+    if (seen.has(key)) { dupes++; continue; }
+    seen.add(key);
+    const team = extractTeam(block[1]);
+    players.push({ rank: players.length + 1, playerName: name, team, positions: extractPositions(block[2] || ''), status: null, avgPick: adp, rostPct: rost });
+  }
+  return {
+    players,
+    errors: players.length ? [] : ['Found an ADP header but no player rows with ADP values.'],
+    stats: { linesProcessed: lines.length, playersFound: players.length, duplicatesRemoved: dupes },
+  };
+}
+
+/**
  * Header-mapped ADP text parser. Requires a tab-separated header row containing "ADP"
  * (or "Avg Pick"). Never guesses ADP positionally — in the ESPN free-agent table the
  * first number on a row is PR7/PR15/PR30, not ADP.
