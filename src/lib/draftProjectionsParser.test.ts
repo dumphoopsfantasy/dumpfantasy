@@ -26,7 +26,7 @@ describe('applyDraftCris', () => {
   it('ranks within pool and sets value = adpRank - crisRank', () => {
     const mk = (id: string, pts: number, adpRank: number): UnifiedPlayer => ({
       id, name: id, nameNormalized: id, team: null, positions: [], status: null,
-      sources: { projections: { rank: 1, stats: { fgPct: .5, ftPct: .8, threes: 2, reb: 5, ast: 5, stl: 1, blk: 1, to: 2, pts } }, adp: null, lastYear: null },
+      sources: { projections: { rank: 1, stats: { fgPct: .4 + pts / 300, ftPct: .7 + pts / 300, threes: pts / 10, reb: pts / 5, ast: pts / 5, stl: pts / 20, blk: pts / 20, to: 1, pts } }, adp: null, lastYear: null },
       crisRank: null, adpRank, lastYearRank: null, valueVsAdp: null, valueVsLastYear: null,
       drafted: false, draftedBy: null, draftedAt: null,
     } as UnifiedPlayer);
