@@ -25,7 +25,7 @@ interface DraftAvailableTableProps {
   onStartDraft: () => void;
 }
 
-type SortColumn = 'crisRank' | 'adpRank' | 'lastYearRank' | 'valueVsAdp' | 'valueVsLastYear' | 'name' | 'pts' | 'reb' | 'ast';
+type SortColumn = 'crisRank' | 'adpRank' | 'avgPick' | 'lastYearRank' | 'valueVsAdp' | 'valueVsLastYear' | 'name' | 'pts' | 'reb' | 'ast';
 type SortDirection = 'asc' | 'desc';
 
 export function DraftAvailableTable({
@@ -81,6 +81,7 @@ export function DraftAvailableTable({
       switch (sortColumn) {
         case 'crisRank': aVal = a.crisRank ?? 999; bVal = b.crisRank ?? 999; break;
         case 'adpRank': aVal = a.adpRank ?? 999; bVal = b.adpRank ?? 999; break;
+        case 'avgPick': aVal = a.sources.adp?.avgPick ?? 999; bVal = b.sources.adp?.avgPick ?? 999; break;
         case 'lastYearRank': aVal = a.lastYearRank ?? 999; bVal = b.lastYearRank ?? 999; break;
         case 'valueVsAdp': aVal = a.valueVsAdp ?? -999; bVal = b.valueVsAdp ?? -999; break;
         case 'valueVsLastYear': aVal = a.valueVsLastYear ?? -999; bVal = b.valueVsLastYear ?? -999; break;
@@ -187,7 +188,10 @@ export function DraftAvailableTable({
                 <div className="flex items-center justify-center">CRI <SortIcon column="crisRank" /></div>
               </TableHead>
               <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-12" onClick={() => handleSort('adpRank')}>
-                <div className="flex items-center justify-center">ADP <SortIcon column="adpRank" /></div>
+                <div className="flex items-center justify-center">ADP# <SortIcon column="adpRank" /></div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-14" onClick={() => handleSort('avgPick')} title="Average draft pick">
+                <div className="flex items-center justify-center">ADP <SortIcon column="avgPick" /></div>
               </TableHead>
               <TableHead className="cursor-pointer hover:bg-muted/80 text-center w-16" onClick={() => handleSort('valueVsAdp')} title="ADP minus CRI (positive = undervalued)">
                 <div className="flex items-center justify-center">Value <SortIcon column="valueVsAdp" /></div>
@@ -220,6 +224,7 @@ export function DraftAvailableTable({
                   </TableCell>
                   <TableCell className="text-center font-mono text-sm">{player.crisRank ?? '—'}</TableCell>
                   <TableCell className="text-center font-mono text-sm">{player.adpRank ?? '—'}</TableCell>
+                  <TableCell className="text-center font-mono text-sm">{player.sources.adp?.avgPick != null ? player.sources.adp.avgPick.toFixed(1) : '—'}</TableCell>
                   <TableCell className="text-center">
                     {player.valueVsAdp !== null ? (
                       <div className={cn(

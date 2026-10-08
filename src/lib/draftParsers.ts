@@ -196,7 +196,7 @@ export function parseHtmlTable(
     if (text.includes('rank') || text === '#') headerMap.set('rank', idx);
     if (text.includes('team')) headerMap.set('team', idx);
     if (text.includes('pos')) headerMap.set('pos', idx);
-    if (text.includes('avg') && text.includes('pick')) headerMap.set('avgpick', idx);
+    if ((text.includes('avg') && text.includes('pick')) || text === 'adp') headerMap.set('avgpick', idx);
     if (text.includes('rost')) headerMap.set('rost', idx);
   });
   
@@ -464,6 +464,62 @@ export function parseTextFallback(
   };
 }
 
+// ============ TEAM NORMALIZATION ============
+const TEAM_ALIASES: Record<string, string> = {
+  GS: 'GSW', NY: 'NYK', SA: 'SAS', NO: 'NOP', WSH: 'WAS', BRK: 'BKN', UTAH: 'UTA', PHO: 'PHX',
+};
+
+/** Normalize ESPN team abbreviation variants (GS→GSW, NY→NYK, UTAH→UTA, ...) */
+export function normalizeTeamAbbr(team: string | null | undefined): string | null {
+  if (!team) return null;
+  const t = team.trim().toUpperCase();
+  return TEAM_ALIASES[t] ?? t;
+}
+
+/**
+ * Header-mapped ADP text parser. Requires a tab-separated header row containing "ADP"
+ * (or "Avg Pick"). Never guesses ADP positionally — in the ESPN free-agent table the
+ * first number on a row is PR7/PR15/PR30, not ADP.
+ */
+export function parseAdpTextWithHeaders(text: string): ParseResult {
+  const lines = text.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim());
+  const players: ParsedPlayer[] = [];
+  const isAdpHeader = (c: string) => {
+    const t = c.trim().toLowerCase();
+    return t === 'adp' || (t.includes('avg') && t.includes('pick'));
+  };
+  const headerIdx = lines.findIndex(l => l.split('\t').some(isAdpHeader));
+  if (headerIdx < 0) {
+    return {
+      players: [],
+      errors: ['No ADP column header found. Copy the table including its header row (or paste from the web page so the table is kept).'],
+      stats: { linesProcessed: lines.length, playersFound: 0, duplicatesRemoved: 0 },
+    };
+  }
+  const headers = lines[headerIdx].split('\t').map(h => h.trim().toLowerCase());
+  const adpCol = headers.findIndex(isAdpHeader);
+  const playerCol = headers.findIndex(h => h.includes('player'));
+  const seen = new Set<string>();
+  let dupes = 0;
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cells = lines[i].split('\t').map(c => c.trim());
+    if (cells.length <= adpCol) continue;
+    const adp = parseFloat(cells[adpCol]);
+    if (isNaN(adp) || adp <= 0) continue;
+    const nameCell = playerCol >= 0 ? cells[playerCol] : cells.find(c => /[a-zA-Z]{2,}\s+[a-zA-Z]/.test(c)) || '';
+    const team = extractTeam(nameCell);
+    let name = nameCell;
+    if (team) name = name.replace(new RegExp(`\\b${team}\\b.*$`), '');
+    name = fixDuplicatePlayerName(name.replace(/\s+/g, ' ').trim());
+    if (!isValidPlayerName(name)) continue;
+    const key = normalizePlayerName(name);
+    if (seen.has(key)) { dupes++; continue; }
+    seen.add(key);
+    players.push({ rank: players.length + 1, playerName: name, team, positions: extractPositions(nameCell), status: null, avgPick: adp });
+  }
+  return { players, errors: [], stats: { linesProcessed: lines.length, playersFound: players.length, duplicatesRemoved: dupes } };
+}
+
 // ============ MAIN ENTRY POINT ============
 
 /**
@@ -473,14 +529,19 @@ export function parseClipboardData(
   html: string | null,
   text: string,
   sourceType: 'projections' | 'adp' | 'lastYear',
-  rankOffset = 0
+  rankOffset = 0,
+  opts: { requireHeaders?: boolean } = {}
 ): ParseResult {
   // Try HTML first if it contains a table
   if (html && html.includes('<table')) {
     const result = parseHtmlTable(html, sourceType, rankOffset);
-    if (result.players.length >= 10) {
+    if (result.players.length >= 10 || (opts.requireHeaders && result.players.length > 0)) {
       return result;
     }
+  }
+
+  if (opts.requireHeaders && sourceType === 'adp') {
+    return parseAdpTextWithHeaders(text);
   }
   
   // Fall back to text parsing

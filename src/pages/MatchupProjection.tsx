@@ -223,7 +223,7 @@ function computeTodayExpectedFromRoster(roster: RosterSlot[]): TeamStats & { has
 }
 
 // Get day info using actual matchup week dates (not hardcoded Mon-Sun)
-function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string; isPlayoff: boolean; playoffRound?: number } {
+function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: boolean; dayLabel: string; isPlayoff: boolean } {
   const now = new Date();
   const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'America/New_York' };
   const dayName = new Intl.DateTimeFormat('en-US', options).format(now);
@@ -241,12 +241,12 @@ function getMatchupDayInfo(): { dayOfWeek: number; dayName: string; isFinalDay: 
     const totalDays = Math.round((currentWeek.end.getTime() - currentWeek.start.getTime()) / msPerDay) + 1;
     const dayIndex = Math.max(1, Math.round((now.getTime() - currentWeek.start.getTime()) / msPerDay) + 1);
     const isFinalDay = todayStr === endStr;
-    const prefix = currentWeek.isPlayoff ? `Playoff R${(currentWeek.week - (currentWeek.week > 100 ? 100 : 18))} · ` : '';
+    const prefix = currentWeek.isPlayoff ? `Playoff R${currentWeek.week - (currentWeek.lastRegularSeasonWeek ?? 18)} · ` : '';
     const dayLabel = isFinalDay 
       ? `${prefix}Day ${totalDays}/${totalDays} (${dayName}) — Final day`
       : `${prefix}Day ${dayIndex}/${totalDays} (${dayName})`;
     
-    return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: !!currentWeek.isPlayoff, playoffRound: currentWeek.isPlayoff ? currentWeek.week : undefined };
+    return { dayOfWeek, dayName, isFinalDay, dayLabel, isPlayoff: !!currentWeek.isPlayoff };
   }
   
   // Fallback: Mon-Sun

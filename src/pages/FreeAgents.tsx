@@ -16,9 +16,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon, Scale, Calendar } from "lucide-react";
+import { Search, X, GitCompare, Upload, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, BarChart3, Hash, Sliders, Shield, Settings2, Trophy, Lightbulb, ChevronDown, ChevronRight, TableIcon, Scale, Calendar, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { parseClipboardData, normalizeTeamAbbr } from "@/lib/draftParsers";
+import { normalizePlayerName } from "@/types/draft";
+import { getImportTimestamps, setImportTimestamp, formatTimestampAge } from "@/lib/importTimestamps";
+
+type AdpEntry = { avgPick: number; team: string | null };
+const ADP_STORAGE_KEY = "dumphoops-fa-adp.v1";
 import { CrisToggle } from "@/components/CrisToggle";
 import { CrisExplanation } from "@/components/CrisExplanation";
 import { DynamicWeightsIndicator } from "@/components/DynamicWeightsPanel";
@@ -46,6 +52,11 @@ interface FreeAgent extends Player {
   pr15: number;
   rosterPct: number;
   plusMinus: number;
+  // ADP join (null when player not in ADP paste)
+  adp?: number | null;
+  adpRank?: number | null;
+  valueVsCri?: number | null;
+  valueVsWCri?: number | null;
 }
 
 interface MatchupStats {
@@ -81,7 +92,7 @@ interface FreeAgentsProps {
 // Known NBA team codes
 const NBA_TEAMS = ['ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'GS', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NO', 'NYK', 'NY', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'SA', 'TOR', 'UTA', 'UTAH', 'WAS', 'WSH'];
 
-type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus';
+type SortKey = 'cri' | 'wCri' | 'customCri' | 'fgPct' | 'ftPct' | 'threepm' | 'rebounds' | 'assists' | 'steals' | 'blocks' | 'turnovers' | 'points' | 'minutes' | 'pr15' | 'rosterPct' | 'plusMinus' | 'adp' | 'valueVsCri' | 'valueVsWCri';
 type ViewMode = 'stats' | 'rankings' | 'advanced';
 
 // Multi-paste import state
@@ -107,6 +118,12 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
   const [healthFilter, setHealthFilter] = useState<string>("all");
   const [statsFilter, setStatsFilter] = useState<"all" | "with-stats" | "missing-stats">("all");
   const [sortKey, setSortKey] = useState<SortKey>("cri");
+  const [adpMap, setAdpMap] = useState<Record<string, AdpEntry[]>>(() => {
+    try { return JSON.parse(localStorage.getItem(ADP_STORAGE_KEY) || "{}"); } catch { return {}; }
+  });
+  const [adpImportedAt, setAdpImportedAt] = useState<number | undefined>(() => getImportTimestamps().adp);
+  const [showAdpImport, setShowAdpImport] = useState(false);
+  const adpCount = Object.keys(adpMap).length;
   const [sortAsc, setSortAsc] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<FreeAgent | null>(null);
   const [compareList, setCompareList] = useState<FreeAgent[]>([]);
@@ -350,7 +367,7 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
           const first = trimmed.substring(0, mid).trim();
           const second = trimmed.substring(mid).trim();
           
-          if (first === second && first.includes(' ') && /^[A-Z]/.test(first)) {
+          if (first.toLowerCase() === second.toLowerCase() && first.includes(' ') && /^[A-Za-z]/.test(first)) {
             return first;
           }
         }
@@ -1203,18 +1220,37 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     criSorted.forEach((p, idx) => criRanks.set(p.id, idx + 1));
     wCriSorted.forEach((p, idx) => wCriRanks.set(p.id, idx + 1));
     
+    // ADP join: name key, team used to disambiguate same-name entries
+    const adpById = new Map<string, number>();
+    playersWithCRI.forEach(p => {
+      const entries = adpMap[normalizePlayerName(p.name)];
+      if (!entries || entries.length === 0) return;
+      const team = normalizeTeamAbbr(p.nbaTeam);
+      const match = entries.length === 1 ? entries[0] : (entries.find(e => e.team && e.team === team) ?? null);
+      if (match) adpById.set(p.id, match.avgPick);
+    });
+    const adpRanks = new Map<string, number>();
+    [...adpById.entries()].sort((a, b) => a[1] - b[1]).forEach(([id], idx) => adpRanks.set(id, idx + 1));
+
     return playersWithCRI.map(p => {
       const bonus = bonusStats.get(p.id) || { pr15: 0, rosterPct: 0, plusMinus: 0 };
+      const criRank = criRanks.get(p.id) || 0;
+      const wCriRank = wCriRanks.get(p.id) || 0;
+      const adpRank = adpRanks.get(p.id) ?? null;
       return {
         ...p,
-        criRank: criRanks.get(p.id) || 0,
-        wCriRank: wCriRanks.get(p.id) || 0,
+        criRank,
+        wCriRank,
         pr15: bonus.pr15,
         rosterPct: bonus.rosterPct,
         plusMinus: bonus.plusMinus,
+        adp: adpById.get(p.id) ?? null,
+        adpRank,
+        valueVsCri: adpRank != null && criRank ? adpRank - criRank : null,
+        valueVsWCri: adpRank != null && wCriRank ? adpRank - wCriRank : null,
       };
     });
-  }, [playersWithCRI, bonusStats]);
+  }, [playersWithCRI, bonusStats, adpMap]);
 
   const filteredPlayers = useMemo(() => {
     let result = playersWithRanks;
@@ -1297,7 +1333,16 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
 
     const activeSortKey = sortKey;
     
+    const nullableKeys: SortKey[] = ['adp', 'valueVsCri', 'valueVsWCri'];
     const sorted = [...result].sort((a, b) => {
+      if (nullableKeys.includes(activeSortKey)) {
+        const av = a[activeSortKey as keyof FreeAgent] as number | null | undefined;
+        const bv = b[activeSortKey as keyof FreeAgent] as number | null | undefined;
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1; // missing ADP always last
+        if (bv == null) return -1;
+        return sortAsc ? av - bv : bv - av;
+      }
       let aVal = (a[activeSortKey as keyof FreeAgent] as number) || 0;
       let bVal = (b[activeSortKey as keyof FreeAgent] as number) || 0;
       
@@ -1335,8 +1380,50 @@ export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRost
     } else {
       setSortKey(key);
       // Default to descending (higher is better), except turnovers
-      setSortAsc(key === 'turnovers');
+      setSortAsc(key === 'turnovers' || key === 'adp');
     }
+  };
+
+  const handleAdpPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html') || null;
+    const text = e.clipboardData.getData('text/plain');
+    const result = parseClipboardData(html, text, 'adp', 0, { requireHeaders: true });
+    const withAdp = result.players.filter(p => p.avgPick != null && !isNaN(p.avgPick));
+    if (withAdp.length === 0) {
+      toast({
+        title: "No ADP found",
+        description: result.errors[0] || "Couldn't find an ADP column. Copy the ESPN table including its header row.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const next: Record<string, AdpEntry[]> = {};
+    withAdp.forEach(p => {
+      const key = normalizePlayerName(p.playerName);
+      (next[key] ||= []).push({ avgPick: p.avgPick as number, team: normalizeTeamAbbr(p.team) });
+    });
+    setAdpMap(next);
+    localStorage.setItem(ADP_STORAGE_KEY, JSON.stringify(next));
+    setImportTimestamp('adp');
+    setAdpImportedAt(Date.now());
+    setShowAdpImport(false);
+    toast({ title: "ADP imported", description: `${withAdp.length} players with ADP loaded.` });
+  };
+
+  const clearAdp = () => {
+    setAdpMap({});
+    localStorage.removeItem(ADP_STORAGE_KEY);
+  };
+
+  const renderValue = (v: number | null | undefined) => {
+    if (v == null) return <span className="text-muted-foreground">—</span>;
+    return (
+      <span className={cn("inline-flex items-center gap-0.5 font-mono", v > 0 && "text-emerald-400", v < 0 && "text-red-400")}>
+        {v > 0 ? <TrendingUp className="w-3 h-3" /> : v < 0 ? <TrendingDown className="w-3 h-3" /> : null}
+        {v > 0 ? '+' : ''}{v}
+      </span>
+    );
   };
 
   // Try to identify user's team from standings by matching roster player names or team name patterns
@@ -1743,6 +1830,37 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           </Button>
         </Card>
       )}
+
+      {/* ADP import */}
+      <Card className="p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm">
+            <span className="font-medium">ADP comparison</span>
+            <span className="text-muted-foreground">
+              {adpCount > 0
+                ? ` · ${adpCount} players · imported ${formatTimestampAge(adpImportedAt)}`
+                : " · paste the ESPN table with an ADP column to compare ADP vs CRI#/wCRI#"}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowAdpImport(v => !v)}>
+              <Upload className="w-4 h-4 mr-1" />{adpCount > 0 ? "Re-import ADP" : "Import ADP"}
+            </Button>
+            {adpCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearAdp}>Clear</Button>
+            )}
+          </div>
+        </div>
+        {showAdpImport && (
+          <Textarea
+            placeholder="Copy the ESPN table (including the header row with ADP) and paste here (Ctrl+V)..."
+            onPaste={handleAdpPaste}
+            value=""
+            onChange={() => {}}
+            className="mt-3 min-h-[90px] font-mono text-sm bg-muted/50"
+          />
+        )}
+      </Card>
 
       {/* Guidance Tips */}
       <div className="space-y-2">
@@ -2443,6 +2561,13 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                     {/* CRI/wCRI Rank columns */}
                     <SortHeader label="CRI#" sortKeyProp="cri" className="border-l-2 border-primary/50" />
                     <SortHeader label="wCRI#" sortKeyProp="wCri" />
+                    {adpCount > 0 && (
+                      <>
+                        <SortHeader label="ADP" sortKeyProp="adp" className="border-l border-muted-foreground/30" />
+                        <SortHeader label="vs CRI" sortKeyProp="valueVsCri" />
+                        <SortHeader label="vs wCRI" sortKeyProp="valueVsWCri" />
+                      </>
+                    )}
                     {/* Bonus insight stats on right */}
                     <SortHeader label="PR15" sortKeyProp="pr15" className="border-l border-muted-foreground/30" />
                     <SortHeader label="%ROST" sortKeyProp="rosterPct" />
@@ -2594,6 +2719,15 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
                       <td className="text-center p-2 font-bold text-orange-400">
                         #{player.wCriRank}
                       </td>
+                      {adpCount > 0 && (
+                        <>
+                          <td className="text-center p-2 font-mono border-l border-muted-foreground/30" title={player.adpRank != null ? `ADP rank #${player.adpRank}` : undefined}>
+                            {player.adp != null ? player.adp.toFixed(1) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="text-center p-2">{renderValue(player.valueVsCri)}</td>
+                          <td className="text-center p-2">{renderValue(player.valueVsWCri)}</td>
+                        </>
+                      )}
                       {/* Bonus insight stats on right */}
                       <td className="text-center p-2 text-muted-foreground border-l border-muted-foreground/30">
                         {player.pr15 !== undefined && player.pr15 !== null ? player.pr15.toFixed(2) : '—'}
