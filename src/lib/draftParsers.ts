@@ -511,16 +511,29 @@ export function normalizeTeamAbbr(team: string | null | undefined): string | nul
  */
 function parseAdpMultiLine(lines: string[]): ParseResult {
   const cells = lines.flatMap(l => l.split('\t')).map(c => c.trim()).filter(Boolean);
-  const starts: number[] = [];
-  for (let i = 0; i < cells.length - 1; i++) {
-    if (/\d/.test(cells[i])) continue;
-    if (extractTeam(cells[i + 1]) && isValidPlayerName(fixDuplicatePlayerName(cells[i]))) starts.push(i);
+  // Only consider cells after the ADP header line so page chrome is ignored
+  const hdr = cells.findIndex(c => c.toLowerCase() === 'adp');
+  const from = hdr >= 0 ? hdr + 1 : 0;
+  // Primary anchor: ESPN's doubled-name cell ("Nikola JokicNikola Jokic") followed by the plain name.
+  let starts: number[] = [];
+  for (let i = from; i < cells.length - 1; i++) {
+    const c = cells[i], n = cells[i + 1];
+    if (n.length >= 3 && c.toLowerCase() === (n + n).toLowerCase()) starts.push(i + 1);
+  }
+  if (starts.length === 0) {
+    for (let i = from; i < cells.length - 1; i++) {
+      if (/\d/.test(cells[i])) continue;
+      const next = [cells[i + 1], cells[i + 2] || ''];
+      if (next.some(x => extractTeam(x)) && isValidPlayerName(fixDuplicatePlayerName(cells[i]))) starts.push(i);
+    }
   }
   const players: ParsedPlayer[] = [];
   const seen = new Set<string>();
   let dupes = 0;
   for (let s = 0; s < starts.length; s++) {
-    const block = cells.slice(starts[s], s + 1 < starts.length ? starts[s + 1] : cells.length);
+    // End each block before the next player's doubled-name cell
+    const end = s + 1 < starts.length ? starts[s + 1] - 1 : cells.length;
+    const block = cells.slice(starts[s], end);
     const nums = block.map(c => c.replace('%', '')).filter(c => /^[+-]?\d+(\.\d+)?$/.test(c)).map(Number);
     if (nums.length < 3) continue;
     const adp = nums[nums.length - 3];
@@ -530,8 +543,11 @@ function parseAdpMultiLine(lines: string[]): ParseResult {
     const key = normalizePlayerName(name);
     if (seen.has(key)) { dupes++; continue; }
     seen.add(key);
-    const team = extractTeam(block[1]);
-    players.push({ rank: players.length + 1, playerName: name, team, positions: extractPositions(block[2] || ''), status: null, avgPick: adp, rostPct: rost });
+    // Team is the first short cell after the name that is a team (skips DTD/O/GTD status)
+    const teamIdx = block.slice(1, 4).findIndex(x => x.length <= 4 && extractTeam(x));
+    const team = teamIdx >= 0 ? extractTeam(block[1 + teamIdx]) : null;
+    const posCell = teamIdx >= 0 ? block[2 + teamIdx] || '' : '';
+    players.push({ rank: players.length + 1, playerName: name, team, positions: extractPositions(posCell), status: null, avgPick: adp, rostPct: rost });
   }
   return {
     players,
