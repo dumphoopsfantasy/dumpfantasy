@@ -85,6 +85,7 @@ interface FreeAgentsProps {
   leagueTeams?: LeagueTeam[];
   matchupData?: MatchupData | null;
   multiPageImportEnabled?: boolean;
+  showAdpImportEnabled?: boolean;
   dynamicWeights?: Record<string, number>;
   isDynamicWeightsActive?: boolean;
   dynamicWeightsMode?: "matchup" | "standings";
@@ -124,7 +125,7 @@ interface ImportProgress {
   paginationDetected: boolean;
 }
 
-export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], currentRosterSlots = [], leagueTeams = [], matchupData, multiPageImportEnabled = false, dynamicWeights, isDynamicWeightsActive = false, dynamicWeightsMode = "matchup" }: FreeAgentsProps) => {
+export const FreeAgents = ({ persistedPlayers = [], onPlayersChange, currentRoster = [], currentRosterSlots = [], leagueTeams = [], matchupData, multiPageImportEnabled = false, showAdpImportEnabled = true, dynamicWeights, isDynamicWeightsActive = false, dynamicWeightsMode = "matchup" }: FreeAgentsProps) => {
   const [visibleColumnGroups, setVisibleColumnGroups] = useState<ColumnGroup[]>(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(COLUMN_VISIBILITY_KEY) || 'null');
@@ -1876,6 +1877,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
       )}
 
       {/* ADP import */}
+      {showAdpImportEnabled && (
       <Card className="p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm">
