@@ -1907,6 +1907,7 @@ Make sure to include the stats section with MIN, FG%, FT%, 3PM, REB, AST, STL, B
           />
         )}
       </Card>
+      )}
 
       {/* Guidance Tips */}
       <div className="space-y-2">

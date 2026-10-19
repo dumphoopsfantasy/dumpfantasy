@@ -32,6 +32,8 @@ interface SettingsProps {
   onShowTradeTabChange: (show: boolean) => void;
   enableMultiPageFreeAgentImport: boolean;
   onEnableMultiPageFreeAgentImportChange: (enabled: boolean) => void;
+  showAdpImport: boolean;
+  onShowAdpImportChange: (show: boolean) => void;
   // Dynamic wCRI settings
   dynamicSettings: DynamicWeightsSettings;
   onDynamicEnabledChange: (enabled: boolean) => void;
