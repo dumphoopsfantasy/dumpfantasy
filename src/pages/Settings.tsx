@@ -54,6 +54,8 @@ export const Settings = ({
   onShowTradeTabChange,
   enableMultiPageFreeAgentImport,
   onEnableMultiPageFreeAgentImportChange,
+  showAdpImport,
+  onShowAdpImportChange,
   dynamicSettings,
   onDynamicEnabledChange,
   onDynamicModeChange,
@@ -214,6 +216,19 @@ export const Settings = ({
               id="fa-multipage-toggle"
               checked={enableMultiPageFreeAgentImport}
               onCheckedChange={onEnableMultiPageFreeAgentImportChange}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="adp-import-toggle">ADP Comparison on Free Agents</Label>
+              <p className="text-xs text-muted-foreground">
+                Show the ADP import box and ADP vs CRI/wCRI value columns
+              </p>
+            </div>
+            <Switch
+              id="adp-import-toggle"
+              checked={showAdpImport}
+              onCheckedChange={onShowAdpImportChange}
             />
           </div>
         </CardContent>
