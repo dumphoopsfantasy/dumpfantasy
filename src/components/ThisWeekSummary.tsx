@@ -13,6 +13,7 @@ import {
   ClipboardList, Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { teamNamesMatch } from "@/lib/nameNormalization";
 import { getImportTimestamps, formatTimestampAge, ImportTimestamps } from "@/lib/importTimestamps";
 import { getMatchupWeekDatesFromSchedule, getRemainingMatchupDatesFromSchedule, getCurrentMatchupWeekFromSchedule, getCurrentWeekMatchupForTeam } from "@/lib/matchupWeekDates";
 import { normalizeNbaTeamCode } from "@/lib/scheduleAwareProjection";
@@ -142,11 +143,11 @@ export function ThisWeekSummary({
   // Resolve actual stats (prefer weekly if available)
   const myTeamWeekly = useMemo(() => {
     if (!weeklyMatchups.length || !matchupData?.myTeam?.name) return null;
-    const myName = matchupData.myTeam.name.toLowerCase();
+    const myName = matchupData.myTeam.name;
     for (const m of weeklyMatchups) {
-      if (m.teamA.name.toLowerCase().includes(myName) || myName.includes(m.teamA.name.toLowerCase()))
+      if (teamNamesMatch(m.teamA.name, myName))
         return { team: m.teamA, opp: m.teamB };
-      if (m.teamB.name.toLowerCase().includes(myName) || myName.includes(m.teamB.name.toLowerCase()))
+      if (teamNamesMatch(m.teamB.name, myName))
         return { team: m.teamB, opp: m.teamA };
     }
     return null;

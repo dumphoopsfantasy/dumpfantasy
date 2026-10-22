@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { getCurrentMatchupWeekFromSchedule, getCurrentWeekMatchupForTeam } from "@/lib/matchupWeekDates";
 import { useNBASchedule } from "@/hooks/useNBASchedule";
+import { teamNamesMatch } from "@/lib/nameNormalization";
 interface MatchupStats {
   fgPct: number;
   ftPct: number;
@@ -148,21 +149,12 @@ export function Gameplan({ roster, freeAgents, leagueTeams, matchupData, weeklyM
   // Find my team in weekly matchups for current matchup record
   const myTeamWeekly = useMemo(() => {
     if (!weeklyMatchups.length || !matchupData?.myTeam?.name) return null;
-    const myName = matchupData.myTeam.name.toLowerCase();
+    const myName = matchupData.myTeam.name;
     for (const matchup of weeklyMatchups) {
-      if (matchup.teamA.name.toLowerCase().includes(myName) || myName.includes(matchup.teamA.name.toLowerCase())) {
+      if (teamNamesMatch(matchup.teamA.name, myName)) {
         return { team: matchup.teamA, opponent: matchup.teamB };
       }
-      if (matchup.teamB.name.toLowerCase().includes(myName) || myName.includes(matchup.teamB.name.toLowerCase())) {
-        return { team: matchup.teamB, opponent: matchup.teamA };
-      }
-    }
-    const myToken = matchupData.myTeam.name.split(' ')[0]?.toLowerCase();
-    for (const matchup of weeklyMatchups) {
-      if (matchup.teamA.token.toLowerCase() === myToken || matchup.teamA.tokenUpper.toLowerCase() === myToken) {
-        return { team: matchup.teamA, opponent: matchup.teamB };
-      }
-      if (matchup.teamB.token.toLowerCase() === myToken || matchup.teamB.tokenUpper.toLowerCase() === myToken) {
+      if (teamNamesMatch(matchup.teamB.name, myName)) {
         return { team: matchup.teamB, opponent: matchup.teamA };
       }
     }
