@@ -69,7 +69,7 @@ const STAT_CATEGORIES = [
 // PARSING LOGIC (completely rewritten)
 // ============================================================================
 
-function parseWeeklyScoreboard(data: string): { matchups: ParsedMatchup[]; weekLabel: string; debugInfo: string[] } {
+export function parseWeeklyScoreboard(data: string): { matchups: ParsedMatchup[]; weekLabel: string; debugInfo: string[] } {
   validateParseInput(data);
   
   const debugInfo: string[] = [];
@@ -153,6 +153,20 @@ function parseWeeklyScoreboard(data: string): { matchups: ParsedMatchup[]; weekL
             lineIdx: i
           });
         }
+      }
+    }
+
+    // Fallback: new ESPN format with no season record line, directly before FG%:
+    // [nameA] / [W-L-T] / [nameB] / [W-L-T]
+    if (teamHeaders.length < 2 && fgIdx >= 4) {
+      const [nA, rA, nB, rB] = lines.slice(fgIdx - 4, fgIdx);
+      const isName = (s: string) => !!s && !currentMatchupPattern.test(s) && !/^\.?\d+(\.\d+)?$/.test(s);
+      if (isName(nA) && currentMatchupPattern.test(rA) && isName(nB) && currentMatchupPattern.test(rB)) {
+        teamHeaders.length = 0;
+        teamHeaders.push(
+          { name: nA, recordStanding: "", currentMatchup: rA, lineIdx: fgIdx - 4 },
+          { name: nB, recordStanding: "", currentMatchup: rB, lineIdx: fgIdx - 2 },
+        );
       }
     }
     
