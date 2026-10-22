@@ -48,3 +48,23 @@ export function fuzzyNameMatch(a: string, b: string): boolean {
   if (na.length < 4 || nb.length < 4) return false;
   return na.includes(nb) || nb.includes(na);
 }
+
+/** Team identity matching is stricter than general schedule fuzzy matching. */
+export function normalizeTeamName(input: string): string {
+  return normalizeName(input.replace(/[.'’‘‛❛❜]/g, ""));
+}
+
+export function isPlaceholderTeamName(name: string): boolean {
+  const normalized = normalizeTeamName(name);
+  return !normalized || /^(team|your team|my team|opponent|opponent team|unknown|unknown team)$/.test(normalized);
+}
+
+export function teamNamesMatch(a: string, b: string): boolean {
+  if (isPlaceholderTeamName(a) || isPlaceholderTeamName(b)) return false;
+  const na = normalizeTeamName(a);
+  const nb = normalizeTeamName(b);
+  if (na === nb) return true;
+  // Permit decorated full names, never a partial word or a single generic token.
+  const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
+  return shorter.split(" ").length >= 2 && ` ${longer} `.includes(` ${shorter} `);
+}
