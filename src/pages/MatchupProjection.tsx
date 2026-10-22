@@ -28,6 +28,8 @@ import { useNBAUpcomingSchedule } from "@/hooks/useNBAUpcomingSchedule";
 import { computeRestOfWeekStarts } from "@/lib/restOfWeekUtils";
 import { getMatchupWeekDates } from "@/lib/scheduleAwareProjection";
 import { getCurrentMatchupWeekFromSchedule } from "@/lib/matchupWeekDates";
+import { isPlaceholderTeamName, normalizeTeamName, teamNamesMatch } from "@/lib/nameNormalization";
+import { extractESPNTeamIdentity, resolveESPNOpponentName } from "@/lib/espnTeamIdentity";
 // Detect stat window from ESPN paste
 const detectStatWindow = (data: string): string | null => {
   // Look for stat window patterns in the Stats section specifically
@@ -350,12 +352,11 @@ export const MatchupProjection = ({
   const myWeeklyData = useMemo(() => {
     if (!persistedMatchup || weeklyMatchups.length === 0) return null;
 
-    const myTeamName = persistedMatchup.myTeam.name.toLowerCase();
+    const myTeamName = persistedMatchup.myTeam.name;
 
     for (const matchup of weeklyMatchups) {
       if (
-        matchup.teamA.name.toLowerCase().includes(myTeamName) ||
-        myTeamName.includes(matchup.teamA.name.toLowerCase())
+        teamNamesMatch(matchup.teamA.name, myTeamName)
       ) {
         return {
           myTeam: matchup.teamA,
@@ -363,8 +364,7 @@ export const MatchupProjection = ({
         };
       }
       if (
-        matchup.teamB.name.toLowerCase().includes(myTeamName) ||
-        myTeamName.includes(matchup.teamB.name.toLowerCase())
+        teamNamesMatch(matchup.teamB.name, myTeamName)
       ) {
         return {
           myTeam: matchup.teamB,
@@ -542,44 +542,6 @@ export const MatchupProjection = ({
     
     onUpdateMatchupContext(projectedMy, projectedOpp, currentMy, currentOpp, daysRemaining);
   }, [persistedMatchup, myWeeklyData, onUpdateMatchupContext]);
-  const extractOpponentFromCurrentMatchup = (data: string, myTeamName: string): string | null => {
-    const lines = data.trim().split("\n").map(l => l.trim()).filter(l => l);
-    
-    // Find "Current Matchup" section
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase() === 'current matchup') {
-        // Look at the next few lines for team names and W-L-T records
-        // Format: "Team Name" followed by "W-L-T" (e.g., "Mr. Bane" then "6-3-0")
-        const matchupTeams: string[] = [];
-        
-        for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-          const line = lines[j];
-          // Skip stat headers and navigation
-          if (/^(FG%|FT%|3PM|REB|AST|STL|BLK|TO|PTS|Last Matchup|Matchup History|Season|Stats|MIN)$/i.test(line)) break;
-          
-          // Check if next line is a W-L-T record - if so, current line is a team name
-          const nextLine = lines[j + 1];
-          if (nextLine && /^\d+-\d+-\d+$/.test(nextLine) && line.length >= 2 && line.length <= 50) {
-            // Skip ESPN navigation-like text
-            if (!/^(Start|Bench|Set|Trade|Waiver|Full|LM Tools)/i.test(line)) {
-              matchupTeams.push(line);
-            }
-          }
-        }
-        
-        // Find the team that is NOT myTeamName (case-insensitive)
-        if (matchupTeams.length >= 2) {
-          const opponent = matchupTeams.find(t => t.toLowerCase() !== myTeamName.toLowerCase());
-          if (opponent) return opponent;
-        } else if (matchupTeams.length === 1 && matchupTeams[0].toLowerCase() !== myTeamName.toLowerCase()) {
-          return matchupTeams[0];
-        }
-        break;
-      }
-    }
-    return null;
-  };
-
   // Parse ESPN full page paste - extract team info and calculate averages from active players
   // Returns ParseResult with player counts for UI feedback
   const parseESPNTeamPage = (data: string): ParseResult | null => {
@@ -594,59 +556,24 @@ export const MatchupProjection = ({
     
     const loopGuard = createLoopGuard();
 
-    // Skip ESPN navigation and irrelevant text like "Team Settings"
-    const skipPatterns =
-      /^(hsb\.|ESPN|NFL|NBA|MLB|NCAAF|NHL|Soccer|WNBA|More Sports|Watch|Fantasy|Where to Watch|Fantasy Basketball Home|My Team|League|Settings|Members|Rosters|Schedule|Message Board|Transaction Counter|History|Draft Recap|Email League|Recent Activity|Players|Add Players|Watch List|Daily Leaders|Live Draft Trends|Added \/ Dropped|Player Rater|Player News|Projections|Waiver Order|Waiver Report|Undroppables|FantasyCast|Scoreboard|Standings|Opposing Teams|ESPN BET|Copyright|ESPN\.com|Member Services|Interest-Based|Privacy|Terms|NBPA|Team Settings|LM Tools)$/i;
-
-    let teamName = "";
+    const identity = extractESPNTeamIdentity(data);
+    let teamName = identity.name;
     let teamAbbr = "";
-    let record = "";
-    let standing = "";
+    const record = identity.record;
+    const standing = identity.standing;
     let owner = "";
     let lastMatchup = "";
 
-    // Find team info block pattern - look for "Team Name" followed by record and standing
-    for (let i = 0; i < lines.length; i++) {
-      loopGuard.check();
-      const line = lines[i];
-      if (skipPatterns.test(line)) continue;
-      
-      // Look for standing pattern like "(5th of 10)" which uniquely identifies the team header block
-      const standingMatch = line.match(/^\((\d+)(st|nd|rd|th)\s+of\s+(\d+)\)$/i);
-      if (standingMatch && i >= 2) {
-        // Standing found - look backwards for record and team name
-        const recordLine = lines[i - 1];
-        let teamLine = lines[i - 2];
-        
-        // Skip "Team Settings" if it's the team line
-        if (skipPatterns.test(teamLine) && i >= 3) {
-          teamLine = lines[i - 3];
-        }
-        
-        const recordMatch = recordLine.match(/^(\d+-\d+-\d+)$/);
-        if (recordMatch && teamLine && !skipPatterns.test(teamLine) && 
-            !teamLine.match(/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN|FG|FT|3PM|REB|AST|STL|BLK|TO|PTS|LM Tools|Get Another Team|Team Settings)/i)) {
-          teamName = teamLine;
-          record = recordMatch[1];
-          standing = `${standingMatch[1]}${standingMatch[2]} of ${standingMatch[3]}`;
-          
-          // Look for owner name after standing - typically "FirstName LastName" pattern
-          // Skip "Team Settings" and similar
-          for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-            const ownerLine = lines[j];
-            // Skip navigation/settings text
-            if (skipPatterns.test(ownerLine)) continue;
-            if (ownerLine.length < 5) continue;
-            if (/^(Waiver|Full|Last|Current|Set|Trade|Matchup|Season|Dec|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Today|Fri|Sat|Sun|Mon|Tue|Wed|Thu)/i.test(ownerLine)) continue;
-            
-            // Match owner pattern: "FirstName LastName" (two capitalized words)
-            const ownerMatch = ownerLine.match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)$/);
-            if (ownerMatch) {
-              owner = ownerMatch[1];
-              break;
-            }
-          }
-          break; // Found the main team info block
+    // Keep owner metadata scoped to the resolved page header, not the banner.
+    const ownerHeaderIndex = lines.findIndex((line, index) =>
+      line === teamName && lines.slice(index + 1, index + 4).some(value =>
+        /^\(?\d+-\d+(?:-\d+)?\)?$/.test(value)));
+    if (ownerHeaderIndex >= 0) {
+      for (const line of lines.slice(ownerHeaderIndex + 2, ownerHeaderIndex + 8)) {
+        if (/^(Current Matchup|Last Matchup|Waiver Order)/i.test(line)) break;
+        if (/^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(line) && line !== "Team Settings") {
+          owner = line;
+          break;
         }
       }
     }
@@ -1198,7 +1125,7 @@ export const MatchupProjection = ({
     }
 
     return {
-      info: { name: teamName || "Team", abbr: teamAbbr, record, standing, owner, lastMatchup },
+      info: { name: teamName, abbr: teamAbbr, record, standing, owner, lastMatchup },
       stats: teamComposite,
       playerCount: allPlayerStats.length,
       emptySlots,
@@ -1282,49 +1209,30 @@ export const MatchupProjection = ({
       devLog(`[handleCompare] My team: ${myParsed.playerCount} players, ${myParsed.emptySlots} empty, ${myParsed.playersWithMissingStats} with missing stats`);
       devLog(`[handleCompare] Opponent: ${oppParsed.playerCount} players, ${oppParsed.emptySlots} empty, ${oppParsed.playersWithMissingStats} with missing stats`);
 
-      const finalOppInfo = { ...oppParsed.info };
-      
-      // Try to extract opponent from "Current Matchup" section of my team's paste
-      const opponentFromCurrentMatchup = extractOpponentFromCurrentMatchup(myTeamData, myParsed.info.name);
-      
-      // If opponent name is same as my team or empty, try to find the correct opponent
-      if (finalOppInfo.name === myParsed.info.name || !finalOppInfo.name || finalOppInfo.name === "Team") {
-        if (opponentFromCurrentMatchup) {
-          finalOppInfo.name = opponentFromCurrentMatchup;
-        } else {
-          // Fallback: Try to find a different team name in opponent data
-          const oppLines = opponentData.trim().split("\n").map(l => l.trim()).filter(l => l);
-          const skipPatterns = /^(Team Settings|LM Tools|hsb\.|ESPN|Settings|Get Another Team)$/i;
-          
-          for (let i = 0; i < oppLines.length; i++) {
-            const line = oppLines[i];
-            // Look for record pattern and get preceding line
-            if (/^\d+-\d+-\d+$/.test(line) && i > 0) {
-              const prevLine = oppLines[i - 1];
-              if (prevLine !== myParsed.info.name && 
-                  !skipPatterns.test(prevLine) &&
-                  prevLine.length >= 2 && 
-                  prevLine.length <= 50 && 
-                  !/^(PG|SG|SF|PF|C|G|F|UTIL|Bench|IR|STARTERS|STATS|MIN)/i.test(prevLine)) {
-                finalOppInfo.name = prevLine;
-                finalOppInfo.record = line;
-                break;
-              }
-            }
-          }
-          
-          // If still same name, set to "—" to indicate parsing failure
-          if (finalOppInfo.name === myParsed.info.name) {
-            finalOppInfo.name = "—";
-          }
-        }
+      const finalOppInfo = {
+        ...oppParsed.info,
+        name: resolveESPNOpponentName(myTeamData, myParsed.info.name, oppParsed.info.name),
+      };
+
+      if (isPlaceholderTeamName(myParsed.info.name)) {
+        toast({
+          title: "Your team name could not be identified",
+          description: "No matchup was saved. Copy your entire ESPN team page, including the team-name header above the roster, and paste it again.",
+          variant: "destructive",
+        });
+        return;
       }
-      
-      // Validate: opponent name must differ from my team name
-      if (finalOppInfo.name.toLowerCase() === myParsed.info.name.toLowerCase()) {
-        finalOppInfo.name = "—";
+
+      if (isPlaceholderTeamName(finalOppInfo.name) ||
+          normalizeTeamName(finalOppInfo.name) === normalizeTeamName(myParsed.info.name)) {
+        toast({
+          title: "Opponent team name could not be identified",
+          description: "No matchup was saved. Copy the opponent's entire ESPN team page, including its team-name header, and paste it again.",
+          variant: "destructive",
+        });
+        return;
       }
-      
+
       // Parse BOTH rosters from the pasted ESPN team pages (canonical inputs for schedule-aware)
       const myRosterParsed = parseEspnRosterSlotsFromTeamPage(myTeamData);
       if (myRosterParsed.length === 0) {
