@@ -18,6 +18,15 @@ describe("team identity matching", () => {
     expect(teamNamesMatch("Jordan's Scary Team", "Mr. Bane")).toBe(false);
   });
 
+  it("selects the user's 7-1-1 side instead of JST's 1-7-1", () => {
+    const sides = [
+      { name: "Jordan's Scary Team", currentMatchup: "1-7-1" },
+      { name: "Mr Bane", currentMatchup: "7-1-1" },
+    ];
+    expect(sides.find(side => teamNamesMatch(side.name, "Mr. Bane"))?.currentMatchup).toBe("7-1-1");
+    expect(sides.find(side => teamNamesMatch(side.name, "Team"))).toBeUndefined();
+  });
+
   it("only contains complete multiword names at word boundaries", () => {
     expect(teamNamesMatch("Mr. Bane", "Mr. Bane (BAN)")).toBe(true);
     expect(teamNamesMatch("Mr. Bane", "Mr. Baneful")).toBe(false);

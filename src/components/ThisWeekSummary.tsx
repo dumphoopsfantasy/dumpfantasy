@@ -506,11 +506,11 @@ export function ThisWeekSummary({
         <Card className="p-4 md:col-span-2 xl:col-span-2">
           {hasMatchup ? (
             <>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
                 <Swords className="w-4 h-4 text-primary" />
                 <span className="font-display font-semibold text-sm">Matchup Outlook</span>
-                <Badge variant="outline" className="text-xs ml-auto">
-                  {isByeWeek ? "BYE" : `vs ${matchupData!.opponent.name.split(" ").slice(0, 2).join(" ")}`}
+                <Badge variant="outline" className="text-xs ml-auto whitespace-normal break-words">
+                  {isByeWeek ? "BYE" : `vs ${matchupData?.opponent.name}`}
                 </Badge>
               </div>
 
@@ -530,6 +530,9 @@ export function ThisWeekSummary({
                         <div className="flex items-center gap-2">
                           <span className={cn("text-xs font-medium", outlookMode === "current" ? "text-foreground" : "text-muted-foreground")}>
                             Current
+                            {outlookMode === "current" && myTeamWeekly && (
+                              <span className="ml-1 tabular-nums">{myTeamWeekly.team.currentMatchup}</span>
+                            )}
                           </span>
                           <Switch
                             checked={outlookMode === "projected"}
