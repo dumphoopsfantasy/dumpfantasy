@@ -69,7 +69,7 @@ const STAT_CATEGORIES = [
 // PARSING LOGIC (completely rewritten)
 // ============================================================================
 
-function parseWeeklyScoreboard(data: string): { matchups: ParsedMatchup[]; weekLabel: string; debugInfo: string[] } {
+export function parseWeeklyScoreboard(data: string): { matchups: ParsedMatchup[]; weekLabel: string; debugInfo: string[] } {
   validateParseInput(data);
   
   const debugInfo: string[] = [];
